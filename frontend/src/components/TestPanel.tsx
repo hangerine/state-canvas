@@ -79,10 +79,30 @@ const TestPanel: React.FC<TestPanelProps> = ({
     return dialogState?.webhookActions && dialogState.webhookActions.length > 0;
   };
 
+  // 현재 상태가 이벤트 핸들러를 가지고 있는지 확인
+  const getEventHandlers = () => {
+    if (!scenario || !currentState) return [];
+    
+    const dialogState = scenario.plan[0]?.dialogState.find(
+      state => state.name === currentState
+    );
+    
+    return dialogState?.eventHandlers || [];
+  };
+
+  // 이벤트 핸들러가 있는 상태인지 확인
+  const isEventState = () => {
+    return getEventHandlers().length > 0;
+  };
+
   // Webhook 상태일 때 도움말 표시
   useEffect(() => {
     if (isWebhookState()) {
       addMessage('info', '🔗 Webhook 상태입니다. 다음 중 하나를 입력해보세요:\n- ACT_01_0212\n- ACT_01_0213\n- ACT_01_0235\n- 기타 (fallback으로 sts_router로 이동)');
+    } else if (isEventState()) {
+      const eventHandlers = getEventHandlers();
+      const eventTypes = eventHandlers.map(handler => handler.event.type).join('\n- ');
+      addMessage('info', `🎯 이벤트 상태입니다. 다음 이벤트들을 트리거할 수 있습니다:\n- ${eventTypes}`);
     }
   }, [currentState]);
 
@@ -110,6 +130,12 @@ const TestPanel: React.FC<TestPanelProps> = ({
   // 자동 전이 확인
   const checkAutoTransition = async () => {
     if (!scenario || !currentState) return;
+
+    // 현재 상태에 이벤트 핸들러가 있으면 자동 전이하지 않음
+    if (isEventState()) {
+      console.log(`🎯 상태 ${currentState}에 이벤트 핸들러가 있습니다. 수동 트리거 대기 중...`);
+      return;
+    }
 
     try {
       // 빈 입력으로 자동 전이 확인
@@ -230,6 +256,16 @@ const TestPanel: React.FC<TestPanelProps> = ({
   const checkAutoTransitionForState = async (state: string) => {
     if (!scenario) return;
 
+    // 해당 상태에 이벤트 핸들러가 있는지 확인
+    const dialogState = scenario.plan[0]?.dialogState.find(
+      s => s.name === state
+    );
+    
+    if (dialogState?.eventHandlers && dialogState.eventHandlers.length > 0) {
+      console.log(`🎯 상태 ${state}에 이벤트 핸들러가 있습니다. 수동 트리거 대기 중...`);
+      return;
+    }
+
     try {
       const response = await axios.post('http://localhost:8000/api/process-input', {
         sessionId,
@@ -266,6 +302,45 @@ const TestPanel: React.FC<TestPanelProps> = ({
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       handleSendMessage();
+    }
+  };
+
+  // 이벤트 트리거 함수
+  const handleEventTrigger = async (eventType: string) => {
+    if (!scenario) return;
+
+    addMessage('user', `이벤트 트리거: ${eventType}`);
+
+    try {
+      // Backend API 호출 (이벤트 타입 포함)
+      const response = await axios.post('http://localhost:8000/api/process-input', {
+        sessionId,
+        input: '', // 빈 입력
+        currentState,
+        scenario: scenario,
+        eventType: eventType // 이벤트 타입 추가
+      });
+
+      // 응답 처리
+      if (response.data.transitions) {
+        response.data.transitions.forEach((transition: any) => {
+          addMessage('transition', 
+            `${transition.fromState} → ${transition.toState} (${transition.reason})`
+          );
+        });
+      }
+
+      if (response.data.new_state) {
+        onStateChange(response.data.new_state);
+      }
+
+      if (response.data.response) {
+        addMessage('system', response.data.response);
+      }
+
+    } catch (error) {
+      addMessage('system', '❌ Backend 연결 오류: ' + (error as Error).message);
+      console.error('Event Trigger API Error:', error);
     }
   };
 
@@ -317,6 +392,13 @@ const TestPanel: React.FC<TestPanelProps> = ({
             <Chip
               label="Webhook 대기중"
               color="warning"
+              size="small"
+            />
+          )}
+          {isEventState() && (
+            <Chip
+              label="이벤트 대기중"
+              color="info"
               size="small"
             />
           )}
@@ -372,6 +454,36 @@ const TestPanel: React.FC<TestPanelProps> = ({
                     sx={{ fontSize: '0.75rem' }}
                   >
                     {value}
+                  </Button>
+                ))}
+              </Box>
+              <Divider />
+            </Box>
+          )}
+
+          {/* 이벤트 상태일 때 빠른 이벤트 트리거 버튼들 */}
+          {isEventState() && (
+            <Box sx={{ 
+              mb: 1, 
+              height: 'auto',
+              minHeight: '70px',
+              maxHeight: '100px',
+              flexShrink: 0
+            }}>
+              <Typography variant="caption" sx={{ mb: 1, display: 'block' }}>
+                이벤트 트리거:
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
+                {getEventHandlers().map((handler, index) => (
+                  <Button
+                    key={index}
+                    size="small"
+                    variant="contained"
+                    color="info"
+                    onClick={() => handleEventTrigger(handler.event.type)}
+                    sx={{ fontSize: '0.75rem' }}
+                  >
+                    {handler.event.type}
                   </Button>
                 ))}
               </Box>

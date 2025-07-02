@@ -4,7 +4,14 @@ import { CssBaseline, Box } from '@mui/material';
 import Sidebar from './components/Sidebar';
 import FlowCanvas from './components/FlowCanvas';
 import TestPanel from './components/TestPanel';
+import ScenarioSaveModal from './components/ScenarioSaveModal';
 import { Scenario, FlowNode, FlowEdge } from './types/scenario';
+import { 
+  convertNodesToScenario, 
+  compareScenarios, 
+  downloadScenarioAsJSON,
+  ScenarioChanges 
+} from './utils/scenarioUtils';
 
 const theme = createTheme({
   palette: {
@@ -14,6 +21,7 @@ const theme = createTheme({
 
 function App() {
   const [scenario, setScenario] = useState<Scenario | null>(null);
+  const [originalScenario, setOriginalScenario] = useState<Scenario | null>(null); // 원본 시나리오 보관
   const [nodes, setNodes] = useState<FlowNode[]>([]);
   const [edges, setEdges] = useState<FlowEdge[]>([]);
   const [selectedNode, setSelectedNode] = useState<FlowNode | null>(null);
@@ -23,12 +31,20 @@ function App() {
   const [isResizing, setIsResizing] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(350);
   const [isSidebarResizing, setIsSidebarResizing] = useState(false);
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [scenarioChanges, setScenarioChanges] = useState<ScenarioChanges>({
+    added: [],
+    modified: [],
+    removed: []
+  });
+  const [newScenario, setNewScenario] = useState<Scenario | null>(null);
   
   const resizeRef = useRef<HTMLDivElement>(null);
   const sidebarResizeRef = useRef<HTMLDivElement>(null);
 
   const handleScenarioLoad = useCallback((loadedScenario: Scenario) => {
     setScenario(loadedScenario);
+    setOriginalScenario(JSON.parse(JSON.stringify(loadedScenario))); // 깊은 복사로 원본 보관
     // JSON을 Flow 노드와 엣지로 변환
     convertScenarioToFlow(loadedScenario);
     
@@ -127,24 +143,20 @@ function App() {
     setIsTestMode(newTestMode);
     
     if (newTestMode && scenario) {
-      // 테스트 모드 시작 시 자동으로 USER_DIALOG_START 이벤트 발생
-      console.log('🚀 테스트 모드 시작 - USER_DIALOG_START 이벤트 발생');
+      console.log('🚀 테스트 모드 시작 - 자동 전이 확인');
       
       // Start 상태에서 자동 전이 확인
       const startState = scenario.plan[0]?.dialogState.find(state => state.name === 'Start');
       if (startState) {
-        // Event handler 확인
-        const dialogStartHandler = startState.eventHandlers?.find(
-          handler => handler.event.type === 'USER_DIALOG_START'
-        );
+        // Event handler가 있는지 확인
+        const hasEventHandlers = startState.eventHandlers && startState.eventHandlers.length > 0;
         
-        if (dialogStartHandler) {
-          const targetState = dialogStartHandler.transitionTarget.dialogState;
-          console.log(`🎯 자동 전이: Start → ${targetState}`);
-          setCurrentState(targetState);
+        if (hasEventHandlers) {
+          console.log('🎯 Start 상태에 이벤트 핸들러가 있습니다. 사용자가 수동으로 트리거해야 합니다.');
+          return; // 자동 전이하지 않고 사용자 이벤트 대기
         }
         
-        // Condition handler도 확인 (True 조건)
+        // Event handler가 없으면 기존 로직 실행 (조건 핸들러 확인)
         const trueConditionHandler = startState.conditionHandlers?.find(
           handler => handler.conditionStatement === 'True'
         );
@@ -206,6 +218,55 @@ function App() {
     document.addEventListener('mouseup', handleMouseUp);
   }, [sidebarWidth]);
 
+  // 노드 변경 시 시나리오 업데이트
+  const handleNodesChange = useCallback((newNodes: FlowNode[]) => {
+    setNodes(newNodes);
+    
+    // 시나리오가 있으면 업데이트
+    if (scenario) {
+      const updatedScenario = { ...scenario };
+      if (updatedScenario.plan && updatedScenario.plan.length > 0) {
+        // 새로운 dialogState 배열 생성
+        const newDialogStates = newNodes.map(node => node.data.dialogState);
+        updatedScenario.plan[0].dialogState = newDialogStates;
+        setScenario(updatedScenario);
+        console.log('🔄 시나리오 업데이트됨:', updatedScenario);
+      }
+    }
+  }, [scenario]);
+
+  // 연결 변경 시 처리 (현재는 UI에서만 관리, 향후 확장 가능)
+  const handleEdgesChange = useCallback((newEdges: FlowEdge[]) => {
+    setEdges(newEdges);
+    console.log('🔗 연결 변경됨:', newEdges);
+  }, []);
+
+  // 시나리오 저장 처리
+  const handleScenarioSave = useCallback(() => {
+    if (!originalScenario && nodes.length === 0) {
+      alert('저장할 시나리오가 없습니다.');
+      return;
+    }
+
+    // 현재 노드들을 시나리오로 변환
+    const convertedScenario = convertNodesToScenario(nodes, originalScenario);
+    
+    // 변경사항 비교
+    const changes = compareScenarios(nodes, originalScenario);
+    
+    setNewScenario(convertedScenario);
+    setScenarioChanges(changes);
+    setSaveModalOpen(true);
+  }, [nodes, originalScenario]);
+
+  // 모달에서 최종 저장 처리
+  const handleSaveConfirm = useCallback((filename: string) => {
+    if (newScenario) {
+      downloadScenarioAsJSON(newScenario, filename);
+      console.log('📁 시나리오 저장 완료:', filename);
+    }
+  }, [newScenario]);
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -224,6 +285,7 @@ function App() {
             scenario={scenario}
             selectedNode={selectedNode}
             onScenarioLoad={handleScenarioLoad}
+            onScenarioSave={handleScenarioSave}
             onNodeUpdate={(updatedNode) => {
               setNodes(nodes => 
                 nodes.map(node => node.id === updatedNode.id ? updatedNode : node)
@@ -281,8 +343,8 @@ function App() {
               edges={edges}
               onNodeSelect={handleNodeSelect}
               currentState={currentState}
-              onNodesChange={setNodes}
-              onEdgesChange={setEdges}
+              onNodesChange={handleNodesChange}
+              onEdgesChange={handleEdgesChange}
             />
           </Box>
 
@@ -394,6 +456,23 @@ function App() {
             현재 상태: {currentState}
           </Box>
         )}
+
+        {/* 시나리오 저장 확인 모달 */}
+        <ScenarioSaveModal
+          open={saveModalOpen}
+          onClose={() => setSaveModalOpen(false)}
+          onSave={handleSaveConfirm}
+          changes={scenarioChanges}
+          newScenario={newScenario || scenario || {
+            plan: [{ name: "MainPlan", dialogState: [] }],
+            botConfig: { botType: "CONVERSATIONAL" },
+            intentMapping: [],
+            multiIntentMapping: [],
+            handlerGroups: [],
+            webhooks: [],
+            dialogResult: "END_SESSION"
+          }}
+        />
       </Box>
     </ThemeProvider>
   );

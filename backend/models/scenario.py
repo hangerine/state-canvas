@@ -75,6 +75,7 @@ class ProcessInputRequest(BaseModel):
     input: str
     currentState: str
     scenario: Dict[str, Any]
+    eventType: Optional[str] = None  # 이벤트 수동 트리거용
 
 class StateTransition(BaseModel):
     fromState: str

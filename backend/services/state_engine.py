@@ -47,23 +47,13 @@ class StateEngine:
             logger.info(f"State {current_state} has webhook actions - NO auto transitions, waiting for user input")
             return auto_transitions
         
-        # 1. Event Handler 확인 (USER_DIALOG_START 등)
+        # Event Handler가 있는 상태에서는 모든 자동 전이하지 않음 (사용자 이벤트 트리거 대기)
         event_handlers = current_dialog_state.get("eventHandlers", [])
-        for handler in event_handlers:
-            event_type = handler.get("event", {}).get("type", "")
-            if event_type == "USER_DIALOG_START":
-                target = handler.get("transitionTarget", {})
-                transition = StateTransition(
-                    fromState=current_state,
-                    toState=target.get("dialogState", ""),
-                    reason=f"자동 이벤트: {event_type}",
-                    conditionMet=True,
-                    handlerType="event"
-                )
-                auto_transitions.append(transition)
-                logger.info(f"Auto transition found: {current_state} -> {transition.toState}")
+        if event_handlers:
+            logger.info(f"State {current_state} has event handlers - NO auto transitions, waiting for manual event trigger")
+            return auto_transitions
         
-        # 2. True 조건 확인 (webhook이 없는 경우에만)
+        # 2. True 조건 확인 (webhook이나 event handler가 없는 경우에만)
         condition_handlers = current_dialog_state.get("conditionHandlers", [])
         for handler in condition_handlers:
             condition = handler.get("conditionStatement", "")
@@ -87,7 +77,8 @@ class StateEngine:
         user_input: str, 
         current_state: str, 
         scenario: Dict[str, Any],
-        memory: Dict[str, Any]
+        memory: Dict[str, Any],
+        event_type: Optional[str] = None
     ) -> Dict[str, Any]:
         """사용자 입력을 처리하고 State 전이를 수행합니다."""
         
@@ -101,6 +92,12 @@ class StateEngine:
                     "response": "❌ 알 수 없는 상태입니다.",
                     "transitions": []
                 }
+            
+            # 이벤트 타입이 지정된 경우 이벤트 처리
+            if event_type:
+                return await self._handle_event_trigger(
+                    event_type, current_state, current_dialog_state, scenario, memory
+                )
             
             # Webhook이 있는 상태인지 확인
             webhook_actions = current_dialog_state.get("webhookActions", [])
@@ -496,4 +493,61 @@ class StateEngine:
             if required and not slot_filled:
                 messages.append(f"📝 '{slot_name}' 정보가 필요합니다.")
         
-        return "; ".join(messages) if messages else None 
+        return "; ".join(messages) if messages else None
+
+    async def _handle_event_trigger(
+        self,
+        event_type: str,
+        current_state: str,
+        current_dialog_state: Dict[str, Any],
+        scenario: Dict[str, Any],
+        memory: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """이벤트를 수동으로 트리거하여 처리합니다."""
+        
+        logger.info(f"Manual event trigger: {event_type} in state {current_state}")
+        
+        transitions = []
+        new_state = current_state
+        response_messages = [f"🎯 이벤트 '{event_type}' 트리거됨"]
+        
+        # Event Handler 확인
+        event_handlers = current_dialog_state.get("eventHandlers", [])
+        event_matched = False
+        
+        for handler in event_handlers:
+            handler_event_type = handler.get("event", {}).get("type", "")
+            
+            if handler_event_type == event_type:
+                target = handler.get("transitionTarget", {})
+                new_state = target.get("dialogState", current_state)
+                
+                transition = StateTransition(
+                    fromState=current_state,
+                    toState=new_state,
+                    reason=f"이벤트 트리거: {event_type}",
+                    conditionMet=True,
+                    handlerType="event"
+                )
+                transitions.append(transition)
+                response_messages.append(f"✅ 이벤트 '{event_type}' 처리됨 → {new_state}")
+                event_matched = True
+                break
+        
+        if not event_matched:
+            response_messages.append(f"❌ 이벤트 '{event_type}'에 대한 핸들러가 없습니다.")
+        
+        # Entry Action 실행 (새로운 상태로 전이된 경우)
+        if new_state != current_state:
+            entry_response = self._execute_entry_action(scenario, new_state)
+            if entry_response:
+                response_messages.append(entry_response)
+        
+        return {
+            "new_state": new_state,
+            "response": "\n".join(response_messages),
+            "transitions": [t.dict() for t in transitions],
+            "intent": "EVENT_TRIGGER",
+            "entities": {},
+            "memory": memory
+        } 

@@ -6,18 +6,27 @@ import { DialogState } from '../types/scenario';
 interface CustomNodeData {
   label: string;
   dialogState: DialogState;
+  onEdit?: (nodeId: string) => void;
 }
 
-const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected }) => {
-  const { dialogState } = data;
+const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id }) => {
+  const { dialogState, onEdit } = data;
   
   // 핸들러 개수 계산
   const conditionCount = dialogState.conditionHandlers?.length || 0;
   const intentCount = dialogState.intentHandlers?.length || 0;
   const eventCount = dialogState.eventHandlers?.length || 0;
 
+  // 더블클릭 핸들러
+  const handleDoubleClick = () => {
+    if (onEdit) {
+      onEdit(id);
+    }
+  };
+
   return (
     <Box
+      onDoubleClick={handleDoubleClick}
       sx={{
         padding: 2,
         border: selected ? '2px solid #1976d2' : '1px solid #ccc',
@@ -25,6 +34,7 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected }) => 
         backgroundColor: 'white',
         minWidth: 180,
         boxShadow: selected ? 3 : 1,
+        cursor: 'pointer',
         '&:hover': {
           boxShadow: 2,
         },

@@ -18,6 +18,7 @@ interface SidebarProps {
   scenario: Scenario | null;
   selectedNode: FlowNode | null;
   onScenarioLoad: (scenario: Scenario) => void;
+  onScenarioSave: () => void;
   onNodeUpdate: (node: FlowNode) => void;
 }
 
@@ -25,6 +26,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   scenario,
   selectedNode,
   onScenarioLoad,
+  onScenarioSave,
   onNodeUpdate
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -132,7 +134,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           style={{ display: 'none' }}
         />
         
-        <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+        <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
           <Button 
             variant="contained" 
             onClick={() => fileInputRef.current?.click()}
@@ -146,7 +148,17 @@ const Sidebar: React.FC<SidebarProps> = ({
             disabled={!scenario}
             size="small"
           >
-            다운로드
+            원본 다운로드
+          </Button>
+          <Button 
+            variant="contained" 
+            color="success"
+            onClick={onScenarioSave}
+            disabled={!scenario}
+            size="small"
+            sx={{ width: '100%', mt: 1 }}
+          >
+            📁 편집된 시나리오 저장
           </Button>
         </Box>
 

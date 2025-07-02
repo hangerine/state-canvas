@@ -179,7 +179,8 @@ async def process_input(request: ProcessInputRequest):
             user_input=user_input,
             current_state=active_sessions[session_id]["current_state"],
             scenario=scenario,
-            memory=active_sessions[session_id]["memory"]
+            memory=active_sessions[session_id]["memory"],
+            event_type=request.eventType
         )
         
         # 세션 상태 업데이트
