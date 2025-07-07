@@ -24,6 +24,24 @@ class IntentHandler(BaseModel):
     action: Action
     transitionTarget: TransitionTarget
 
+class ApiCallFormats(BaseModel):
+    method: str
+    requestTemplate: Optional[str] = None
+    responseSchema: Optional[Dict[str, Any]] = None
+    responseMappings: Optional[Dict[str, str]] = None
+
+class ApiCall(BaseModel):
+    url: str
+    timeout: int
+    retry: int
+    formats: ApiCallFormats
+
+class ApiCallHandler(BaseModel):
+    name: str
+    apicall: ApiCall
+    action: Optional[Action] = None
+    transitionTarget: TransitionTarget
+
 class SlotFillingForm(BaseModel):
     name: str
     required: str
@@ -37,6 +55,7 @@ class DialogState(BaseModel):
     eventHandlers: Optional[List[EventHandler]] = None
     intentHandlers: Optional[List[IntentHandler]] = None
     webhookActions: Optional[List[Dict[str, str]]] = None
+    apicallHandlers: Optional[List[ApiCallHandler]] = None
     slotFillingForm: Optional[List[SlotFillingForm]] = None
 
 class Plan(BaseModel):

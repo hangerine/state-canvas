@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -9,16 +9,21 @@ import {
   AccordionSummary,
   AccordionDetails,
   Alert,
-  Chip
+  Chip,
+  Badge
 } from '@mui/material';
 import { ExpandMore as ExpandMoreIcon } from '@mui/icons-material';
 import { Scenario, FlowNode } from '../types/scenario';
+import { compareScenarios } from '../utils/scenarioUtils';
 
 interface SidebarProps {
   scenario: Scenario | null;
   selectedNode: FlowNode | null;
   onScenarioLoad: (scenario: Scenario) => void;
   onScenarioSave: () => void;
+  onApplyChanges: () => void;
+  nodes: FlowNode[];
+  originalScenario: Scenario | null;
   onNodeUpdate: (node: FlowNode) => void;
 }
 
@@ -27,11 +32,67 @@ const Sidebar: React.FC<SidebarProps> = ({
   selectedNode,
   onScenarioLoad,
   onScenarioSave,
+  onApplyChanges,
+  nodes,
+  originalScenario,
   onNodeUpdate
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [validationError, setValidationError] = useState<string>('');
   const [editedNodeName, setEditedNodeName] = useState('');
+  const [hasChanges, setHasChanges] = useState(false);
+  const [changeCount, setChangeCount] = useState(0);
+  const [changeSummary, setChangeSummary] = useState<{
+    added: string[];
+    modified: string[];
+    removed: string[];
+  }>({ added: [], modified: [], removed: [] });
+
+  // 변경사항 감지 (노드가 변경될 때마다 체크)
+  useEffect(() => {
+    if (originalScenario && nodes.length > 0) {
+      try {
+        // 변경사항 계산
+        const changes = compareScenarios(nodes, originalScenario);
+        const totalChanges = changes.added.length + changes.modified.length + changes.removed.length;
+        
+        setHasChanges(totalChanges > 0);
+        setChangeCount(totalChanges);
+        setChangeSummary({
+          added: changes.added.map(state => state.name),
+          modified: changes.modified.map(state => state.name),
+          removed: changes.removed.map(state => state.name)
+        });
+      } catch (error) {
+        console.warn('변경사항 감지 오류:', error);
+        setHasChanges(false);
+        setChangeCount(0);
+        setChangeSummary({ added: [], modified: [], removed: [] });
+      }
+    } else {
+      setHasChanges(false);
+      setChangeCount(0);
+      setChangeSummary({ added: [], modified: [], removed: [] });
+    }
+  }, [nodes, originalScenario]);
+
+  // 시나리오 로드 시 초기화
+  useEffect(() => {
+    setHasChanges(false);
+    setChangeCount(0);
+    setChangeSummary({ added: [], modified: [], removed: [] });
+  }, [scenario]);
+
+  // 이벤트 타입을 안전하게 가져오는 헬퍼 함수
+  const getEventType = (event: any): string => {
+    if (!event) return 'Unknown';
+    if (typeof event === 'object' && event.type) {
+      return event.type;
+    } else if (typeof event === 'string') {
+      return event;
+    }
+    return 'Unknown';
+  };
 
   // JSON 파일 업로드 처리
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -150,17 +211,92 @@ const Sidebar: React.FC<SidebarProps> = ({
           >
             원본 다운로드
           </Button>
+          <Badge 
+            badgeContent={hasChanges ? changeCount : 0} 
+            color="warning"
+            sx={{ width: '100%', mt: 1 }}
+          >
+            <Button 
+              variant="contained" 
+              color={hasChanges ? "warning" : "primary"}
+              onClick={onApplyChanges}
+              disabled={!scenario}
+              size="small"
+              sx={{ 
+                width: '100%',
+                backgroundColor: hasChanges ? '#ff9800' : undefined,
+                '&:hover': {
+                  backgroundColor: hasChanges ? '#f57c00' : undefined,
+                }
+              }}
+            >
+              {hasChanges ? '🔄 변경사항 즉시 반영' : '🚀 변경사항 즉시 반영'}
+            </Button>
+          </Badge>
           <Button 
             variant="contained" 
             color="success"
             onClick={onScenarioSave}
             disabled={!scenario}
             size="small"
-            sx={{ width: '100%', mt: 1 }}
+            sx={{ width: '100%', mt: 0.5 }}
           >
             📁 편집된 시나리오 저장
           </Button>
         </Box>
+
+        {hasChanges && (
+          <Alert severity="info" sx={{ mt: 1, mb: 1 }}>
+            {changeCount}개의 변경사항이 있습니다. 위 버튼을 클릭하여 즉시 반영하세요.
+          </Alert>
+        )}
+
+        {hasChanges && (
+          <Paper sx={{ p: 2, mb: 2, bgcolor: '#f8f9fa' }}>
+            <Typography variant="subtitle2" gutterBottom>
+              📋 변경사항 요약
+            </Typography>
+            
+            {changeSummary.added.length > 0 && (
+              <Box sx={{ mb: 1 }}>
+                <Typography variant="caption" color="success.main" sx={{ fontWeight: 'bold' }}>
+                  ✅ 추가된 상태 ({changeSummary.added.length}개):
+                </Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+                  {changeSummary.added.map(stateName => (
+                    <Chip key={stateName} label={stateName} size="small" color="success" variant="outlined" />
+                  ))}
+                </Box>
+              </Box>
+            )}
+            
+            {changeSummary.modified.length > 0 && (
+              <Box sx={{ mb: 1 }}>
+                <Typography variant="caption" color="warning.main" sx={{ fontWeight: 'bold' }}>
+                  🔄 수정된 상태 ({changeSummary.modified.length}개):
+                </Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+                  {changeSummary.modified.map(stateName => (
+                    <Chip key={stateName} label={stateName} size="small" color="warning" variant="outlined" />
+                  ))}
+                </Box>
+              </Box>
+            )}
+            
+            {changeSummary.removed.length > 0 && (
+              <Box sx={{ mb: 1 }}>
+                <Typography variant="caption" color="error.main" sx={{ fontWeight: 'bold' }}>
+                  ❌ 삭제된 상태 ({changeSummary.removed.length}개):
+                </Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+                  {changeSummary.removed.map(stateName => (
+                    <Chip key={stateName} label={stateName} size="small" color="error" variant="outlined" />
+                  ))}
+                </Box>
+              </Box>
+            )}
+          </Paper>
+        )}
 
         {validationError && (
           <Alert severity="error" sx={{ mt: 1 }}>
@@ -261,7 +397,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               {selectedNode.data.dialogState.eventHandlers?.map((handler, idx) => (
                 <Box key={idx} sx={{ mb: 1 }}>
                   <Chip 
-                    label={handler.event.type} 
+                    label={getEventType(handler.event)} 
                     size="small" 
                     color="secondary" 
                     variant="outlined"

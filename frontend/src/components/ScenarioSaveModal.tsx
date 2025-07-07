@@ -15,7 +15,7 @@ import {
   Divider,
   TextField,
 } from '@mui/material';
-import { Scenario, DialogState } from '../types/scenario';
+import { Scenario } from '../types/scenario';
 import { ScenarioChanges } from '../utils/scenarioUtils';
 
 interface ScenarioSaveModalProps {

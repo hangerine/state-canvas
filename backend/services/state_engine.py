@@ -1,7 +1,10 @@
 import logging
 import re
 import json
+import aiohttp
+import asyncio
 from typing import Dict, Any, List, Optional, Tuple
+from jsonpath_ng import parse
 from models.scenario import StateTransition
 
 logger = logging.getLogger(__name__)
@@ -27,7 +30,16 @@ class StateEngine:
         if scenario.get("plan") and len(scenario["plan"]) > 0:
             dialog_states = scenario["plan"][0].get("dialogState", [])
             if dialog_states:
-                return dialog_states[0].get("name", "")
+                # Start가 있으면 선택
+                for state in dialog_states:
+                    if state.get("name") == "Start":
+                        logger.info("🎯 Start를 초기 상태로 설정")
+                        return "Start"
+                
+                # Start가 없으면 첫 번째 상태 선택
+                first_state = dialog_states[0].get("name", "")
+                logger.info(f"🎯 첫 번째 상태를 초기 상태로 설정: {first_state}")
+                return first_state
         return ""
     
     def check_auto_transitions(self, scenario: Dict[str, Any], current_state: str, memory: Optional[Dict[str, Any]] = None) -> List[StateTransition]:
@@ -53,9 +65,20 @@ class StateEngine:
             logger.info(f"State {current_state} has event handlers - NO auto transitions, waiting for manual event trigger")
             return auto_transitions
         
-        # 2. True 조건 확인 (webhook이나 event handler가 없는 경우에만)
+        # ApiCall Handler가 있는 상태에서는 자동 전이하지 않음 (API 호출 대기)
+        apicall_handlers = current_dialog_state.get("apicallHandlers", [])
+        if apicall_handlers:
+            logger.info(f"State {current_state} has apicall handlers - NO auto transitions, waiting for API execution")
+            return auto_transitions
+        
+        # 2. True 조건 확인 (webhook이나 event handler, apicall handler가 없는 경우에만)
         condition_handlers = current_dialog_state.get("conditionHandlers", [])
         for handler in condition_handlers:
+            # handler가 딕셔너리인지 확인
+            if not isinstance(handler, dict):
+                logger.warning(f"Handler is not a dict: {handler}")
+                continue
+                
             condition = handler.get("conditionStatement", "")
             if condition.strip() == "True" or condition.strip() == '"True"':
                 target = handler.get("transitionTarget", {})
@@ -116,6 +139,13 @@ class StateEngine:
                         "memory": memory
                     }
                 else:
+                    # ApiCall Handler 확인
+                    apicall_result = await self._handle_apicall_handlers(
+                        current_state, current_dialog_state, scenario, memory
+                    )
+                    if apicall_result:
+                        return apicall_result
+                    
                     auto_transitions = self.check_auto_transitions(scenario, current_state, memory)
                     if auto_transitions:
                         first_transition = auto_transitions[0]
@@ -178,6 +208,11 @@ class StateEngine:
         
         # 먼저 True가 아닌 조건들을 확인
         for handler in condition_handlers:
+            # handler가 딕셔너리인지 확인
+            if not isinstance(handler, dict):
+                logger.warning(f"Handler is not a dict: {handler}")
+                continue
+                
             condition = handler.get("conditionStatement", "")
             
             # True 조건은 맨 마지막에 체크 (fallback)
@@ -204,6 +239,11 @@ class StateEngine:
         # 조건에 매칭되지 않으면 fallback (True 조건) 실행
         if not matched_condition:
             for handler in condition_handlers:
+                # handler가 딕셔너리인지 확인
+                if not isinstance(handler, dict):
+                    logger.warning(f"Handler is not a dict: {handler}")
+                    continue
+                    
                 condition = handler.get("conditionStatement", "")
                 if condition.strip() == "True" or condition.strip() == '"True"':
                     target = handler.get("transitionTarget", {})
@@ -222,14 +262,35 @@ class StateEngine:
         
         # Entry Action 실행 (새로운 상태로 전이된 경우)
         if new_state != current_state:
-            entry_response = self._execute_entry_action(scenario, new_state)
-            if entry_response:
-                response_messages.append(entry_response)
+            try:
+                logger.info(f"Executing entry action for transition: {current_state} -> {new_state}")
+                entry_response = self._execute_entry_action(scenario, new_state)
+                logger.info(f"Entry action completed: {entry_response}")
+                if entry_response:
+                    response_messages.append(entry_response)
+            except Exception as e:
+                logger.error(f"Error executing entry action: {e}")
+                response_messages.append(f"⚠️ Entry action 실행 중 에러: {str(e)}")
+        
+        # transitions 리스트 처리
+        try:
+            transition_dicts = []
+            for t in transitions:
+                if hasattr(t, 'dict'):
+                    transition_dicts.append(t.dict())
+                elif hasattr(t, 'model_dump'):
+                    transition_dicts.append(t.model_dump())
+                else:
+                    logger.warning(f"Transition object has no dict method: {t}")
+                    transition_dicts.append(str(t))
+        except Exception as e:
+            logger.error(f"Error processing transitions in _handle_webhook_simulation: {e}")
+            transition_dicts = []
         
         return {
             "new_state": new_state,
             "response": "\n".join(response_messages),
-            "transitions": [t.dict() for t in transitions],
+            "transitions": transition_dicts,
             "intent": "WEBHOOK_SIMULATION",
             "entities": {},
             "memory": memory
@@ -292,10 +353,25 @@ class StateEngine:
         if not response_messages:
             response_messages.append(f"💬 '{user_input}' 입력이 처리되었습니다.")
         
+        # transitions 리스트 처리
+        try:
+            transition_dicts = []
+            for t in transitions:
+                if hasattr(t, 'dict'):
+                    transition_dicts.append(t.dict())
+                elif hasattr(t, 'model_dump'):
+                    transition_dicts.append(t.model_dump())
+                else:
+                    logger.warning(f"Transition object has no dict method: {t}")
+                    transition_dicts.append(str(t))
+        except Exception as e:
+            logger.error(f"Error processing transitions in _handle_normal_input: {e}")
+            transition_dicts = []
+        
         return {
             "new_state": new_state,
             "response": "\n".join(response_messages),
-            "transitions": [t.dict() for t in transitions],
+            "transitions": transition_dicts,
             "intent": intent,
             "entities": entities,
             "memory": memory
@@ -346,6 +422,11 @@ class StateEngine:
         intent_handlers = dialog_state.get("intentHandlers", [])
         
         for handler in intent_handlers:
+            # handler가 딕셔너리인지 확인
+            if not isinstance(handler, dict):
+                logger.warning(f"Handler is not a dict: {handler}")
+                continue
+                
             handler_intent = handler.get("intent")
             
             # 정확한 인텐트 매칭 또는 __ANY_INTENT__
@@ -372,6 +453,11 @@ class StateEngine:
         condition_handlers = dialog_state.get("conditionHandlers", [])
         
         for handler in condition_handlers:
+            # handler가 딕셔너리인지 확인
+            if not isinstance(handler, dict):
+                logger.warning(f"Handler is not a dict: {handler}")
+                continue
+                
             condition = handler.get("conditionStatement", "")
             
             # 조건 평가
@@ -427,29 +513,82 @@ class StateEngine:
     
     def _execute_entry_action(self, scenario: Dict[str, Any], state_name: str) -> Optional[str]:
         """새로운 상태의 Entry Action을 실행합니다."""
+        logger.info(f"Executing entry action for state: {state_name}")
+        
         dialog_state = self._find_dialog_state(scenario, state_name)
         if not dialog_state:
+            logger.info(f"Dialog state not found: {state_name}")
             return None
+        
+        logger.info(f"Found dialog state: {dialog_state}")
         
         entry_action = dialog_state.get("entryAction")
         if not entry_action:
+            logger.info(f"No entry action for state: {state_name}")
+            return None
+        
+        logger.info(f"Entry action: {entry_action}, type: {type(entry_action)}")
+        
+        # entry_action이 딕셔너리인지 확인
+        if not isinstance(entry_action, dict):
+            logger.warning(f"Entry action is not a dict: {entry_action}")
             return None
         
         # Directive 처리 (메시지 추출)
         directives = entry_action.get("directives", [])
+        logger.info(f"Directives: {directives}")
         messages = []
         
         for directive in directives:
+            logger.info(f"Processing directive: {directive}, type: {type(directive)}")
+            
+            if not isinstance(directive, dict):
+                logger.warning(f"Directive is not a dict: {directive}")
+                continue
+            
             content = directive.get("content", {})
+            logger.info(f"Content: {content}, type: {type(content)}")
+            
+            if not isinstance(content, dict):
+                logger.warning(f"Content is not a dict: {content}")
+                continue
+            
             items = content.get("item", [])
+            logger.info(f"Items: {items}")
             
             for item in items:
+                logger.info(f"Processing item: {item}, type: {type(item)}")
+                
+                if not isinstance(item, dict):
+                    logger.warning(f"Item is not a dict: {item}")
+                    continue
+                
                 section = item.get("section", {})
+                logger.info(f"Section: {section}, type: {type(section)}")
+                
+                if not isinstance(section, dict):
+                    logger.warning(f"Section is not a dict: {section}")
+                    continue
+                
                 section_items = section.get("item", [])
+                logger.info(f"Section items: {section_items}")
                 
                 for section_item in section_items:
+                    logger.info(f"Processing section item: {section_item}, type: {type(section_item)}")
+                    
+                    if not isinstance(section_item, dict):
+                        logger.warning(f"Section item is not a dict: {section_item}")
+                        continue
+                    
                     text_data = section_item.get("text", {})
+                    logger.info(f"Text data: {text_data}, type: {type(text_data)}")
+                    
+                    if not isinstance(text_data, dict):
+                        logger.warning(f"Text data is not a dict: {text_data}")
+                        continue
+                    
                     text_content = text_data.get("text", "")
+                    logger.info(f"Text content: {text_content}")
                     
                     if text_content:
                         # HTML 태그 제거
@@ -457,7 +596,9 @@ class StateEngine:
                         clean_text = re.sub(r'<[^>]+>', '', text_content)
                         messages.append(clean_text)
         
-        return f"🤖 {'; '.join(messages)}" if messages else None
+        result = f"🤖 {'; '.join(messages)}" if messages else None
+        logger.info(f"Entry action result: {result}")
+        return result
     
     def _handle_slot_filling(
         self, 
@@ -515,39 +656,368 @@ class StateEngine:
         event_handlers = current_dialog_state.get("eventHandlers", [])
         event_matched = False
         
+        logger.info(f"Event handlers: {event_handlers}")
+        
         for handler in event_handlers:
-            handler_event_type = handler.get("event", {}).get("type", "")
+            logger.info(f"Processing handler: {handler}, type: {type(handler)}")
+            
+            # handler가 딕셔너리인지 확인
+            if not isinstance(handler, dict):
+                logger.warning(f"Event handler is not a dict: {handler}")
+                continue
+                
+            # event 필드 안전하게 처리
+            event_info = handler.get("event", {})
+            logger.info(f"Event info: {event_info}, type: {type(event_info)}")
+            
+            if isinstance(event_info, dict):
+                handler_event_type = event_info.get("type", "")
+            elif isinstance(event_info, str):
+                handler_event_type = event_info
+            else:
+                logger.warning(f"Unexpected event format in handler: {event_info}")
+                continue
+            
+            logger.info(f"Handler event type: {handler_event_type}, Expected: {event_type}")
             
             if handler_event_type == event_type:
                 target = handler.get("transitionTarget", {})
+                logger.info(f"Target: {target}, type: {type(target)}")
                 new_state = target.get("dialogState", current_state)
+                logger.info(f"New state: {new_state}")
                 
-                transition = StateTransition(
-                    fromState=current_state,
-                    toState=new_state,
-                    reason=f"이벤트 트리거: {event_type}",
-                    conditionMet=True,
-                    handlerType="event"
-                )
-                transitions.append(transition)
-                response_messages.append(f"✅ 이벤트 '{event_type}' 처리됨 → {new_state}")
-                event_matched = True
-                break
+                try:
+                    transition = StateTransition(
+                        fromState=current_state,
+                        toState=new_state,
+                        reason=f"이벤트 트리거: {event_type}",
+                        conditionMet=True,
+                        handlerType="event"
+                    )
+                    logger.info(f"Transition created: {transition}")
+                    transitions.append(transition)
+                    logger.info(f"Transition appended to list")
+                    response_messages.append(f"✅ 이벤트 '{event_type}' 처리됨 → {new_state}")
+                    event_matched = True
+                    break
+                except Exception as e:
+                    logger.error(f"Error creating transition: {e}")
+                    raise
         
         if not event_matched:
             response_messages.append(f"❌ 이벤트 '{event_type}'에 대한 핸들러가 없습니다.")
         
         # Entry Action 실행 (새로운 상태로 전이된 경우)
         if new_state != current_state:
-            entry_response = self._execute_entry_action(scenario, new_state)
-            if entry_response:
-                response_messages.append(entry_response)
+            try:
+                logger.info(f"Executing entry action for transition: {current_state} -> {new_state}")
+                entry_response = self._execute_entry_action(scenario, new_state)
+                logger.info(f"Entry action completed: {entry_response}")
+                if entry_response:
+                    response_messages.append(entry_response)
+            except Exception as e:
+                logger.error(f"Error executing entry action: {e}")
+                response_messages.append(f"⚠️ Entry action 실행 중 에러: {str(e)}")
         
-        return {
-            "new_state": new_state,
-            "response": "\n".join(response_messages),
-            "transitions": [t.dict() for t in transitions],
-            "intent": "EVENT_TRIGGER",
-            "entities": {},
-            "memory": memory
-        } 
+        # transitions 리스트 처리
+        try:
+            logger.info(f"Processing transitions: {transitions}")
+            transition_dicts = []
+            for t in transitions:
+                logger.info(f"Processing transition: {t}, type: {type(t)}")
+                if hasattr(t, 'dict'):
+                    transition_dicts.append(t.dict())
+                elif hasattr(t, 'model_dump'):
+                    transition_dicts.append(t.model_dump())
+                else:
+                    logger.warning(f"Transition object has no dict method: {t}")
+                    transition_dicts.append(str(t))
+            
+            logger.info(f"Transition dicts: {transition_dicts}")
+            
+            return {
+                "new_state": new_state,
+                "response": "\n".join(response_messages),
+                "transitions": transition_dicts,
+                "intent": "EVENT_TRIGGER",
+                "entities": {},
+                "memory": memory
+            }
+        except Exception as e:
+            logger.error(f"Error processing transitions: {e}")
+            return {
+                "new_state": new_state,
+                "response": "\n".join(response_messages),
+                "transitions": [],
+                "intent": "EVENT_TRIGGER",
+                "entities": {},
+                "memory": memory
+            } 
+
+    async def _handle_apicall_handlers(
+        self,
+        current_state: str,
+        current_dialog_state: Dict[str, Any],
+        scenario: Dict[str, Any],
+        memory: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """ApiCall 핸들러를 처리합니다."""
+        
+        apicall_handlers = current_dialog_state.get("apicallHandlers", [])
+        if not apicall_handlers:
+            return None
+        
+        logger.info(f"Processing {len(apicall_handlers)} apicall handlers in state {current_state}")
+        
+        for handler in apicall_handlers:
+            if not isinstance(handler, dict):
+                logger.warning(f"Apicall handler is not a dict: {handler}")
+                continue
+            
+            try:
+                # API 호출 실행
+                apicall_config = handler.get("apicall", {})
+                if not apicall_config:
+                    logger.warning(f"No apicall config found in handler: {handler}")
+                    continue
+                
+                # API 응답 가져오기
+                response_data = await self._execute_api_call(apicall_config, memory)
+                if response_data is None:
+                    logger.warning(f"API call failed for handler: {handler}")
+                    continue
+                
+                # 응답 매핑 처리
+                mappings = apicall_config.get("formats", {}).get("responseMappings", {})
+                if mappings:
+                    self._apply_response_mappings(response_data, mappings, memory)
+                
+                # 전이 처리
+                target = handler.get("transitionTarget", {})
+                new_state = target.get("dialogState", current_state)
+                
+                if new_state != current_state:
+                    # Entry Action 실행
+                    entry_response = self._execute_entry_action(scenario, new_state)
+                    
+                    return {
+                        "new_state": new_state,
+                        "response": entry_response or f"🔄 API 호출 완료 → {new_state}",
+                        "transitions": [{
+                            "fromState": current_state,
+                            "toState": new_state,
+                            "reason": f"API Call: {handler.get('name', 'Unknown')}",
+                            "conditionMet": True,
+                            "handlerType": "apicall"
+                        }],
+                        "intent": "API_CALL",
+                        "entities": {},
+                        "memory": memory
+                    }
+            
+            except Exception as e:
+                logger.error(f"Error processing apicall handler: {e}")
+                continue
+        
+        return None
+
+    async def _execute_api_call(
+        self,
+        apicall_config: Dict[str, Any],
+        memory: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """실제 API 호출을 실행합니다."""
+        
+        try:
+            url = apicall_config.get("url", "")
+            timeout = apicall_config.get("timeout", 5000) / 1000  # ms to seconds
+            retry_count = apicall_config.get("retry", 3)
+            
+            formats = apicall_config.get("formats", {})
+            method = formats.get("method", "POST").upper()
+            request_template = formats.get("requestTemplate", "")
+            
+            # Request body 준비
+            request_data = None
+            if request_template and method in ['POST', 'PUT', 'PATCH']:
+                # Handlebars 템플릿 처리 (간단한 치환)
+                request_body = self._process_template(request_template, memory)
+                try:
+                    request_data = json.loads(request_body)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Invalid JSON in request template: {e}")
+                    return None
+            
+            # API 호출 (재시도 포함)
+            for attempt in range(retry_count + 1):
+                try:
+                    timeout_config = aiohttp.ClientTimeout(total=timeout)
+                    async with aiohttp.ClientSession(timeout=timeout_config) as session:
+                        headers = {"Content-Type": "application/json"}
+                        
+                        if method == "GET":
+                            async with session.get(url, headers=headers) as response:
+                                if response.status == 200:
+                                    return await response.json()
+                        elif method in ["POST", "PUT", "PATCH"]:
+                            async with session.request(
+                                method.lower(), 
+                                url, 
+                                headers=headers, 
+                                json=request_data
+                            ) as response:
+                                if response.status in [200, 201]:
+                                    return await response.json()
+                        elif method == "DELETE":
+                            async with session.delete(url, headers=headers) as response:
+                                if response.status in [200, 204]:
+                                    return await response.json() if response.content_length else {}
+                        
+                        logger.warning(f"API call failed with status {response.status}, attempt {attempt + 1}")
+                        
+                except asyncio.TimeoutError:
+                    logger.warning(f"API call timeout, attempt {attempt + 1}")
+                except Exception as e:
+                    logger.warning(f"API call error: {e}, attempt {attempt + 1}")
+                
+                if attempt < retry_count:
+                    await asyncio.sleep(1)  # 재시도 전 1초 대기
+            
+            logger.error(f"API call failed after {retry_count + 1} attempts")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error executing API call: {e}")
+            return None
+
+    def _process_template(self, template: str, memory: Dict[str, Any]) -> str:
+        """Handlebars 스타일 템플릿을 처리합니다."""
+        
+        result = template
+        
+        # {{memorySlots.KEY.value.[0]}} 형태 처리
+        import re
+        pattern = r'\{\{memorySlots\.([^.]+)\.value\.\[(\d+)\]\}\}'
+        matches = re.findall(pattern, template)
+        
+        for key, index in matches:
+            if key in memory:
+                value = memory[key]
+                if isinstance(value, list) and len(value) > int(index):
+                    replacement = str(value[int(index)])
+                else:
+                    replacement = str(value) if value is not None else ""
+            else:
+                replacement = ""
+            
+            result = result.replace(f"{{{{memorySlots.{key}.value.[{index}]}}}}", replacement)
+        
+        # {{sessionId}} 처리
+        result = result.replace("{{sessionId}}", memory.get("sessionId", ""))
+        
+        # 기타 {{key}} 형태 처리
+        pattern = r'\{\{([^}]+)\}\}'
+        matches = re.findall(pattern, result)
+        
+        for key in matches:
+            if key in memory:
+                value = str(memory[key]) if memory[key] is not None else ""
+                result = result.replace(f"{{{{{key}}}}}", value)
+        
+        return result
+
+    def _apply_response_mappings(
+        self,
+        response_data: Dict[str, Any],
+        mappings: Dict[str, str],
+        memory: Dict[str, Any]
+    ) -> None:
+        """JSONPath를 사용하여 응답 데이터를 메모리에 매핑합니다."""
+        
+        logger.info(f"📋 Applying response mappings to data: {response_data}")
+        logger.info(f"📋 Mappings: {mappings}")
+        
+        for jsonpath_expr, memory_key in mappings.items():
+            try:
+                # JSONPath 파싱 및 실행
+                jsonpath_parser = parse(jsonpath_expr)
+                matches = jsonpath_parser.find(response_data)
+                
+                if matches:
+                    # 첫 번째 매치 사용
+                    raw_value = matches[0].value
+                    
+                    # 값 정규화 및 변환
+                    processed_value = self._normalize_response_value(raw_value)
+                    
+                    memory[memory_key] = processed_value
+                    logger.info(f"✅ Mapped {jsonpath_expr} -> {memory_key}: {processed_value} (raw: {raw_value})")
+                else:
+                    logger.warning(f"❌ No matches found for JSONPath: {jsonpath_expr}")
+                    logger.info(f"🔍 Available paths in response: {self._get_all_paths(response_data)}")
+                    
+            except Exception as e:
+                logger.error(f"❌ Error processing JSONPath {jsonpath_expr}: {e}")
+
+    def _normalize_response_value(self, value: Any) -> Any:
+        """응답 값을 정규화합니다."""
+        
+        # None 처리
+        if value is None:
+            return None
+        
+        # 문자열이나 숫자는 그대로 반환
+        if isinstance(value, (str, int, float, bool)):
+            return value
+        
+        # 객체인 경우 - value 필드가 있으면 그것을 사용, 없으면 전체 객체
+        if isinstance(value, dict):
+            if 'value' in value:
+                logger.info(f"🔄 Found 'value' field in object, extracting: {value['value']}")
+                return self._normalize_response_value(value['value'])
+            elif len(value) == 1:
+                # 단일 키-값 쌍인 경우 값만 추출
+                key, val = next(iter(value.items()))
+                logger.info(f"🔄 Single key-value pair, extracting value: {val}")
+                return self._normalize_response_value(val)
+            else:
+                # 복잡한 객체는 그대로 반환
+                return value
+        
+        # 배열인 경우
+        if isinstance(value, list):
+            if len(value) == 1:
+                # 단일 요소 배열인 경우 요소만 추출
+                logger.info(f"🔄 Single element array, extracting element: {value[0]}")
+                return self._normalize_response_value(value[0])
+            else:
+                # 다중 요소 배열은 그대로 반환
+                return value
+        
+        # 기타 타입은 문자열로 변환
+        return str(value)
+
+    def _get_all_paths(self, obj: Any, path: str = '$') -> List[str]:
+        """응답 객체의 모든 가능한 JSONPath를 생성합니다."""
+        
+        paths = []
+        
+        if obj is None:
+            return [path]
+        
+        if isinstance(obj, dict):
+            paths.append(path)
+            for key, value in obj.items():
+                new_path = f"{path}.{key}" if path != '$' else f"$.{key}"
+                paths.extend(self._get_all_paths(value, new_path))
+        
+        elif isinstance(obj, list):
+            paths.append(path)
+            for index, value in enumerate(obj):
+                new_path = f"{path}[{index}]"
+                paths.extend(self._get_all_paths(value, new_path))
+        
+        else:
+            paths.append(path)
+        
+        return paths 

@@ -147,6 +147,71 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
     }
   }, [propNodes]);
 
+  // 노드들로부터 엣지 자동 생성
+  const generateEdgesFromNodes = useCallback((nodes: FlowNode[]) => {
+    const newEdges: FlowEdge[] = [];
+    
+    nodes.forEach(node => {
+      const state = node.data.dialogState;
+      
+      // Condition handlers에서 전이 관계 추출
+      state.conditionHandlers?.forEach((handler, idx) => {
+        if (handler.transitionTarget.dialogState && 
+            handler.transitionTarget.dialogState !== '__END_SESSION__') {
+          const edge: FlowEdge = {
+            id: `${state.name}-condition-${idx}`,
+            source: state.name,
+            target: handler.transitionTarget.dialogState,
+            label: `조건: ${handler.conditionStatement}`,
+            type: 'smoothstep'
+          };
+          newEdges.push(edge);
+        }
+      });
+
+      // Intent handlers에서 전이 관계 추출
+      state.intentHandlers?.forEach((handler, idx) => {
+        if (handler.transitionTarget.dialogState) {
+          const edge: FlowEdge = {
+            id: `${state.name}-intent-${idx}`,
+            source: state.name,
+            target: handler.transitionTarget.dialogState,
+            label: `인텐트: ${handler.intent}`,
+            type: 'smoothstep'
+          };
+          newEdges.push(edge);
+        }
+      });
+
+      // Event handlers에서 전이 관계 추출
+      state.eventHandlers?.forEach((handler, idx) => {
+        if (handler.transitionTarget.dialogState && 
+            handler.transitionTarget.dialogState !== '__CURRENT_DIALOG_STATE__') {
+          // event 필드 안전하게 처리
+          let eventType = '';
+          if (handler.event) {
+            if (typeof handler.event === 'object' && handler.event.type) {
+              eventType = handler.event.type;
+            } else if (typeof handler.event === 'string') {
+              eventType = handler.event;
+            }
+          }
+          
+          const edge: FlowEdge = {
+            id: `${state.name}-event-${idx}`,
+            source: state.name,
+            target: handler.transitionTarget.dialogState,
+            label: `이벤트: ${eventType}`,
+            type: 'smoothstep'
+          };
+          newEdges.push(edge);
+        }
+      });
+    });
+
+    return newEdges;
+  }, []);
+
   // 노드 편집 완료 핸들러
   const handleNodeEditSave = useCallback((updatedDialogState: DialogState) => {
     if (!editingNode) return;
@@ -164,9 +229,13 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       node.id === editingNode.id ? updatedNode : node
     );
 
+    // 새로운 엣지 생성 (전이 관계 기반)
+    const newEdges = generateEdgesFromNodes(updatedNodes);
+
     onNodesChange(updatedNodes);
+    onEdgesChange(newEdges);
     setEditingNode(null);
-  }, [editingNode, propNodes, onNodesChange]);
+  }, [editingNode, propNodes, onNodesChange, onEdgesChange, generateEdgesFromNodes]);
 
   // props로 받은 nodes, edges를 상태에 동기화
   useEffect(() => {

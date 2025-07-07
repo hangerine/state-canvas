@@ -16,6 +16,7 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
   const conditionCount = dialogState.conditionHandlers?.length || 0;
   const intentCount = dialogState.intentHandlers?.length || 0;
   const eventCount = dialogState.eventHandlers?.length || 0;
+  const apicallCount = dialogState.apicallHandlers?.length || 0;
 
   // 더블클릭 핸들러
   const handleDoubleClick = () => {
@@ -117,16 +118,27 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
         />
       )}
 
-      {/* Webhook Actions 표시 */}
-      {dialogState.webhookActions && dialogState.webhookActions.length > 0 && (
-        <Chip
-          label="Webhook"
-          size="small"
-          color="error"
-          variant="outlined"
-          sx={{ fontSize: '0.6rem', height: 18, mt: 0.5 }}
-        />
-      )}
+      {/* Actions 표시 */}
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+        {dialogState.webhookActions && dialogState.webhookActions.length > 0 && (
+          <Chip
+            label="Webhook"
+            size="small"
+            color="error"
+            variant="outlined"
+            sx={{ fontSize: '0.6rem', height: 18 }}
+          />
+        )}
+        {apicallCount > 0 && (
+          <Chip
+            label={`API Call ${apicallCount}`}
+            size="small"
+            color="success"
+            variant="outlined"
+            sx={{ fontSize: '0.6rem', height: 18 }}
+          />
+        )}
+      </Box>
 
       {/* Output Handle */}
       <Handle

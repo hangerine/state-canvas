@@ -42,21 +42,38 @@ function App() {
   const resizeRef = useRef<HTMLDivElement>(null);
   const sidebarResizeRef = useRef<HTMLDivElement>(null);
 
+  // 초기 상태 결정 함수
+  const getInitialState = useCallback((scenario: Scenario): string => {
+    if (!scenario.plan || scenario.plan.length === 0) return '';
+    
+    const dialogStates = scenario.plan[0].dialogState;
+    if (!dialogStates || dialogStates.length === 0) return '';
+    
+    // Start가 있으면 선택
+    const startState = dialogStates.find(state => state.name === 'Start');
+    if (startState) {
+      console.log('🎯 Start 상태를 초기 상태로 설정');
+      return 'Start';
+    }
+    
+    // Start가 없으면 첫 번째 상태 선택
+    console.log('🎯 첫 번째 상태를 초기 상태로 설정:', dialogStates[0].name);
+    return dialogStates[0].name;
+  }, []);
+
   const handleScenarioLoad = useCallback((loadedScenario: Scenario) => {
     setScenario(loadedScenario);
     setOriginalScenario(JSON.parse(JSON.stringify(loadedScenario))); // 깊은 복사로 원본 보관
     // JSON을 Flow 노드와 엣지로 변환
     convertScenarioToFlow(loadedScenario);
     
-    // 초기 상태 설정 (첫 번째 dialogState)
-    if (loadedScenario.plan && loadedScenario.plan.length > 0) {
-      const firstDialogState = loadedScenario.plan[0].dialogState[0];
-      if (firstDialogState) {
-        setCurrentState(firstDialogState.name);
-        console.log('🎯 초기 상태 설정:', firstDialogState.name);
-      }
+    // 초기 상태 설정 (개선된 로직)
+    const initialState = getInitialState(loadedScenario);
+    if (initialState) {
+      setCurrentState(initialState);
+      console.log('🎯 초기 상태 설정:', initialState);
     }
-  }, []);
+  }, [getInitialState]);
 
   const convertScenarioToFlow = (scenario: Scenario) => {
     if (!scenario.plan || scenario.plan.length === 0) return;
@@ -117,11 +134,21 @@ function App() {
       state.eventHandlers?.forEach((handler, idx) => {
         if (handler.transitionTarget.dialogState && 
             handler.transitionTarget.dialogState !== '__CURRENT_DIALOG_STATE__') {
+          // event 필드 안전하게 처리
+          let eventType = '';
+          if (handler.event) {
+            if (typeof handler.event === 'object' && handler.event.type) {
+              eventType = handler.event.type;
+            } else if (typeof handler.event === 'string') {
+              eventType = handler.event;
+            }
+          }
+          
           const edge: FlowEdge = {
             id: `${state.name}-event-${idx}`,
             source: state.name,
             target: handler.transitionTarget.dialogState,
-            label: `이벤트: ${handler.event.type}`,
+            label: `이벤트: ${eventType}`,
             type: 'smoothstep'
           };
           newEdges.push(edge);
@@ -143,32 +170,32 @@ function App() {
     setIsTestMode(newTestMode);
     
     if (newTestMode && scenario) {
-      console.log('🚀 테스트 모드 시작 - 자동 전이 확인');
+      console.log('🚀 테스트 모드 시작 - 현재 상태:', currentState);
       
-      // Start 상태에서 자동 전이 확인
-      const startState = scenario.plan[0]?.dialogState.find(state => state.name === 'Start');
-      if (startState) {
+      // 현재 상태에서 자동 전이 확인
+      const currentDialogState = scenario.plan[0]?.dialogState.find(state => state.name === currentState);
+      if (currentDialogState) {
         // Event handler가 있는지 확인
-        const hasEventHandlers = startState.eventHandlers && startState.eventHandlers.length > 0;
+        const hasEventHandlers = currentDialogState.eventHandlers && currentDialogState.eventHandlers.length > 0;
         
         if (hasEventHandlers) {
-          console.log('🎯 Start 상태에 이벤트 핸들러가 있습니다. 사용자가 수동으로 트리거해야 합니다.');
+          console.log(`🎯 ${currentState} 상태에 이벤트 핸들러가 있습니다. 사용자가 수동으로 트리거해야 합니다.`);
           return; // 자동 전이하지 않고 사용자 이벤트 대기
         }
         
         // Event handler가 없으면 기존 로직 실행 (조건 핸들러 확인)
-        const trueConditionHandler = startState.conditionHandlers?.find(
+        const trueConditionHandler = currentDialogState.conditionHandlers?.find(
           handler => handler.conditionStatement === 'True'
         );
         
         if (trueConditionHandler) {
           const targetState = trueConditionHandler.transitionTarget.dialogState;
-          console.log(`⚡ 조건 전이: Start → ${targetState}`);
+          console.log(`⚡ 조건 전이: ${currentState} → ${targetState}`);
           setCurrentState(targetState);
         }
       }
     }
-  }, [isTestMode, scenario]);
+  }, [isTestMode, scenario, currentState]);
 
   // 테스트 패널 리사이즈 핸들러
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -259,6 +286,61 @@ function App() {
     setSaveModalOpen(true);
   }, [nodes, originalScenario]);
 
+  // 즉시 반영 저장 처리 (새로운 기능)
+  const handleApplyChanges = useCallback(() => {
+    if (!originalScenario && nodes.length === 0) {
+      alert('적용할 시나리오가 없습니다.');
+      return;
+    }
+
+    try {
+      // 현재 노드들을 시나리오로 변환
+      const convertedScenario = convertNodesToScenario(nodes, originalScenario);
+      
+      // 변경사항 비교
+      const changes = compareScenarios(nodes, originalScenario);
+      
+      // 즉시 현재 시나리오에 반영
+      setScenario(convertedScenario);
+      
+      // 원본 시나리오도 업데이트 (변경사항 표시 초기화를 위해)
+      setOriginalScenario(JSON.parse(JSON.stringify(convertedScenario)));
+      
+      // 엣지 재생성 (전이 관계 업데이트)
+      convertScenarioToFlow(convertedScenario);
+      
+      // 초기 상태 재설정 (새로운 시나리오 기준)
+      const newInitialState = getInitialState(convertedScenario);
+      if (newInitialState) {
+        // 현재 상태가 여전히 존재하는지 확인
+        const currentStateExists = convertedScenario.plan[0]?.dialogState.some(state => state.name === currentState);
+        if (!currentStateExists) {
+          // 현재 상태가 삭제되었다면 새로운 초기 상태로 설정
+          setCurrentState(newInitialState);
+          console.log('🔄 현재 상태가 삭제되어 새로운 초기 상태로 변경:', newInitialState);
+        } else if (currentState !== newInitialState && !currentState) {
+          // 현재 상태가 없다면 새로운 초기 상태로 설정
+          setCurrentState(newInitialState);
+          console.log('🔄 새로운 초기 상태로 변경:', newInitialState);
+        }
+      }
+      
+      // 성공 메시지 표시
+      const changeCount = changes.added.length + changes.modified.length + changes.removed.length;
+      if (changeCount > 0) {
+        alert(`✅ 변경사항이 즉시 반영되었습니다!\n- 추가: ${changes.added.length}개\n- 수정: ${changes.modified.length}개\n- 삭제: ${changes.removed.length}개\n\n초기 상태: ${newInitialState}\n이제 테스트 모드에서 변경된 시나리오를 확인할 수 있습니다.`);
+      } else {
+        alert('ℹ️ 변경사항이 없습니다.');
+      }
+      
+      console.log('🚀 시나리오 즉시 반영 완료:', convertedScenario);
+      
+    } catch (error) {
+      console.error('시나리오 반영 오류:', error);
+      alert('❌ 시나리오 반영 중 오류가 발생했습니다: ' + (error as Error).message);
+    }
+  }, [nodes, originalScenario, currentState, getInitialState]);
+
   // 모달에서 최종 저장 처리
   const handleSaveConfirm = useCallback((filename: string) => {
     if (newScenario) {
@@ -286,6 +368,9 @@ function App() {
             selectedNode={selectedNode}
             onScenarioLoad={handleScenarioLoad}
             onScenarioSave={handleScenarioSave}
+            onApplyChanges={handleApplyChanges}
+            nodes={nodes}
+            originalScenario={originalScenario}
             onNodeUpdate={(updatedNode) => {
               setNodes(nodes => 
                 nodes.map(node => node.id === updatedNode.id ? updatedNode : node)

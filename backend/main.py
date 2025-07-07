@@ -36,6 +36,30 @@ state_engine = StateEngine()
 websocket_manager = WebSocketManager()
 active_sessions: Dict[str, Dict[str, Any]] = {}
 
+# 세션 메모리 관리 함수들
+def get_or_create_session_memory(session_id: str) -> Dict[str, Any]:
+    """세션 메모리를 가져오거나 생성합니다."""
+    if session_id not in active_sessions:
+        active_sessions[session_id] = {
+            "current_state": "Start",
+            "memory": {"sessionId": session_id},
+            "history": [],
+            "scenario": None
+        }
+    return active_sessions[session_id]["memory"]
+
+def update_session_memory(session_id: str, memory: Dict[str, Any]) -> None:
+    """세션 메모리를 업데이트합니다."""
+    if session_id not in active_sessions:
+        active_sessions[session_id] = {
+            "current_state": "Start",
+            "memory": memory,
+            "history": [],
+            "scenario": None
+        }
+    else:
+        active_sessions[session_id]["memory"] = memory
+
 @app.get("/")
 async def root():
     return {"message": "StateCanvas Backend API", "version": "1.0.0"}
@@ -101,43 +125,48 @@ async def download_scenario(session_id: str):
         logger.error(f"Download error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"다운로드 오류: {str(e)}")
 
+# 세션 초기화 요청 모델
+class ResetSessionRequest(BaseModel):
+    scenario: Optional[Dict[str, Any]] = None
+
 # 세션 초기화
 @app.post("/api/reset-session/{session_id}")
-async def reset_session(session_id: str):
+async def reset_session(session_id: str, request: Optional[ResetSessionRequest] = None):
     """세션을 초기화합니다"""
     try:
-        # 활성 세션 초기화
-        if session_id in active_sessions:
-            scenario = active_sessions[session_id].get("scenario")
-            initial_state = "Start"  # 기본값
-            
-            # 시나리오에서 첫 번째 상태 찾기
-            if scenario and scenario.get("plan") and len(scenario["plan"]) > 0:
-                dialog_states = scenario["plan"][0].get("dialogState", [])
-                if dialog_states:
-                    initial_state = dialog_states[0].get("name", "Start")
-            
-            active_sessions[session_id] = {
-                "current_state": initial_state,
-                "memory": {},
-                "history": [],
-                "scenario": scenario
-            }
-        else:
-            # 새 세션 생성
-            active_sessions[session_id] = {
-                "current_state": "Start",
-                "memory": {},
-                "history": []
-            }
+        scenario = None
+        initial_state = "Start"  # 기본값
         
-        logger.info(f"Session {session_id} reset to state: {active_sessions[session_id]['current_state']}")
+        # 요청에서 시나리오 가져오기
+        if request and request.scenario:
+            scenario = request.scenario
+            # State engine을 사용하여 초기 상태 결정
+            initial_state = state_engine.get_initial_state(scenario)
+            # State engine에 시나리오 로드
+            state_engine.load_scenario(session_id, scenario)
+        else:
+            # 기존 세션에서 시나리오 가져오기
+            if session_id in active_sessions:
+                scenario = active_sessions[session_id].get("scenario")
+                if scenario:
+                    initial_state = state_engine.get_initial_state(scenario)
+                    state_engine.load_scenario(session_id, scenario)
+        
+        # 세션 초기화
+        active_sessions[session_id] = {
+            "current_state": initial_state,
+            "memory": {},
+            "history": [],
+            "scenario": scenario
+        }
+        
+        logger.info(f"Session {session_id} reset to state: {initial_state}")
         
         return {
             "status": "success",
             "session_id": session_id,
-            "initial_state": active_sessions[session_id]["current_state"],
-            "message": "세션이 초기화되었습니다."
+            "initial_state": initial_state,
+            "message": f"세션이 초기화되었습니다. 초기 상태: {initial_state}"
         }
         
     except Exception as e:
@@ -147,71 +176,137 @@ async def reset_session(session_id: str):
 # 사용자 입력 처리 및 State 전이
 @app.post("/api/process-input")
 async def process_input(request: ProcessInputRequest):
-    """사용자 입력을 처리하고 State 전이를 수행"""
-    try:
-        session_id = request.sessionId
-        user_input = request.input
-        current_state = request.currentState
-        scenario = request.scenario
-        
-        # 세션이 없으면 생성
-        if session_id not in active_sessions:
-            initial_state = "Start"
-            if scenario.get("plan") and len(scenario["plan"]) > 0:
-                dialog_states = scenario["plan"][0].get("dialogState", [])
-                if dialog_states:
-                    initial_state = dialog_states[0].get("name", "Start")
-            
-            active_sessions[session_id] = {
-                "current_state": initial_state,
-                "memory": {},
-                "history": [],
-                "scenario": scenario
+    """
+    사용자 입력을 처리하고 State 전이를 수행합니다.
+    """
+    logger.info(f"📥 Processing input: session={request.sessionId}, state={request.currentState}, input='{request.input}', event={request.eventType}")
+    
+    # 세션 메모리 가져오기 또는 생성
+    memory = get_or_create_session_memory(request.sessionId)
+    
+    # 세션 메모리에 사용자 입력 저장
+    if request.input.strip():
+        memory["USER_TEXT_INPUT"] = [request.input.strip()]
+    
+    # State Engine에 시나리오 로드
+    state_engine.load_scenario(request.sessionId, request.scenario)
+    
+    # 입력 처리
+    result = await state_engine.process_input(
+        session_id=request.sessionId,
+        user_input=request.input,
+        current_state=request.currentState,
+        scenario=request.scenario,
+        memory=memory,
+        event_type=request.eventType
+    )
+    
+    # 세션 메모리 업데이트
+    update_session_memory(request.sessionId, result.get("memory", memory))
+    
+    logger.info(f"📤 Processing result: {result}")
+    return result
+
+# Mock API endpoints for testing apicall functionality
+@app.post("/mock/nlu")
+async def mock_nlu_api(request: Dict[str, Any]):
+    """Mock NLU API for testing"""
+    text = request.get("text", "")
+    session_id = request.get("sessionId", "")
+    
+    # Simulate NLU processing based on input text
+    intent_mapping = {
+        "weather": "Weather.Inform",
+        "날씨": "Weather.Inform", 
+        "hello": "Greeting.Hello",
+        "안녕": "Greeting.Hello",
+        "bye": "Greeting.Goodbye",
+        "안녕히": "Greeting.Goodbye",
+        "book": "Booking.Request",
+        "예약": "Booking.Request"
+    }
+    
+    # Find intent based on text content
+    detected_intent = "Fallback.Unknown"
+    confidence = 0.3
+    
+    for keyword, intent in intent_mapping.items():
+        if keyword.lower() in text.lower():
+            detected_intent = intent
+            confidence = 0.85
+            break
+    
+    # Mock response in the format provided by user
+    response = {
+        "sessionId": session_id,
+        "requestId": f"req-{hash(text) % 10000}",
+        "NLU_INTENT": {
+            "value": detected_intent
+        },
+        "nlu": {
+            "intent": detected_intent,
+            "confidence": confidence,
+            "entities": []
+        },
+        "meta": {
+            "exactMatch": confidence > 0.8,
+            "processingTime": 150
+        }
+    }
+    
+    return response
+
+@app.post("/mock/complex-response")
+async def mock_complex_response(request: Dict[str, Any]):
+    """Mock API with complex nested response for testing various JSONPath scenarios"""
+    
+    response = {
+        "status": "success",
+        "data": {
+            "users": [
+                {
+                    "id": 1,
+                    "name": "John Doe",
+                    "profile": {
+                        "age": 30,
+                        "location": "Seoul",
+                        "preferences": ["music", "sports"]
+                    }
+                },
+                {
+                    "id": 2,
+                    "name": "Jane Smith", 
+                    "profile": {
+                        "age": 25,
+                        "location": "Busan",
+                        "preferences": ["art", "travel", "books"]
+                    }
+                }
+            ],
+            "metadata": {
+                "total": 2,
+                "page": 1,
+                "hasMore": False
             }
-        
-        # 현재 상태 업데이트 (프론트엔드에서 전달된 상태 사용)
-        if current_state:
-            active_sessions[session_id]["current_state"] = current_state
-        
-        # State engine에서 입력 처리
-        result = await state_engine.process_input(
-            session_id=session_id,
-            user_input=user_input,
-            current_state=active_sessions[session_id]["current_state"],
-            scenario=scenario,
-            memory=active_sessions[session_id]["memory"],
-            event_type=request.eventType
-        )
-        
-        # 세션 상태 업데이트
-        if result.get("new_state"):
-            active_sessions[session_id]["current_state"] = result["new_state"]
-        
-        active_sessions[session_id]["history"].append({
-            "input": user_input,
-            "old_state": current_state,
-            "new_state": result.get("new_state"),
-            "transitions": result.get("transitions", []),
-            "timestamp": str(uuid.uuid4())  # 임시 타임스탬프
-        })
-        
-        # WebSocket으로 실시간 업데이트 전송
-        if session_id in websocket_manager.active_connections:
-            await websocket_manager.send_personal_message({
-                "type": "state_update",
-                "session_id": session_id,
-                "old_state": current_state,
-                "new_state": result.get("new_state"),
-                "transitions": result.get("transitions", [])
-            }, session_id)
-        
-        logger.info(f"Processed input for session {session_id}: {current_state} -> {result.get('new_state')}")
-        
-        return result
-        
-    except Exception as e:
-        logger.error(f"Process input error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"입력 처리 오류: {str(e)}")
+        },
+        "result": {
+            "success": True,
+            "message": "Data retrieved successfully"
+        },
+        "timestamp": "2024-01-15T10:30:00Z"
+    }
+    
+    return response
+
+@app.get("/mock/simple-data")
+async def mock_simple_data():
+    """Mock API with simple response"""
+    return {
+        "value": "simple_response",
+        "count": 42,
+        "active": True,
+        "items": ["item1", "item2", "item3"]
+    }
 
 # WebSocket 연결
 @app.websocket("/ws/{session_id}")

@@ -23,6 +23,27 @@ export interface MemoryAction {
   actionScope: string;
 }
 
+export interface ApiCallFormats {
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+  requestTemplate?: string;
+  responseSchema?: Record<string, any>;
+  responseMappings?: Record<string, string>;
+}
+
+export interface ApiCall {
+  url: string;
+  timeout: number;
+  retry: number;
+  formats: ApiCallFormats;
+}
+
+export interface ApiCallHandler {
+  name: string;
+  apicall: ApiCall;
+  action?: Action;
+  transitionTarget: TransitionTarget;
+}
+
 export interface ConditionHandler {
   conditionStatement: string;
   action: Action;
@@ -33,7 +54,7 @@ export interface EventHandler {
   event: {
     type: string;
     count: string;
-  };
+  } | string;
   action: Action;
   transitionTarget: TransitionTarget;
 }
@@ -61,6 +82,7 @@ export interface DialogState {
   eventHandlers?: EventHandler[];
   intentHandlers?: IntentHandler[];
   webhookActions?: { name: string }[];
+  apicallHandlers?: ApiCallHandler[];
   slotFillingForm?: SlotFillingForm[];
 }
 

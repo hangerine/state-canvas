@@ -12,13 +12,17 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
 } from '@mui/material';
 import {
   Add as AddIcon,
   Delete as DeleteIcon,
   ExpandMore as ExpandMoreIcon,
 } from '@mui/icons-material';
-import { DialogState, ConditionHandler, IntentHandler, EventHandler } from '../types/scenario';
+import { DialogState, ConditionHandler, IntentHandler, EventHandler, ApiCallHandler } from '../types/scenario';
 
 interface NodeEditModalProps {
   open: boolean;
@@ -35,16 +39,82 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
 }) => {
   const [editedState, setEditedState] = useState<DialogState | null>(null);
 
+  // Response Mappings를 위한 별도 state (문자열로 저장)
+  const [responseMappingsStrings, setResponseMappingsStrings] = useState<string[]>([]);
+
+  // JSON validation helper
+  const validateJson = (jsonString: string): { isValid: boolean; error?: string } => {
+    try {
+      JSON.parse(jsonString);
+      return { isValid: true };
+    } catch (error) {
+      return { isValid: false, error: (error as Error).message };
+    }
+  };
+
   useEffect(() => {
     if (dialogState) {
-      setEditedState(JSON.parse(JSON.stringify(dialogState))); // 깊은 복사
+      const clonedState = JSON.parse(JSON.stringify(dialogState)); // 깊은 복사
+      setEditedState(clonedState);
+      
+      // Response Mappings 문자열 초기화
+      const mappingsStrings = clonedState.apicallHandlers?.map((handler: any) => 
+        JSON.stringify(handler.apicall?.formats?.responseMappings || {}, null, 2)
+      ) || [];
+      setResponseMappingsStrings(mappingsStrings);
     }
   }, [dialogState]);
+
+  // Response Mappings 문자열 배열 길이를 API Call 핸들러 배열과 동기화
+  const getSafeResponseMappingString = (index: number): string => {
+    if (index < responseMappingsStrings.length) {
+      return responseMappingsStrings[index];
+    }
+    // 배열 길이가 부족한 경우 빈 객체 반환
+    return '{}';
+  };
 
   if (!editedState) return null;
 
   const handleSave = () => {
-    onSave(editedState);
+    // 이벤트 핸들러들을 객체 형태로 정규화
+    const normalizedEventHandlers = editedState.eventHandlers?.map(ensureEventObjectFormat) || [];
+    
+    // Response Mappings 문자열을 JSON 객체로 변환
+    const updatedApiCallHandlers = editedState.apicallHandlers?.map((handler, index) => {
+      const mappingString = getSafeResponseMappingString(index);
+      let parsedMappings = {};
+      
+      try {
+        parsedMappings = JSON.parse(mappingString);
+      } catch (e) {
+        console.warn(`Invalid JSON in Response Mappings for handler ${index}:`, mappingString);
+        // 유효하지 않은 JSON의 경우 빈 객체 사용
+        parsedMappings = {};
+      }
+      
+      return {
+        ...handler,
+        apicall: {
+          ...handler.apicall,
+          formats: {
+            ...handler.apicall.formats,
+            responseMappings: parsedMappings
+          }
+        }
+      };
+    }) || [];
+    
+    const normalizedState = {
+      ...editedState,
+      eventHandlers: normalizedEventHandlers,
+      apicallHandlers: updatedApiCallHandlers
+    };
+    
+    console.log('🔧 Event handlers normalized:', normalizedEventHandlers);
+    console.log('🔧 API Call handlers normalized:', updatedApiCallHandlers);
+    
+    onSave(normalizedState);
     onClose();
   };
 
@@ -150,7 +220,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
   const addEventHandler = () => {
     const newHandler: EventHandler = {
       event: {
-        type: "USER_DIALOG_START",
+        type: "CUSTOM_EVENT",
         count: "1"
       },
       action: { directives: [] },
@@ -175,9 +245,13 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
     const updated = editedState.eventHandlers?.map((handler, i) => {
       if (i === index) {
         if (field === 'eventType') {
+          // 항상 객체 형태로 event 필드 보장
           return { 
             ...handler, 
-            event: { ...handler.event, type: value }
+            event: {
+              type: value,
+              count: "1"
+            }
           };
         } else if (field === 'transitionTarget') {
           return { 
@@ -193,6 +267,152 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
       ...editedState,
       eventHandlers: updated
     });
+  };
+
+  // ApiCall 핸들러 관리 함수들
+  const addApiCallHandler = () => {
+    const newHandler: ApiCallHandler = {
+      name: "API_CALL",
+      apicall: {
+        url: "",
+        timeout: 5000,
+        retry: 3,
+        formats: {
+          method: "POST",
+          requestTemplate: "",
+          responseSchema: {},
+          responseMappings: {}
+        }
+      },
+      transitionTarget: { scenario: "", dialogState: "" }
+    };
+    
+    setEditedState({
+      ...editedState,
+      apicallHandlers: [...(editedState.apicallHandlers || []), newHandler]
+    });
+
+    // Response Mappings 문자열 배열도 동기화
+    setResponseMappingsStrings([...responseMappingsStrings, '{}']);
+  };
+
+  const removeApiCallHandler = (index: number) => {
+    const updated = editedState.apicallHandlers?.filter((_, i) => i !== index) || [];
+    setEditedState({
+      ...editedState,
+      apicallHandlers: updated
+    });
+
+    // Response Mappings 문자열 배열도 동기화
+    const updatedStrings = responseMappingsStrings.filter((_, i) => i !== index);
+    setResponseMappingsStrings(updatedStrings);
+  };
+
+  const updateApiCallHandler = (index: number, field: string, value: any) => {
+    const updated = editedState.apicallHandlers?.map((handler, i) => {
+      if (i === index) {
+        if (field === 'name') {
+          return { ...handler, name: value };
+        } else if (field === 'url') {
+          return { ...handler, apicall: { ...handler.apicall, url: value } };
+        } else if (field === 'timeout') {
+          return { ...handler, apicall: { ...handler.apicall, timeout: parseInt(value) || 5000 } };
+        } else if (field === 'retry') {
+          return { ...handler, apicall: { ...handler.apicall, retry: parseInt(value) || 3 } };
+        } else if (field === 'method') {
+          return { 
+            ...handler, 
+            apicall: { 
+              ...handler.apicall, 
+              formats: { ...handler.apicall.formats, method: value } 
+            } 
+          };
+        } else if (field === 'requestTemplate') {
+          return { 
+            ...handler, 
+            apicall: { 
+              ...handler.apicall, 
+              formats: { ...handler.apicall.formats, requestTemplate: value } 
+            } 
+          };
+        } else if (field === 'transitionTarget') {
+          return { ...handler, transitionTarget: { ...handler.transitionTarget, dialogState: value } };
+        }
+      }
+      return handler;
+    }) || [];
+    
+    setEditedState({
+      ...editedState,
+      apicallHandlers: updated
+    });
+  };
+
+  // Webhook 액션 관리 함수들
+  const addWebhookAction = () => {
+    const newWebhookAction = {
+      name: "NEW_WEBHOOK"
+    };
+    
+    setEditedState({
+      ...editedState,
+      webhookActions: [...(editedState.webhookActions || []), newWebhookAction]
+    });
+  };
+
+  const removeWebhookAction = (index: number) => {
+    const updated = editedState.webhookActions?.filter((_, i) => i !== index) || [];
+    setEditedState({
+      ...editedState,
+      webhookActions: updated
+    });
+  };
+
+  const updateWebhookAction = (index: number, value: string) => {
+    const updated = editedState.webhookActions?.map((action, i) => {
+      if (i === index) {
+        return { ...action, name: value };
+      }
+      return action;
+    }) || [];
+    
+    setEditedState({
+      ...editedState,
+      webhookActions: updated
+    });
+  };
+
+  // 이벤트 타입 값을 안전하게 가져오는 헬퍼 함수 (개선)
+  const getEventType = (event: any): string => {
+    if (!event) return '';
+    if (typeof event === 'object' && event.type) {
+      return event.type;
+    } else if (typeof event === 'string') {
+      return event;
+    }
+    return '';
+  };
+
+  // 이벤트 핸들러가 객체 형태인지 확인하고 수정하는 헬퍼 함수
+  const ensureEventObjectFormat = (handler: any) => {
+    if (typeof handler.event === 'string') {
+      return {
+        ...handler,
+        event: {
+          type: handler.event,
+          count: "1"
+        }
+      };
+    } else if (typeof handler.event === 'object' && !handler.event.count) {
+      return {
+        ...handler,
+        event: {
+          type: handler.event.type || '',
+          count: "1"
+        }
+      };
+    }
+    return handler;
   };
 
   return (
@@ -327,11 +547,11 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                     </Box>
                     <TextField
                       label="이벤트 타입"
-                      value={handler.event.type}
+                      value={getEventType(handler.event)}
                       onChange={(e) => updateEventHandler(index, 'eventType', e.target.value)}
                       fullWidth
                       sx={{ mb: 1 }}
-                      helperText="예: USER_DIALOG_START, USER_DIALOG_END, TIMER_EXPIRED 등"
+                      helperText="예: CUSTOM_EVENT, USER_DIALOG_START, USER_DIALOG_END 등"
                     />
                     <TextField
                       label="전이 대상 State"
@@ -348,6 +568,177 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                   fullWidth
                 >
                   이벤트 핸들러 추가
+                </Button>
+              </Box>
+            </AccordionDetails>
+          </Accordion>
+
+          {/* API Call 핸들러 */}
+          <Accordion>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography variant="h6">
+                API Call 핸들러 ({editedState.apicallHandlers?.length || 0})
+              </Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {editedState.apicallHandlers?.map((handler, index) => (
+                  <Box key={index} sx={{ border: 1, borderColor: 'divider', p: 2, borderRadius: 1 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                      <Typography variant="subtitle2">API Call {index + 1}</Typography>
+                      <IconButton onClick={() => removeApiCallHandler(index)} size="small">
+                        <DeleteIcon />
+                      </IconButton>
+                    </Box>
+                    
+                    <TextField
+                      label="핸들러 이름"
+                      value={handler.name}
+                      onChange={(e) => updateApiCallHandler(index, 'name', e.target.value)}
+                      fullWidth
+                      sx={{ mb: 1 }}
+                    />
+                    
+                    <TextField
+                      label="URL"
+                      value={handler.apicall.url}
+                      onChange={(e) => updateApiCallHandler(index, 'url', e.target.value)}
+                      fullWidth
+                      sx={{ mb: 1 }}
+                      placeholder="http://example.com/api/endpoint"
+                    />
+                    
+                    <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
+                      <FormControl sx={{ minWidth: 120 }}>
+                        <InputLabel>Method</InputLabel>
+                        <Select
+                          value={handler.apicall.formats.method}
+                          label="Method"
+                          onChange={(e) => updateApiCallHandler(index, 'method', e.target.value)}
+                        >
+                          <MenuItem value="GET">GET</MenuItem>
+                          <MenuItem value="POST">POST</MenuItem>
+                          <MenuItem value="PUT">PUT</MenuItem>
+                          <MenuItem value="DELETE">DELETE</MenuItem>
+                          <MenuItem value="PATCH">PATCH</MenuItem>
+                        </Select>
+                      </FormControl>
+                      
+                      <TextField
+                        label="Timeout (ms)"
+                        type="number"
+                        value={handler.apicall.timeout}
+                        onChange={(e) => updateApiCallHandler(index, 'timeout', e.target.value)}
+                        sx={{ flex: 1 }}
+                      />
+                      
+                      <TextField
+                        label="Retry"
+                        type="number"
+                        value={handler.apicall.retry}
+                        onChange={(e) => updateApiCallHandler(index, 'retry', e.target.value)}
+                        sx={{ flex: 1 }}
+                      />
+                    </Box>
+                    
+                    <TextField
+                      label="Request Template"
+                      value={handler.apicall.formats.requestTemplate || ''}
+                      onChange={(e) => updateApiCallHandler(index, 'requestTemplate', e.target.value)}
+                      multiline
+                      rows={3}
+                      fullWidth
+                      sx={{ mb: 1 }}
+                      placeholder='{"text": "{{memorySlots.USER_TEXT_INPUT.value.[0]}}", "sessionId": "{{sessionId}}"}'
+                      helperText="Handlebars 템플릿 형식으로 작성"
+                    />
+                    
+                    <TextField
+                      label="Response Mappings (JSON)"
+                      value={getSafeResponseMappingString(index)}
+                      onChange={(e) => {
+                        const newStrings = [...responseMappingsStrings];
+                        // 배열 길이가 부족한 경우 확장
+                        while (newStrings.length <= index) {
+                          newStrings.push('{}');
+                        }
+                        newStrings[index] = e.target.value;
+                        setResponseMappingsStrings(newStrings);
+                      }}
+                      multiline
+                      rows={3}
+                      fullWidth
+                      sx={{ mb: 1 }}
+                      placeholder='{"$.nlu.intent": "NLU_INTENT", "$.nlu.confidence": "STS_CONFIDENCE"}'
+                      error={(() => {
+                        const mappingString = getSafeResponseMappingString(index);
+                        return mappingString.trim() !== '' && mappingString !== '{}' && !validateJson(mappingString).isValid;
+                      })()}
+                      helperText={(() => {
+                        const mappingString = getSafeResponseMappingString(index);
+                        const validation = validateJson(mappingString);
+                        if (!validation.isValid && mappingString.trim() !== '' && mappingString !== '{}') {
+                          return `JSON 오류: ${validation.error}`;
+                        }
+                        return "JSONPath 표현식을 사용한 응답 매핑 (예: $.nlu.intent → NLU_INTENT)";
+                      })()}
+                    />
+                    
+                    <TextField
+                      label="전이 대상 State"
+                      value={handler.transitionTarget.dialogState}
+                      onChange={(e) => updateApiCallHandler(index, 'transitionTarget', e.target.value)}
+                      fullWidth
+                    />
+                  </Box>
+                ))}
+                <Button
+                  onClick={addApiCallHandler}
+                  startIcon={<AddIcon />}
+                  variant="outlined"
+                  fullWidth
+                >
+                  API Call 핸들러 추가
+                </Button>
+              </Box>
+            </AccordionDetails>
+          </Accordion>
+
+          {/* Webhook 액션 */}
+          <Accordion>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography variant="h6">
+                Webhook 액션 ({editedState.webhookActions?.length || 0})
+              </Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {editedState.webhookActions?.map((action, index) => (
+                  <Box key={index} sx={{ border: 1, borderColor: 'divider', p: 2, borderRadius: 1 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                      <Typography variant="subtitle2">Webhook {index + 1}</Typography>
+                      <IconButton onClick={() => removeWebhookAction(index)} size="small">
+                        <DeleteIcon />
+                      </IconButton>
+                    </Box>
+                    
+                    <TextField
+                      label="Webhook 이름"
+                      value={action.name}
+                      onChange={(e) => updateWebhookAction(index, e.target.value)}
+                      fullWidth
+                      placeholder="ACT_01_0212"
+                      helperText="표준 형태: ACT_01_0212, ACT_01_0213, ACT_01_0235 등 (TestPanel의 빠른 입력 버튼과 일치)"
+                    />
+                  </Box>
+                ))}
+                <Button
+                  onClick={addWebhookAction}
+                  startIcon={<AddIcon />}
+                  variant="outlined"
+                  fullWidth
+                >
+                  Webhook 액션 추가
                 </Button>
               </Box>
             </AccordionDetails>
