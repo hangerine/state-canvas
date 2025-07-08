@@ -858,8 +858,8 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                       rows={3}
                       fullWidth
                       sx={{ mb: 1 }}
-                      placeholder='{"text": "{{memorySlots.USER_TEXT_INPUT.value.[0]}}", "sessionId": "{{sessionId}}"}'
-                      helperText="Handlebars 템플릿 형식으로 작성"
+                      placeholder='{"text": "{{USER_TEXT_INPUT.[0]}}", "sessionId": "{{sessionId}}", "requestId": "{{requestId}}"}'
+                      helperText="사용 가능한 변수: {{sessionId}}, {{requestId}}, {{USER_TEXT_INPUT.[0]}}, {{memorySlots.KEY.value.[0]}}, {{customKey}} 등"
                     />
                     
                     <TextField

@@ -769,6 +769,12 @@ class StateEngine:
         
         logger.info(f"Processing {len(apicall_handlers)} apicall handlers in state {current_state}")
         
+        # sessionId가 메모리에 없으면 설정
+        if "sessionId" not in memory:
+            import uuid
+            memory["sessionId"] = str(uuid.uuid4())
+            logger.info(f"🆔 Generated sessionId: {memory['sessionId']}")
+        
         for handler in apicall_handlers:
             if not isinstance(handler, dict):
                 logger.warning(f"Apicall handler is not a dict: {handler}")
@@ -781,16 +787,23 @@ class StateEngine:
                     logger.warning(f"No apicall config found in handler: {handler}")
                     continue
                 
+                logger.info(f"🚀 Executing API call: {handler.get('name', 'Unknown')}")
+                logger.info(f"📋 Memory before API call: {memory}")
+                
                 # API 응답 가져오기
                 response_data = await self._execute_api_call(apicall_config, memory)
                 if response_data is None:
                     logger.warning(f"API call failed for handler: {handler}")
                     continue
                 
+                logger.info(f"📥 API response received: {response_data}")
+                
                 # 응답 매핑 처리
                 mappings = apicall_config.get("formats", {}).get("responseMappings", {})
                 if mappings:
                     self._apply_response_mappings(response_data, mappings, memory)
+                
+                logger.info(f"📋 Memory after response mapping: {memory}")
                 
                 # 전이 처리
                 target = handler.get("transitionTarget", {})
@@ -893,10 +906,12 @@ class StateEngine:
     def _process_template(self, template: str, memory: Dict[str, Any]) -> str:
         """Handlebars 스타일 템플릿을 처리합니다."""
         
+        import re
+        import uuid
+        
         result = template
         
         # {{memorySlots.KEY.value.[0]}} 형태 처리
-        import re
         pattern = r'\{\{memorySlots\.([^.]+)\.value\.\[(\d+)\]\}\}'
         matches = re.findall(pattern, template)
         
@@ -912,18 +927,49 @@ class StateEngine:
             
             result = result.replace(f"{{{{memorySlots.{key}.value.[{index}]}}}}", replacement)
         
+        # 특별한 값들 처리
         # {{sessionId}} 처리
-        result = result.replace("{{sessionId}}", memory.get("sessionId", ""))
+        session_id = memory.get("sessionId", "")
+        result = result.replace("{{sessionId}}", session_id)
         
-        # 기타 {{key}} 형태 처리
+        # {{requestId}} 처리 - 메모리에 있으면 사용하고, 없으면 새로 생성
+        if "{{requestId}}" in result:
+            request_id = memory.get("requestId", "")
+            if not request_id:
+                # requestId가 없으면 새로 생성하고 메모리에 저장
+                request_id = f"req-{uuid.uuid4().hex[:8]}"
+                memory["requestId"] = request_id
+                logger.info(f"🆔 Generated new requestId: {request_id}")
+            result = result.replace("{{requestId}}", request_id)
+        
+        # {{USER_TEXT_INPUT.0}} 또는 {{USER_TEXT_INPUT.[0]}} 형태 처리
+        pattern = r'\{\{USER_TEXT_INPUT\.?\[?(\d+)\]?\}\}'
+        matches = re.findall(pattern, result)
+        for index in matches:
+            user_input_list = memory.get("USER_TEXT_INPUT", [])
+            if isinstance(user_input_list, list) and len(user_input_list) > int(index):
+                replacement = str(user_input_list[int(index)])
+            else:
+                replacement = ""
+            # 다양한 형태 모두 대체
+            result = result.replace(f"{{{{USER_TEXT_INPUT.{index}}}}}", replacement)
+            result = result.replace(f"{{{{USER_TEXT_INPUT.[{index}]}}}}", replacement)
+        
+        # 기타 {{key}} 형태 처리 (이미 처리된 것들은 제외)
         pattern = r'\{\{([^}]+)\}\}'
         matches = re.findall(pattern, result)
         
         for key in matches:
+            # 이미 처리된 특별한 키들은 건너뛰기
+            if key in ['sessionId', 'requestId'] or key.startswith('USER_TEXT_INPUT') or key.startswith('memorySlots'):
+                continue
+                
             if key in memory:
                 value = str(memory[key]) if memory[key] is not None else ""
                 result = result.replace(f"{{{{{key}}}}}", value)
+                logger.info(f"🔄 Template replacement: {{{{{key}}}}} -> {value}")
         
+        logger.info(f"📝 Template processing: '{template}' -> '{result}'")
         return result
 
     def _apply_response_mappings(
