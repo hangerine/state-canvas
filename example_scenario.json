@@ -79,6 +79,71 @@
                 "dialogState": "weather_inform_response"
               }
             }
+          ],
+          "apicallHandlers": [
+            {
+              "name": "NLU_API_CALL",
+              "apicall": {
+                "url": "http://localhost:8000/mock/nlu",
+                "timeout": 5000,
+                "retry": 3,
+                "formats": {
+                  "method": "POST",
+                  "requestTemplate": "{\"text\": \"{{USER_TEXT_INPUT.0}}\", \"sessionId\": \"{{sessionId}}\"}",
+                  "responseMappings": {
+                    "NLU_INTENT": "$.NLU_INTENT.value",
+                    "NLU_CONFIDENCE": "$.nlu.confidence"
+                  }
+                }
+              },
+              "transitionTarget": {
+                "scenario": "Main",
+                "dialogState": "nlu_api_response"
+              }
+            }
+          ]
+        },
+        {
+          "name": "nlu_api_response",
+          "entryAction": {
+            "directives": [
+              {
+                "content": {
+                  "record": {
+                    "text": ""
+                  },
+                  "item": [
+                    {
+                      "section": {
+                        "class": "cb-section section_1",
+                        "item": [
+                          {
+                            "text": {
+                              "class": "cb-text text",
+                              "text": "<p>API Call completed! NLU_INTENT: {$NLU_INTENT}, Confidence: {$NLU_CONFIDENCE}</p>"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "templateId": "TM000000000000000001",
+                  "type": "MESSAGE",
+                  "version": "1.0"
+                },
+                "name": "customPayload"
+              }
+            ]
+          },
+          "conditionHandlers": [
+            {
+              "conditionStatement": "True",
+              "action": {},
+              "transitionTarget": {
+                "scenario": "Main",
+                "dialogState": "weather_inform_response"
+              }
+            }
           ]
         },
         {

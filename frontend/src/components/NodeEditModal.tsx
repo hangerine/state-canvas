@@ -382,6 +382,184 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
     });
   };
 
+  // Slot Filling Form 관리 함수들
+  const addSlotFillingForm = () => {
+    const newSlot = {
+      name: "NEW_SLOT",
+      required: "Y",
+      memorySlotKey: [],
+      fillBehavior: {
+        promptAction: {
+          directives: [
+            {
+              name: "customPayload",
+              content: {
+                record: { text: "" },
+                item: [{
+                  section: {
+                    class: "cb-section section_1",
+                    item: [{
+                      text: {
+                        class: "cb-text text",
+                        text: "<p>슬롯 값을 입력해주세요.</p>"
+                      }
+                    }]
+                  }
+                }],
+                templateId: "TM000000000000000001",
+                type: "MESSAGE",
+                version: "1.0"
+              }
+            }
+          ]
+        },
+        repromptEventHandlers: [
+          {
+            event: {
+              type: "NO_MATCH_EVENT",
+              count: "0"
+            },
+            action: {
+              directives: [
+                {
+                  name: "customPayload",
+                  content: {
+                    record: { text: "" },
+                    item: [{
+                      section: {
+                        class: "cb-section section_1",
+                        item: [{
+                          text: {
+                            class: "cb-text text",
+                            text: "<p>올바른 값을 입력해주세요.</p>"
+                          }
+                        }]
+                      }
+                    }],
+                    templateId: "TM000000000000000001",
+                    type: "MESSAGE",
+                    version: "1.0"
+                  }
+                }
+              ]
+            },
+            transitionTarget: {
+              scenario: "",
+              dialogState: "__CURRENT_DIALOG_STATE__"
+            }
+          }
+        ]
+      }
+    };
+    
+    setEditedState({
+      ...editedState,
+      slotFillingForm: [...(editedState.slotFillingForm || []), newSlot]
+    });
+  };
+
+  const removeSlotFillingForm = (index: number) => {
+    const updated = editedState.slotFillingForm?.filter((_, i) => i !== index) || [];
+    setEditedState({
+      ...editedState,
+      slotFillingForm: updated
+    });
+  };
+
+  const updateSlotFillingForm = (index: number, field: string, value: any) => {
+    const updated = editedState.slotFillingForm?.map((slot, i) => {
+      if (i === index) {
+        if (field === 'name') {
+          return { ...slot, name: value };
+        } else if (field === 'required') {
+          return { ...slot, required: value };
+        } else if (field === 'memorySlotKey') {
+          return { ...slot, memorySlotKey: value };
+        } else if (field === 'promptContent') {
+          return {
+            ...slot,
+            fillBehavior: {
+              ...slot.fillBehavior,
+              promptAction: {
+                directives: [
+                  {
+                    name: "customPayload",
+                    content: {
+                      record: { text: "" },
+                      item: [{
+                        section: {
+                          class: "cb-section section_1",
+                          item: [{
+                            text: {
+                              class: "cb-text text",
+                              text: `<p>${value}</p>`
+                            }
+                          }]
+                        }
+                      }],
+                      templateId: "TM000000000000000001",
+                      type: "MESSAGE",
+                      version: "1.0"
+                    }
+                  }
+                ]
+              }
+            }
+          };
+        } else if (field === 'repromptContent') {
+          return {
+            ...slot,
+            fillBehavior: {
+              ...slot.fillBehavior,
+              repromptEventHandlers: [
+                {
+                  event: {
+                    type: "NO_MATCH_EVENT",
+                    count: "0"
+                  },
+                  action: {
+                    directives: [
+                      {
+                        name: "customPayload",
+                        content: {
+                          record: { text: "" },
+                          item: [{
+                            section: {
+                              class: "cb-section section_1",
+                              item: [{
+                                text: {
+                                  class: "cb-text text",
+                                  text: `<p>${value}</p>`
+                                }
+                              }]
+                            }
+                          }],
+                          templateId: "TM000000000000000001",
+                          type: "MESSAGE",
+                          version: "1.0"
+                        }
+                      }
+                    ]
+                  },
+                  transitionTarget: {
+                    scenario: "",
+                    dialogState: "__CURRENT_DIALOG_STATE__"
+                  }
+                }
+              ]
+            }
+          };
+        }
+      }
+      return slot;
+    }) || [];
+    
+    setEditedState({
+      ...editedState,
+      slotFillingForm: updated
+    });
+  };
+
   // 이벤트 타입 값을 안전하게 가져오는 헬퍼 함수 (개선)
   const getEventType = (event: any): string => {
     if (!event) return '';
@@ -413,6 +591,37 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
       };
     }
     return handler;
+  };
+
+  // Slot Filling Form 헬퍼 함수들
+  const getSlotPromptContent = (slot: any): string => {
+    try {
+      const content = slot.fillBehavior?.promptAction?.directives?.[0]?.content;
+      if (typeof content === 'string') {
+        return content;
+      } else if (typeof content === 'object' && content?.item?.[0]?.section?.item?.[0]?.text?.text) {
+        // HTML 태그 제거하고 텍스트만 추출
+        return content.item[0].section.item[0].text.text.replace(/<[^>]*>/g, '');
+      }
+      return '';
+    } catch (e) {
+      return '';
+    }
+  };
+
+  const getSlotRepromptContent = (slot: any): string => {
+    try {
+      const content = slot.fillBehavior?.repromptEventHandlers?.[0]?.action?.directives?.[0]?.content;
+      if (typeof content === 'string') {
+        return content;
+      } else if (typeof content === 'object' && content?.item?.[0]?.section?.item?.[0]?.text?.text) {
+        // HTML 태그 제거하고 텍스트만 추출
+        return content.item[0].section.item[0].text.text.replace(/<[^>]*>/g, '');
+      }
+      return '';
+    } catch (e) {
+      return '';
+    }
   };
 
   return (
@@ -669,7 +878,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                       rows={3}
                       fullWidth
                       sx={{ mb: 1 }}
-                      placeholder='{"$.nlu.intent": "NLU_INTENT", "$.nlu.confidence": "STS_CONFIDENCE"}'
+                      placeholder='{"NLU_INTENT": "$.nlu.intent", "STS_CONFIDENCE": "$.nlu.confidence"}'
                       error={(() => {
                         const mappingString = getSafeResponseMappingString(index);
                         return mappingString.trim() !== '' && mappingString !== '{}' && !validateJson(mappingString).isValid;
@@ -680,7 +889,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                         if (!validation.isValid && mappingString.trim() !== '' && mappingString !== '{}') {
                           return `JSON 오류: ${validation.error}`;
                         }
-                        return "JSONPath 표현식을 사용한 응답 매핑 (예: $.nlu.intent → NLU_INTENT)";
+                        return "JSONPath 표현식을 사용한 응답 매핑 (예: NLU_INTENT: $.nlu.intent)";
                       })()}
                     />
                     
@@ -739,6 +948,92 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                   fullWidth
                 >
                   Webhook 액션 추가
+                </Button>
+              </Box>
+            </AccordionDetails>
+          </Accordion>
+
+          {/* Slot Filling Form */}
+          <Accordion>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography variant="h6">
+                Slot Filling Form ({editedState.slotFillingForm?.length || 0})
+              </Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {editedState.slotFillingForm?.map((slot, index) => (
+                  <Box key={index} sx={{ border: 1, borderColor: 'divider', p: 2, borderRadius: 1 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                      <Typography variant="subtitle2">Slot {index + 1}</Typography>
+                      <IconButton onClick={() => removeSlotFillingForm(index)} size="small">
+                        <DeleteIcon />
+                      </IconButton>
+                    </Box>
+                    
+                    <TextField
+                      label="슬롯 이름"
+                      value={slot.name}
+                      onChange={(e) => updateSlotFillingForm(index, 'name', e.target.value)}
+                      fullWidth
+                      sx={{ mb: 1 }}
+                      placeholder="MYCITY"
+                    />
+                    
+                    <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
+                      <FormControl sx={{ minWidth: 120 }}>
+                        <InputLabel>필수 여부</InputLabel>
+                        <Select
+                          value={slot.required}
+                          label="필수 여부"
+                          onChange={(e) => updateSlotFillingForm(index, 'required', e.target.value)}
+                        >
+                          <MenuItem value="Y">필수 (Y)</MenuItem>
+                          <MenuItem value="N">선택 (N)</MenuItem>
+                        </Select>
+                      </FormControl>
+                      
+                      <TextField
+                        label="Memory Slot Keys (쉼표로 구분)"
+                        value={slot.memorySlotKey?.join(', ') || ''}
+                        onChange={(e) => updateSlotFillingForm(index, 'memorySlotKey', e.target.value.split(',').map(k => k.trim()).filter(k => k))}
+                        sx={{ flex: 1 }}
+                        placeholder="CITY:CITY, LOCATION:LOCATION"
+                        helperText="쉼표로 구분하여 여러 키 입력 가능"
+                      />
+                    </Box>
+                    
+                    <TextField
+                      label="Prompt Action Content"
+                      value={getSlotPromptContent(slot)}
+                      onChange={(e) => updateSlotFillingForm(index, 'promptContent', e.target.value)}
+                      multiline
+                      rows={3}
+                      fullWidth
+                      sx={{ mb: 1 }}
+                      placeholder="슬롯을 채우기 위한 프롬프트 메시지를 입력하세요"
+                      helperText="사용자에게 슬롯 값을 요청할 때 표시되는 메시지"
+                    />
+                    
+                    <TextField
+                      label="Reprompt Content (재요청 메시지)"
+                      value={getSlotRepromptContent(slot)}
+                      onChange={(e) => updateSlotFillingForm(index, 'repromptContent', e.target.value)}
+                      multiline
+                      rows={2}
+                      fullWidth
+                      placeholder="슬롯 값을 다시 요청할 때 표시되는 메시지"
+                      helperText="NO_MATCH_EVENT 발생 시 표시되는 재요청 메시지"
+                    />
+                  </Box>
+                ))}
+                <Button
+                  onClick={addSlotFillingForm}
+                  startIcon={<AddIcon />}
+                  variant="outlined"
+                  fullWidth
+                >
+                  Slot Filling Form 추가
                 </Button>
               </Box>
             </AccordionDetails>

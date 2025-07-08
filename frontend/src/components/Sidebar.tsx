@@ -409,6 +409,142 @@ const Sidebar: React.FC<SidebarProps> = ({
               )) || <Typography variant="caption">없음</Typography>}
             </AccordionDetails>
           </Accordion>
+
+          <Accordion>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography variant="body2">Entry Action</Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              {selectedNode.data.dialogState.entryAction ? (
+                <Box sx={{ p: 1, bgcolor: '#f9f9f9', borderRadius: 1 }}>
+                  {selectedNode.data.dialogState.entryAction.directives?.map((directive, idx) => (
+                    <Box key={idx} sx={{ mb: 1 }}>
+                      <Typography variant="caption" display="block" sx={{ fontWeight: 'bold' }}>
+                        {directive.name}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ 
+                        display: 'block',
+                        maxHeight: '100px',
+                        overflow: 'auto',
+                        fontSize: '0.7rem',
+                        whiteSpace: 'pre-wrap'
+                      }}>
+                        {typeof directive.content === 'string' 
+                          ? directive.content 
+                          : JSON.stringify(directive.content, null, 2)}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              ) : (
+                <Typography variant="caption">없음</Typography>
+              )}
+            </AccordionDetails>
+          </Accordion>
+
+          <Accordion>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography variant="body2">API Call Handlers</Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              {selectedNode.data.dialogState.apicallHandlers?.map((handler, idx) => (
+                <Box key={idx} sx={{ mb: 2, p: 1, bgcolor: '#f9f9f9', borderRadius: 1 }}>
+                  <Typography variant="caption" display="block" sx={{ fontWeight: 'bold', mb: 1 }}>
+                    {handler.name}
+                  </Typography>
+                  <Typography variant="caption" display="block" color="text.secondary">
+                    URL: {handler.apicall.url}
+                  </Typography>
+                  <Typography variant="caption" display="block" color="text.secondary">
+                    Method: {handler.apicall.formats.method}
+                  </Typography>
+                  <Typography variant="caption" display="block" color="text.secondary">
+                    Timeout: {handler.apicall.timeout}ms
+                  </Typography>
+                  {handler.apicall.formats.requestTemplate && (
+                    <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 1 }}>
+                      Request Template:
+                    </Typography>
+                  )}
+                  {handler.apicall.formats.requestTemplate && (
+                    <Typography variant="caption" sx={{ 
+                      display: 'block',
+                      maxHeight: '60px',
+                      overflow: 'auto',
+                      fontSize: '0.65rem',
+                      bgcolor: '#fff',
+                      p: 0.5,
+                      borderRadius: 0.5,
+                      fontFamily: 'monospace'
+                    }}>
+                      {handler.apicall.formats.requestTemplate}
+                    </Typography>
+                  )}
+                  {handler.apicall.formats.responseMappings && Object.keys(handler.apicall.formats.responseMappings).length > 0 && (
+                    <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 1 }}>
+                      Response Mappings:
+                    </Typography>
+                  )}
+                  {handler.apicall.formats.responseMappings && Object.keys(handler.apicall.formats.responseMappings).length > 0 && (
+                    <Box sx={{ 
+                      maxHeight: '60px',
+                      overflow: 'auto',
+                      fontSize: '0.65rem',
+                      bgcolor: '#fff',
+                      p: 0.5,
+                      borderRadius: 0.5,
+                      fontFamily: 'monospace'
+                    }}>
+                      {Object.entries(handler.apicall.formats.responseMappings).map(([key, value]) => (
+                        <Typography key={key} variant="caption" display="block">
+                          {key}: {value}
+                        </Typography>
+                      ))}
+                    </Box>
+                  )}
+                  <Typography variant="caption" display="block" color="primary.main" sx={{ mt: 1 }}>
+                    → {handler.transitionTarget.dialogState}
+                  </Typography>
+                </Box>
+              )) || <Typography variant="caption">없음</Typography>}
+            </AccordionDetails>
+          </Accordion>
+
+          <Accordion>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography variant="body2">Webhook Actions</Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              {selectedNode.data.dialogState.webhookActions?.map((webhook, idx) => (
+                <Box key={idx} sx={{ mb: 1 }}>
+                  <Chip 
+                    label={webhook.name} 
+                    size="small" 
+                    color="info" 
+                    variant="outlined"
+                  />
+                </Box>
+              )) || <Typography variant="caption">없음</Typography>}
+            </AccordionDetails>
+          </Accordion>
+
+          <Accordion>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography variant="body2">Slot Filling Form</Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              {selectedNode.data.dialogState.slotFillingForm?.map((slot, idx) => (
+                <Box key={idx} sx={{ mb: 1, p: 1, bgcolor: '#f9f9f9', borderRadius: 1 }}>
+                  <Typography variant="caption" display="block" sx={{ fontWeight: 'bold' }}>
+                    {slot.name} {slot.required === 'Y' && <span style={{ color: 'red' }}>*</span>}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Memory Keys: {slot.memorySlotKey?.join(', ') || 'None'}
+                  </Typography>
+                </Box>
+              )) || <Typography variant="caption">없음</Typography>}
+            </AccordionDetails>
+          </Accordion>
         </Paper>
       )}
     </Box>

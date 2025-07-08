@@ -937,7 +937,7 @@ class StateEngine:
         logger.info(f"📋 Applying response mappings to data: {response_data}")
         logger.info(f"📋 Mappings: {mappings}")
         
-        for jsonpath_expr, memory_key in mappings.items():
+        for memory_key, jsonpath_expr in mappings.items():
             try:
                 # JSONPath 파싱 및 실행
                 jsonpath_parser = parse(jsonpath_expr)
@@ -951,7 +951,7 @@ class StateEngine:
                     processed_value = self._normalize_response_value(raw_value)
                     
                     memory[memory_key] = processed_value
-                    logger.info(f"✅ Mapped {jsonpath_expr} -> {memory_key}: {processed_value} (raw: {raw_value})")
+                    logger.info(f"✅ Mapped {memory_key} <- {jsonpath_expr}: {processed_value} (raw: {raw_value})")
                 else:
                     logger.warning(f"❌ No matches found for JSONPath: {jsonpath_expr}")
                     logger.info(f"🔍 Available paths in response: {self._get_all_paths(response_data)}")
