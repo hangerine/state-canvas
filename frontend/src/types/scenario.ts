@@ -28,6 +28,7 @@ export interface ApiCallFormats {
   requestTemplate?: string;
   responseSchema?: Record<string, any>;
   responseMappings?: Record<string, string>;
+  headers?: Record<string, string>;
 }
 
 export interface ApiCall {

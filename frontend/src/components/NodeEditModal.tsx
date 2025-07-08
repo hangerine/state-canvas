@@ -16,6 +16,8 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
+  Chip,
+  Grid,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -281,7 +283,10 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
           method: "POST",
           requestTemplate: "",
           responseSchema: {},
-          responseMappings: {}
+          responseMappings: {},
+          headers: {
+            "Content-Type": "application/json"
+          }
         }
       },
       transitionTarget: { scenario: "", dialogState: "" }
@@ -308,6 +313,52 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
     setResponseMappingsStrings(updatedStrings);
   };
 
+  // 헤더 관리 함수들
+  const addHeaderToApiCall = (apiCallIndex: number, key: string = '', value: string = '') => {
+    const handler = editedState.apicallHandlers?.[apiCallIndex];
+    if (!handler) return;
+
+    const currentHeaders = handler.apicall.formats.headers || {};
+    const newHeaders = { ...currentHeaders, [key]: value };
+    
+    updateApiCallHandler(apiCallIndex, 'headers', newHeaders);
+  };
+
+  const removeHeaderFromApiCall = (apiCallIndex: number, headerKey: string) => {
+    const handler = editedState.apicallHandlers?.[apiCallIndex];
+    if (!handler) return;
+
+    const currentHeaders = handler.apicall.formats.headers || {};
+    const { [headerKey]: removed, ...newHeaders } = currentHeaders;
+    
+    updateApiCallHandler(apiCallIndex, 'headers', newHeaders);
+  };
+
+  const updateHeaderInApiCall = (apiCallIndex: number, oldKey: string, newKey: string, newValue: string) => {
+    const handler = editedState.apicallHandlers?.[apiCallIndex];
+    if (!handler) return;
+
+    const currentHeaders = handler.apicall.formats.headers || {};
+    const newHeaders = { ...currentHeaders };
+    
+    if (oldKey !== newKey) {
+      delete newHeaders[oldKey];
+    }
+    newHeaders[newKey] = newValue;
+    
+    updateApiCallHandler(apiCallIndex, 'headers', newHeaders);
+  };
+
+  // 기본 헤더 옵션들
+  const defaultHeaderOptions = [
+    { key: 'Content-Type', value: 'application/json' },
+    { key: 'Accept', value: 'application/json' },
+    { key: 'Authorization', value: 'Bearer ' },
+    { key: 'User-Agent', value: 'StateCanvas/1.0' },
+    { key: 'X-Requested-With', value: 'XMLHttpRequest' },
+    { key: 'Cache-Control', value: 'no-cache' },
+  ];
+
   const updateApiCallHandler = (index: number, field: string, value: any) => {
     const updated = editedState.apicallHandlers?.map((handler, i) => {
       if (i === index) {
@@ -333,6 +384,14 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
             apicall: { 
               ...handler.apicall, 
               formats: { ...handler.apicall.formats, requestTemplate: value } 
+            } 
+          };
+        } else if (field === 'headers') {
+          return { 
+            ...handler, 
+            apicall: { 
+              ...handler.apicall, 
+              formats: { ...handler.apicall.formats, headers: value } 
             } 
           };
         } else if (field === 'transitionTarget') {
@@ -792,7 +851,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
             <AccordionDetails>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {editedState.apicallHandlers?.map((handler, index) => (
-                  <Box key={index} sx={{ border: 1, borderColor: 'divider', p: 2, borderRadius: 1 }}>
+                  <Box key={index} data-api-call-index={index} sx={{ border: 1, borderColor: 'divider', p: 2, borderRadius: 1 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                       <Typography variant="subtitle2">API Call {index + 1}</Typography>
                       <IconButton onClick={() => removeApiCallHandler(index)} size="small">
@@ -861,6 +920,130 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                       placeholder='{"text": "{{USER_TEXT_INPUT.[0]}}", "sessionId": "{{sessionId}}", "requestId": "{{requestId}}"}'
                       helperText="사용 가능한 변수: {{sessionId}}, {{requestId}}, {{USER_TEXT_INPUT.[0]}}, {{memorySlots.KEY.value.[0]}}, {{customKey}} 등"
                     />
+
+                    {/* Headers 설정 */}
+                    <Box sx={{ mb: 1 }}>
+                      <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                        HTTP Headers
+                      </Typography>
+                      
+                      {/* 기본 헤더 선택 */}
+                      <Box sx={{ mb: 1 }}>
+                        <Typography variant="caption" sx={{ display: 'block', mb: 0.5 }}>
+                          기본 헤더 추가:
+                        </Typography>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                          {defaultHeaderOptions.map((option) => (
+                            <Chip
+                              key={option.key}
+                              label={`${option.key}: ${option.value}`}
+                              variant="outlined"
+                              size="small"
+                              clickable
+                              onClick={() => addHeaderToApiCall(index, option.key, option.value)}
+                              sx={{ fontSize: '0.7rem' }}
+                            />
+                          ))}
+                        </Box>
+                      </Box>
+
+                      {/* 현재 헤더 목록 */}
+                      <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1, minHeight: 60, bgcolor: '#f9f9f9' }}>
+                        {Object.entries(handler.apicall.formats.headers || {}).length === 0 ? (
+                          <Typography variant="caption" color="text.secondary">
+                            설정된 헤더가 없습니다. 위의 기본 헤더를 선택하거나 아래에서 커스텀 헤더를 추가하세요.
+                          </Typography>
+                        ) : (
+                          <Grid container spacing={1}>
+                            {Object.entries(handler.apicall.formats.headers || {}).map(([key, value]) => (
+                              <Grid item xs={12} key={key}>
+                                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                                  <TextField
+                                    size="small"
+                                    label="Key"
+                                    value={key}
+                                    onChange={(e) => updateHeaderInApiCall(index, key, e.target.value, value as string)}
+                                    sx={{ flex: 1 }}
+                                  />
+                                  <TextField
+                                    size="small"
+                                    label="Value"
+                                    value={value as string}
+                                    onChange={(e) => updateHeaderInApiCall(index, key, key, e.target.value)}
+                                    sx={{ flex: 2 }}
+                                  />
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => removeHeaderFromApiCall(index, key)}
+                                    color="error"
+                                  >
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                </Box>
+                              </Grid>
+                            ))}
+                          </Grid>
+                        )}
+                      </Box>
+
+                      {/* 커스텀 헤더 추가 */}
+                      <Box sx={{ mt: 1, display: 'flex', gap: 1, alignItems: 'center' }}>
+                        <TextField
+                          size="small"
+                          placeholder="Header Key"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              const target = e.target as HTMLInputElement;
+                              const valueInput = target.parentElement?.nextElementSibling?.querySelector('input') as HTMLInputElement;
+                              const key = target.value.trim();
+                              const value = valueInput?.value.trim() || '';
+                              if (key) {
+                                addHeaderToApiCall(index, key, value);
+                                target.value = '';
+                                if (valueInput) valueInput.value = '';
+                              }
+                            }
+                          }}
+                          sx={{ flex: 1 }}
+                        />
+                        <TextField
+                          size="small"
+                          placeholder="Header Value"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              const target = e.target as HTMLInputElement;
+                              const keyInput = target.parentElement?.previousElementSibling?.querySelector('input') as HTMLInputElement;
+                              const key = keyInput?.value.trim() || '';
+                              const value = target.value.trim();
+                              if (key) {
+                                addHeaderToApiCall(index, key, value);
+                                if (keyInput) keyInput.value = '';
+                                target.value = '';
+                              }
+                            }
+                          }}
+                          sx={{ flex: 2 }}
+                        />
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => {
+                            const container = document.querySelector(`[data-api-call-index="${index}"]`);
+                            const keyInput = container?.querySelector('input[placeholder="Header Key"]') as HTMLInputElement;
+                            const valueInput = container?.querySelector('input[placeholder="Header Value"]') as HTMLInputElement;
+                            const key = keyInput?.value.trim() || '';
+                            const value = valueInput?.value.trim() || '';
+                            if (key) {
+                              addHeaderToApiCall(index, key, value);
+                              if (keyInput) keyInput.value = '';
+                              if (valueInput) valueInput.value = '';
+                            }
+                          }}
+                        >
+                          추가
+                        </Button>
+                      </Box>
+                    </Box>
                     
                     <TextField
                       label="Response Mappings (JSON)"

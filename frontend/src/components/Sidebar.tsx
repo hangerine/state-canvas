@@ -502,6 +502,28 @@ const Sidebar: React.FC<SidebarProps> = ({
                       ))}
                     </Box>
                   )}
+                  {handler.apicall.formats.headers && Object.keys(handler.apicall.formats.headers).length > 0 && (
+                    <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 1 }}>
+                      Headers:
+                    </Typography>
+                  )}
+                  {handler.apicall.formats.headers && Object.keys(handler.apicall.formats.headers).length > 0 && (
+                    <Box sx={{ 
+                      maxHeight: '60px',
+                      overflow: 'auto',
+                      fontSize: '0.65rem',
+                      bgcolor: '#fff',
+                      p: 0.5,
+                      borderRadius: 0.5,
+                      fontFamily: 'monospace'
+                    }}>
+                      {Object.entries(handler.apicall.formats.headers).map(([key, value]) => (
+                        <Typography key={key} variant="caption" display="block">
+                          {key}: {value}
+                        </Typography>
+                      ))}
+                    </Box>
+                  )}
                   <Typography variant="caption" display="block" color="primary.main" sx={{ mt: 1 }}>
                     → {handler.transitionTarget.dialogState}
                   </Typography>

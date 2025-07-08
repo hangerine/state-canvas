@@ -23,12 +23,13 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Grid,
 } from '@mui/material';
 import { 
   ContentCopy as CopyIcon, 
   Fullscreen as FullscreenIcon,
   Close as CloseIcon,
-  DragIndicator as DragIcon,
+  Delete as DeleteIcon,
 } from '@mui/icons-material';
 import { Scenario } from '../types/scenario';
 import axios from 'axios';
@@ -63,13 +64,14 @@ const TestPanel: React.FC<TestPanelProps> = ({
   const [apiTestUrl, setApiTestUrl] = useState('');
   const [apiTestMethod, setApiTestMethod] = useState<'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH'>('POST');
   const [apiTestRequestBody, setApiTestRequestBody] = useState('');
+  const [apiTestHeaders, setApiTestHeaders] = useState<Record<string, string>>({
+    'Content-Type': 'application/json'
+  });
   const [apiTestResponse, setApiTestResponse] = useState<any>(null);
   const [apiTestLoading, setApiTestLoading] = useState(false);
 
-  // 전체화면 모달 및 크기 조정 관련 상태
+  // 전체화면 모달 관련 상태
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
-  const [apiPanelHeight, setApiPanelHeight] = useState(300); // 초기 높이 300px
-  const [isDragging, setIsDragging] = useState(false);
 
   // 메시지 스크롤을 위한 ref
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -480,53 +482,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
   };
 
   // API 테스트 관련 함수들
-  // 크기 조정 관련 핸들러
-  const handleMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
 
-  const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (!isDragging) return;
-    
-    // 패널의 상대적 위치 계산
-    const rect = document.getElementById('test-panel-container')?.getBoundingClientRect();
-    if (!rect) return;
-    
-    // 마우스 Y 위치에서 패널 상단까지의 거리 - 헤더와 탭 영역 제외 (약 120px)
-    const headerHeight = 120;
-    const mouseY = e.clientY - rect.top - headerHeight;
-    const maxHeight = rect.height - headerHeight - 100; // 최소 100px는 입력 영역용으로 남김
-    
-    const newHeight = Math.max(200, Math.min(maxHeight * 0.8, mouseY));
-    setApiPanelHeight(newHeight);
-  }, [isDragging]);
-
-  const handleMouseUp = useCallback(() => {
-    setIsDragging(false);
-  }, []);
-
-  // 마우스 이벤트 리스너 등록/해제
-  useEffect(() => {
-    if (isDragging) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = 'ns-resize';
-      document.body.style.userSelect = 'none';
-    } else {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    }
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-  }, [isDragging, handleMouseMove, handleMouseUp]);
 
   const handleApiTest = async () => {
     if (!apiTestUrl.trim()) {
@@ -541,9 +497,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
       const config: any = {
         method: apiTestMethod.toLowerCase(),
         url: apiTestUrl,
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { ...apiTestHeaders },
       };
 
       if (apiTestMethod !== 'GET' && apiTestRequestBody.trim()) {
@@ -574,6 +528,44 @@ const TestPanel: React.FC<TestPanelProps> = ({
     }
   };
 
+  // 헤더 관리 함수들
+  const addApiTestHeader = (key: string = '', value: string = '') => {
+    if (key.trim()) {
+      setApiTestHeaders(prev => ({
+        ...prev,
+        [key]: value
+      }));
+    }
+  };
+
+  const removeApiTestHeader = (key: string) => {
+    setApiTestHeaders(prev => {
+      const { [key]: removed, ...rest } = prev;
+      return rest;
+    });
+  };
+
+  const updateApiTestHeader = (oldKey: string, newKey: string, newValue: string) => {
+    setApiTestHeaders(prev => {
+      const updated = { ...prev };
+      if (oldKey !== newKey) {
+        delete updated[oldKey];
+      }
+      updated[newKey] = newValue;
+      return updated;
+    });
+  };
+
+  // 기본 헤더 옵션들
+  const defaultApiTestHeaderOptions = [
+    { key: 'Content-Type', value: 'application/json' },
+    { key: 'Accept', value: 'application/json' },
+    { key: 'Authorization', value: 'Bearer ' },
+    { key: 'User-Agent', value: 'StateCanvas/1.0' },
+    { key: 'X-Requested-With', value: 'XMLHttpRequest' },
+  ];
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const generateJsonPath = (obj: any, path: string = '$'): string[] => {
     const paths: string[] = [];
     
@@ -617,7 +609,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
       const cleanPath = path.replace(/^\$\.?/, ''); // $ 제거
       if (!cleanPath) return obj;
       
-      const parts = cleanPath.split(/[.\[\]]+/).filter(Boolean);
+      const parts = cleanPath.split(/[.[\]]+/).filter(Boolean);
       let current = obj;
       
       for (const part of parts) {
@@ -1168,9 +1160,24 @@ const TestPanel: React.FC<TestPanelProps> = ({
 
         {currentTab === 1 && (
           // API 테스트 탭
-          <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2, minHeight: 0 }}>
+          <Box sx={{ 
+            flex: 1, 
+            display: 'flex', 
+            flexDirection: 'column', 
+            gap: 1.5,
+            minHeight: 0,
+            height: '100%',
+            overflow: 'auto',
+            pb: 4
+          }}>
             {/* API 요청 설정 */}
-            <Paper sx={{ p: 2, flexShrink: 0 }}>
+            <Paper sx={{ 
+              p: 2, 
+              flexShrink: 0, 
+              overflow: 'visible',
+              border: '1px solid',
+              borderColor: 'divider'
+            }}>
               <Typography variant="h6" sx={{ mb: 2 }}>
                 API 요청 설정
               </Typography>
@@ -1198,45 +1205,202 @@ const TestPanel: React.FC<TestPanelProps> = ({
                   placeholder="http://example.com/api/endpoint"
                   sx={{ flex: 1 }}
                 />
-                
-                <Button
-                  variant="contained"
-                  onClick={handleApiTest}
-                  disabled={apiTestLoading || !apiTestUrl.trim()}
-                >
-                  {apiTestLoading ? '전송중...' : '테스트'}
-                </Button>
               </Box>
               
+              {/* Headers 설정 */}
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="subtitle1" sx={{ mb: 1 }}>
+                  HTTP Headers
+                </Typography>
+                
+                {/* 기본 헤더 선택 */}
+                <Box sx={{ mb: 1.5 }}>
+                  <Typography variant="caption" sx={{ display: 'block', mb: 0.5, color: 'text.secondary' }}>
+                    빠른 헤더 추가:
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, maxHeight: 60, overflow: 'auto' }}>
+                    {defaultApiTestHeaderOptions.map((option) => (
+                      <Chip
+                        key={option.key}
+                        label={`${option.key}`}
+                        variant="outlined"
+                        size="small"
+                        clickable
+                        onClick={() => addApiTestHeader(option.key, option.value)}
+                        sx={{ fontSize: '0.7rem' }}
+                      />
+                    ))}
+                  </Box>
+                </Box>
+
+                {/* 현재 헤더 목록 */}
+                <Box sx={{ 
+                  border: 1, 
+                  borderColor: 'divider', 
+                  borderRadius: 1, 
+                  p: 1, 
+                  minHeight: 60, 
+                  maxHeight: 150,
+                  overflow: 'auto',
+                  bgcolor: '#f9f9f9', 
+                  mb: 1 
+                }}>
+                  {Object.entries(apiTestHeaders).length === 0 ? (
+                    <Typography variant="caption" color="text.secondary">
+                      설정된 헤더가 없습니다. 위의 기본 헤더를 선택하거나 아래에서 커스텀 헤더를 추가하세요.
+                    </Typography>
+                  ) : (
+                    <Grid container spacing={1}>
+                      {Object.entries(apiTestHeaders).map(([key, value]) => (
+                        <Grid item xs={12} key={key}>
+                          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                            <TextField
+                              size="small"
+                              label="Key"
+                              value={key}
+                              onChange={(e) => updateApiTestHeader(key, e.target.value, value)}
+                              sx={{ flex: 1 }}
+                            />
+                            <TextField
+                              size="small"
+                              label="Value"
+                              value={value}
+                              onChange={(e) => updateApiTestHeader(key, key, e.target.value)}
+                              sx={{ flex: 2 }}
+                            />
+                            <IconButton
+                              size="small"
+                              onClick={() => removeApiTestHeader(key)}
+                              color="error"
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </Box>
+                        </Grid>
+                      ))}
+                    </Grid>
+                  )}
+                </Box>
+
+                {/* 커스텀 헤더 추가 */}
+                <Box sx={{ 
+                  display: 'flex', 
+                  gap: 1, 
+                  alignItems: 'center',
+                  bgcolor: '#f5f5f5',
+                  p: 1,
+                  borderRadius: 1,
+                  border: '1px dashed',
+                  borderColor: 'divider'
+                }}>
+                  <Typography variant="caption" sx={{ minWidth: 60, color: 'text.secondary' }}>
+                    커스텀:
+                  </Typography>
+                  <TextField
+                    size="small"
+                    placeholder="Key"
+                    id="custom-header-key"
+                    sx={{ flex: 1 }}
+                  />
+                  <TextField
+                    size="small"
+                    placeholder="Value"
+                    id="custom-header-value"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const keyInput = document.getElementById('custom-header-key') as HTMLInputElement;
+                        const valueInput = e.target as HTMLInputElement;
+                        const key = keyInput?.value.trim() || '';
+                        const value = valueInput.value.trim();
+                        if (key) {
+                          addApiTestHeader(key, value);
+                          keyInput.value = '';
+                          valueInput.value = '';
+                        }
+                      }
+                    }}
+                    sx={{ flex: 1.5 }}
+                  />
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => {
+                      const keyInput = document.getElementById('custom-header-key') as HTMLInputElement;
+                      const valueInput = document.getElementById('custom-header-value') as HTMLInputElement;
+                      const key = keyInput?.value.trim() || '';
+                      const value = valueInput?.value.trim() || '';
+                      if (key) {
+                        addApiTestHeader(key, value);
+                        keyInput.value = '';
+                        valueInput.value = '';
+                      }
+                    }}
+                    sx={{ minWidth: 60 }}
+                  >
+                    추가
+                  </Button>
+                </Box>
+              </Box>
+
+              {/* Request Body 섹션 */}
               {apiTestMethod !== 'GET' && (
-                <TextField
-                  label="Request Body (JSON)"
-                  value={apiTestRequestBody}
-                  onChange={(e) => setApiTestRequestBody(e.target.value)}
-                  multiline
-                  rows={4}
-                  fullWidth
-                  placeholder='{"key": "value"}'
-                />
+                <Box sx={{ mb: 0 }}>
+                  <Typography variant="subtitle1" sx={{ mb: 1 }}>
+                    Request Body
+                  </Typography>
+                  <TextField
+                    label="Request Body (JSON)"
+                    value={apiTestRequestBody}
+                    onChange={(e) => setApiTestRequestBody(e.target.value)}
+                    multiline
+                    rows={3}
+                    fullWidth
+                    placeholder='{"key": "value"}'
+                    sx={{
+                      '& .MuiInputBase-root': {
+                        fontSize: '0.875rem'
+                      }
+                    }}
+                  />
+                </Box>
               )}
             </Paper>
 
+            {/* 전송 버튼 섹션 - Paper 밖으로 이동하여 항상 보이도록 */}
+            <Box sx={{ 
+              display: 'flex', 
+              justifyContent: 'flex-end', 
+              p: 1.5,
+              bgcolor: '#f5f5f5',
+              borderRadius: 1,
+              border: '1px solid',
+              borderColor: 'divider',
+              flexShrink: 0
+            }}>
+              <Button
+                variant="contained"
+                onClick={handleApiTest}
+                disabled={apiTestLoading || !apiTestUrl.trim()}
+                size="large"
+                sx={{ minWidth: 200 }}
+              >
+                {apiTestLoading ? '전송중...' : 'API 테스트 실행'}
+              </Button>
+            </Box>
+
             {/* API 응답 */}
             {apiTestResponse && (
-              <>
-                {/* 크기 조정 가능한 API 응답 패널 */}
-                <Paper 
-                  sx={{ 
-                    height: `${apiPanelHeight}px`,
-                    minHeight: '200px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    position: 'relative',
-                    border: isDragging ? '2px solid #1976d2' : '1px solid',
-                    borderColor: isDragging ? '#1976d2' : 'divider',
-                    transition: isDragging ? 'none' : 'border-color 0.2s',
-                  }}
-                >
+              <Paper 
+                sx={{ 
+                  flex: 1,
+                  minHeight: '400px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  overflow: 'hidden'
+                }}
+              >
                   {/* 헤더 영역 */}
                   <Box sx={{ 
                     flexShrink: 0, 
@@ -1313,65 +1477,44 @@ const TestPanel: React.FC<TestPanelProps> = ({
                     )}
                   </Box>
 
-                  {/* 크기 조정 핸들 */}
-                  <Box
-                    onMouseDown={handleMouseDown}
-                    sx={{
-                      position: 'absolute',
-                      bottom: 0,
-                      left: 0,
-                      right: 0,
-                      height: '8px',
-                      cursor: 'ns-resize',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      bgcolor: isDragging ? 'primary.main' : 'divider',
-                      '&:hover': {
-                        bgcolor: 'primary.main',
-                      },
-                      transition: 'background-color 0.2s',
-                    }}
-                  >
-                    <DragIcon 
-                      sx={{ 
-                        fontSize: '14px', 
-                        color: isDragging ? 'white' : 'text.secondary',
-                        transform: 'rotate(90deg)'
-                      }} 
-                    />
-                  </Box>
                 </Paper>
-
-                {/* 하단 여백 조정 */}
-                <Box sx={{ height: '16px', flexShrink: 0 }} />
-              </>
             )}
 
             {/* API 응답이 없을 때 안내 메시지 */}
             {!apiTestResponse && (
-              <Paper 
+              <Box 
                 sx={{ 
                   flex: 1, 
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  p: 4,
-                  textAlign: 'center'
+                  p: 2,
+                  textAlign: 'center',
+                  minHeight: 400,
+                  border: '2px dashed',
+                  borderColor: 'divider',
+                  borderRadius: 2,
+                  bgcolor: '#f9f9f9'
                 }}
               >
                 <Box>
                   <Typography variant="h6" color="text.secondary" sx={{ mb: 1 }}>
-                    API 테스트
+                    🔧 API 테스트 준비 완료
                   </Typography>
-                  <Typography color="text.secondary">
-                    위에서 URL과 설정을 입력한 후 "테스트" 버튼을 클릭하세요.
+                  <Typography color="text.secondary" sx={{ mb: 2, fontSize: '0.9rem' }}>
+                    위에서 설정을 완료한 후 "API 테스트 실행" 버튼을 클릭하세요.
                   </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                    💡 Mock API 예시: http://localhost:8000/mock/nlu
+                  <Typography variant="body2" color="text.secondary" sx={{ 
+                    p: 1.5, 
+                    bgcolor: '#e3f2fd', 
+                    borderRadius: 1,
+                    display: 'inline-block',
+                    fontSize: '0.8rem'
+                  }}>
+                    💡 Mock API: <code>http://localhost:8000/mock/nlu</code>
                   </Typography>
                 </Box>
-              </Paper>
+              </Box>
             )}
           </Box>
         )}

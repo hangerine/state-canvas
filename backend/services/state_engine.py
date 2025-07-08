@@ -861,12 +861,28 @@ class StateEngine:
                     logger.error(f"Invalid JSON in request template: {e}")
                     return None
             
+            # Headers 준비
+            headers = {"Content-Type": "application/json"}  # 기본 헤더
+            
+            # 설정된 헤더가 있으면 추가/덮어쓰기
+            custom_headers = formats.get("headers", {})
+            if custom_headers:
+                # 헤더 값에 템플릿 변수가 있으면 처리
+                processed_headers = {}
+                for key, value in custom_headers.items():
+                    processed_value = self._process_template(str(value), memory)
+                    processed_headers[key] = processed_value
+                    logger.info(f"🔧 Header processed: {key}: {value} -> {processed_value}")
+                
+                headers.update(processed_headers)
+            
+            logger.info(f"📡 Final headers: {headers}")
+
             # API 호출 (재시도 포함)
             for attempt in range(retry_count + 1):
                 try:
                     timeout_config = aiohttp.ClientTimeout(total=timeout)
                     async with aiohttp.ClientSession(timeout=timeout_config) as session:
-                        headers = {"Content-Type": "application/json"}
                         
                         if method == "GET":
                             async with session.get(url, headers=headers) as response:
