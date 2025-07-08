@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { CssBaseline, Box } from '@mui/material';
 import Sidebar from './components/Sidebar';
@@ -27,9 +28,9 @@ function App() {
   const [selectedNode, setSelectedNode] = useState<FlowNode | null>(null);
   const [currentState, setCurrentState] = useState<string>('');
   const [isTestMode, setIsTestMode] = useState(false);
-  const [testPanelHeight, setTestPanelHeight] = useState(200);
+  const [testPanelHeight, setTestPanelHeight] = useState(300);
   const [isResizing, setIsResizing] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(350);
+  const [sidebarWidth, setSidebarWidth] = useState(400);
   const [isSidebarResizing, setIsSidebarResizing] = useState(false);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [scenarioChanges, setScenarioChanges] = useState<ScenarioChanges>({
@@ -39,8 +40,24 @@ function App() {
   });
   const [newScenario, setNewScenario] = useState<Scenario | null>(null);
   
+  // 로딩 상태 추가
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadingTime, setLoadingTime] = useState<number | null>(null);
+  const [loadingStartTime, setLoadingStartTime] = useState<number>(0);
+
   const resizeRef = useRef<HTMLDivElement>(null);
   const sidebarResizeRef = useRef<HTMLDivElement>(null);
+
+  // 로딩 시작 함수 (파일 선택 시 즉시 호출)
+  const handleLoadingStart = useCallback(() => {
+    const startTime = performance.now();
+    console.log('🚀 로딩 시작 - 파일 선택됨');
+    flushSync(() => {
+      setIsLoading(true);
+      setLoadingTime(null);
+      setLoadingStartTime(startTime);
+    });
+  }, []);
 
   // 초기 상태 결정 함수
   const getInitialState = useCallback((scenario: Scenario): string => {
@@ -62,18 +79,45 @@ function App() {
   }, []);
 
   const handleScenarioLoad = useCallback((loadedScenario: Scenario) => {
-    setScenario(loadedScenario);
-    setOriginalScenario(JSON.parse(JSON.stringify(loadedScenario))); // 깊은 복사로 원본 보관
-    // JSON을 Flow 노드와 엣지로 변환
-    convertScenarioToFlow(loadedScenario);
+    console.log('📋 시나리오 데이터 처리 시작');
     
-    // 초기 상태 설정 (개선된 로직)
-    const initialState = getInitialState(loadedScenario);
-    if (initialState) {
-      setCurrentState(initialState);
-      console.log('🎯 초기 상태 설정:', initialState);
-    }
-  }, [getInitialState]);
+    // 로딩 상태는 이미 handleLoadingStart에서 설정됨
+    // 다음 프레임에서 실제 처리 시작 (UI 업데이트 보장)
+    requestAnimationFrame(() => {
+      try {
+        setScenario(loadedScenario);
+        setOriginalScenario(JSON.parse(JSON.stringify(loadedScenario))); // 깊은 복사로 원본 보관
+        
+        // JSON을 Flow 노드와 엣지로 변환
+        convertScenarioToFlow(loadedScenario);
+        
+        // 초기 상태 설정 (개선된 로직)
+        const initialState = getInitialState(loadedScenario);
+        if (initialState) {
+          setCurrentState(initialState);
+          console.log('🎯 초기 상태 설정:', initialState);
+        }
+        
+        // 로딩 완료 처리 (최소 800ms는 로딩 상태 유지)
+        const endTime = performance.now();
+        const totalTime = endTime - loadingStartTime; // loadingStartTime 사용
+        const minLoadingTime = 800; // 최소 800ms 로딩 표시
+        const remainingTime = Math.max(0, minLoadingTime - totalTime);
+        
+        setTimeout(() => {
+          setLoadingTime(Math.round(totalTime));
+          setIsLoading(false);
+          console.log(`✅ 시나리오 로딩 완료: ${totalTime.toFixed(0)}ms (표시: ${Math.round(totalTime + remainingTime)}ms)`);
+        }, remainingTime);
+        
+      } catch (error) {
+        console.error('시나리오 로딩 에러:', error);
+        setIsLoading(false);
+        setLoadingTime(null);
+        alert('❌ 시나리오 로딩 중 오류가 발생했습니다: ' + (error as Error).message);
+      }
+    });
+  }, [getInitialState, loadingStartTime]);
 
   const convertScenarioToFlow = (scenario: Scenario) => {
     if (!scenario.plan || scenario.plan.length === 0) return;
@@ -363,10 +407,11 @@ function App() {
           borderRight: 1,
           borderColor: 'divider'
         }}>
-          <Sidebar 
+                    <Sidebar
             scenario={scenario}
             selectedNode={selectedNode}
             onScenarioLoad={handleScenarioLoad}
+            onLoadingStart={handleLoadingStart}
             onScenarioSave={handleScenarioSave}
             onApplyChanges={handleApplyChanges}
             nodes={nodes}
@@ -376,6 +421,8 @@ function App() {
                 nodes.map(node => node.id === updatedNode.id ? updatedNode : node)
               );
             }}
+            isLoading={isLoading}
+            loadingTime={loadingTime}
           />
           
           {/* Sidebar Resize Handle */}

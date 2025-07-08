@@ -10,7 +10,8 @@ import {
   AccordionDetails,
   Alert,
   Chip,
-  Badge
+  Badge,
+  CircularProgress
 } from '@mui/material';
 import { ExpandMore as ExpandMoreIcon } from '@mui/icons-material';
 import { Scenario, FlowNode } from '../types/scenario';
@@ -20,22 +21,28 @@ interface SidebarProps {
   scenario: Scenario | null;
   selectedNode: FlowNode | null;
   onScenarioLoad: (scenario: Scenario) => void;
+  onLoadingStart: () => void;
   onScenarioSave: () => void;
   onApplyChanges: () => void;
   nodes: FlowNode[];
   originalScenario: Scenario | null;
   onNodeUpdate: (node: FlowNode) => void;
+  isLoading: boolean;
+  loadingTime: number | null;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
   scenario,
   selectedNode,
   onScenarioLoad,
+  onLoadingStart,
   onScenarioSave,
   onApplyChanges,
   nodes,
   originalScenario,
-  onNodeUpdate
+  onNodeUpdate,
+  isLoading,
+  loadingTime
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [validationError, setValidationError] = useState<string>('');
@@ -83,6 +90,18 @@ const Sidebar: React.FC<SidebarProps> = ({
     setChangeSummary({ added: [], modified: [], removed: [] });
   }, [scenario]);
 
+  // 로딩 상태 변화 감지 (디버깅용)
+  useEffect(() => {
+    console.log('🔄 Sidebar: isLoading 상태 변경됨:', isLoading);
+  }, [isLoading]);
+
+  // 로딩 시간 변화 감지 (디버깅용)
+  useEffect(() => {
+    if (loadingTime !== null) {
+      console.log('⏱️ Sidebar: loadingTime 업데이트됨:', loadingTime);
+    }
+  }, [loadingTime]);
+
   // 이벤트 타입을 안전하게 가져오는 헬퍼 함수
   const getEventType = (event: any): string => {
     if (!event) return 'Unknown';
@@ -99,6 +118,11 @@ const Sidebar: React.FC<SidebarProps> = ({
     const file = event.target.files?.[0];
     if (!file) return;
 
+    console.log('📁 파일 선택됨:', file.name, '크기:', file.size);
+    
+    // 파일이 선택되자마자 즉시 로딩 상태 시작
+    onLoadingStart();
+
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
@@ -112,11 +136,16 @@ const Sidebar: React.FC<SidebarProps> = ({
         }
 
         setValidationError('');
+        console.log('✅ JSON 파싱 완료, onScenarioLoad 호출');
+        console.log('📡 현재 isLoading 상태:', isLoading);
         onScenarioLoad(parsedScenario);
       } catch (error) {
         setValidationError('JSON 파싱 에러: ' + (error as Error).message);
       }
     };
+    
+    // 파일 input 값 초기화 (같은 파일 재선택 가능하도록)
+    event.target.value = '';
     reader.readAsText(file);
   };
 
@@ -195,18 +224,63 @@ const Sidebar: React.FC<SidebarProps> = ({
           style={{ display: 'none' }}
         />
         
+        {/* 로딩 상태 표시 */}
+        {isLoading && (
+          <Alert 
+            severity="info" 
+            sx={{ 
+              mb: 2, 
+              border: '2px solid #2196f3',
+              backgroundColor: '#e3f2fd',
+              '& .MuiAlert-icon': {
+                color: '#1976d2'
+              }
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <CircularProgress size={20} thickness={4} />
+              <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                🚀 시나리오 로딩 중... 잠시만 기다려주세요
+              </Typography>
+            </Box>
+          </Alert>
+        )}
+        
+        {/* 로딩 완료 시간 표시 */}
+        {!isLoading && loadingTime !== null && (
+          <Alert 
+            severity={loadingTime > 10000 ? "warning" : loadingTime > 5000 ? "info" : "success"} 
+            sx={{ mb: 2 }}
+          >
+            <Typography variant="body2">
+              {loadingTime <= 5000 && '✅ 빠른 로딩'}
+              {loadingTime > 5000 && loadingTime <= 10000 && '⏱️ 보통 로딩'}
+              {loadingTime > 10000 && '🐌 느린 로딩'}
+              : {(loadingTime / 1000).toFixed(1)}초
+              {loadingTime > 5000 && ' (대용량 파일)'}
+              {loadingTime > 10000 && ' ⚠️ 성능 최적화 권장'}
+            </Typography>
+            {loadingTime > 10000 && (
+              <Typography variant="caption" display="block" sx={{ mt: 0.5, opacity: 0.8 }}>
+                💡 팁: 큰 시나리오 파일은 로딩에 시간이 걸릴 수 있습니다.
+              </Typography>
+            )}
+          </Alert>
+        )}
+
         <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
           <Button 
             variant="contained" 
             onClick={() => fileInputRef.current?.click()}
             size="small"
+            disabled={isLoading}
           >
-            업로드
+            {isLoading ? '로딩중...' : '업로드'}
           </Button>
           <Button 
             variant="outlined" 
             onClick={handleDownload}
-            disabled={!scenario}
+            disabled={!scenario || isLoading}
             size="small"
           >
             원본 다운로드
@@ -220,7 +294,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               variant="contained" 
               color={hasChanges ? "warning" : "primary"}
               onClick={onApplyChanges}
-              disabled={!scenario}
+              disabled={!scenario || isLoading}
               size="small"
               sx={{ 
                 width: '100%',
@@ -230,18 +304,18 @@ const Sidebar: React.FC<SidebarProps> = ({
                 }
               }}
             >
-              {hasChanges ? '🔄 변경사항 즉시 반영' : '🚀 변경사항 즉시 반영'}
+              {isLoading ? '로딩중...' : hasChanges ? '🔄 변경사항 즉시 반영' : '🚀 변경사항 즉시 반영'}
             </Button>
           </Badge>
           <Button 
             variant="contained" 
             color="success"
             onClick={onScenarioSave}
-            disabled={!scenario}
+            disabled={!scenario || isLoading}
             size="small"
             sx={{ width: '100%', mt: 0.5 }}
           >
-            📁 편집된 시나리오 저장
+            {isLoading ? '로딩중...' : '📁 편집된 시나리오 저장'}
           </Button>
         </Box>
 
