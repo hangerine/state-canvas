@@ -21,7 +21,7 @@ interface SidebarProps {
   scenario: Scenario | null;
   selectedNode: FlowNode | null;
   onScenarioLoad: (scenario: Scenario) => void;
-  onLoadingStart: () => void;
+  onLoadingStart: (startTime?: number) => void;
   onScenarioSave: () => void;
   onApplyChanges: () => void;
   nodes: FlowNode[];
@@ -118,14 +118,13 @@ const Sidebar: React.FC<SidebarProps> = ({
     const file = event.target.files?.[0];
     if (!file) return;
 
-    // ⏱️ 시간 측정 시작
+    // ⏱️ 시간 측정 시작 - 파일 업로드 처리 시작 시점
     const overallStartTime = performance.now();
     console.log('🚀 [TIMING] 파일 업로드 시작:', file.name, '크기:', file.size);
     
-    // 파일이 선택되자마자 즉시 로딩 상태 시작
-    const loadingStartTime = performance.now();
-    onLoadingStart();
-    console.log('⏱️ [TIMING] 로딩 상태 설정:', (performance.now() - loadingStartTime).toFixed(2), 'ms');
+    // 파일이 선택되자마자 즉시 로딩 상태 시작 (정확한 시작 시간 전달)
+    onLoadingStart(overallStartTime);
+    console.log('⏱️ [TIMING] 로딩 상태 설정 시작 시간:', overallStartTime);
 
     const reader = new FileReader();
     const readerStartTime = performance.now();

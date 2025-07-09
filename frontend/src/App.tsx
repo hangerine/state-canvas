@@ -43,20 +43,25 @@ function App() {
   // 로딩 상태 추가
   const [isLoading, setIsLoading] = useState(false);
   const [loadingTime, setLoadingTime] = useState<number | null>(null);
-  const [loadingStartTime, setLoadingStartTime] = useState<number>(0);
+  const loadingStartTimeRef = useRef<number>(0);
 
   const resizeRef = useRef<HTMLDivElement>(null);
   const sidebarResizeRef = useRef<HTMLDivElement>(null);
 
   // 로딩 시작 함수 (파일 선택 시 즉시 호출)
-  const handleLoadingStart = useCallback(() => {
-    const startTime = performance.now();
-    console.log('🚀 로딩 시작 - 파일 선택됨');
+  const handleLoadingStart = useCallback((startTime?: number) => {
+    const actualStartTime = startTime || performance.now();
+    console.log('🚀 로딩 시작 - 파일 선택됨, 시작 시간:', actualStartTime);
+    
+    // useRef로 시작 시간 저장
+    loadingStartTimeRef.current = actualStartTime;
+    
     flushSync(() => {
       setIsLoading(true);
       setLoadingTime(null);
-      setLoadingStartTime(startTime);
     });
+    
+    console.log('✅ [TIMING] loadingStartTimeRef.current 설정:', loadingStartTimeRef.current);
   }, []);
 
   // 초기 상태 결정 함수
@@ -114,7 +119,9 @@ function App() {
         
         // 로딩 완료 처리 (최소 800ms는 로딩 상태 유지)
         const endTime = performance.now();
-        const totalTime = endTime - loadingStartTime; // loadingStartTime 사용
+        console.log('⏱️ [TIMING] endTime 설정:', endTime.toFixed(2), 'ms');
+        console.log('⏱️ [TIMING] loadingStartTime 설정:', loadingStartTimeRef.current.toFixed(2), 'ms');
+        const totalTime = endTime - loadingStartTimeRef.current; // loadingStartTime 사용
         const processingTime = endTime - scenarioProcessStartTime;
         
         console.log('📊 [TIMING] 시나리오 처리 세부 분석:');
@@ -140,7 +147,7 @@ function App() {
         alert('❌ 시나리오 로딩 중 오류가 발생했습니다: ' + (error as Error).message);
       }
     });
-  }, [getInitialState, loadingStartTime]);
+  }, [getInitialState]);
 
   const convertScenarioToFlow = (scenario: Scenario) => {
     const convertStartTime = performance.now();
