@@ -79,39 +79,62 @@ function App() {
   }, []);
 
   const handleScenarioLoad = useCallback((loadedScenario: Scenario) => {
-    console.log('📋 시나리오 데이터 처리 시작');
+    const scenarioProcessStartTime = performance.now();
+    console.log('🔄 [TIMING] 시나리오 데이터 처리 시작');
     
     // 로딩 상태는 이미 handleLoadingStart에서 설정됨
     // 다음 프레임에서 실제 처리 시작 (UI 업데이트 보장)
     requestAnimationFrame(() => {
       try {
+        const rafStartTime = performance.now();
+        console.log('⏱️ [TIMING] requestAnimationFrame 실행까지:', (rafStartTime - scenarioProcessStartTime).toFixed(2), 'ms');
+        
+        // 시나리오 상태 설정
+        const stateSetStartTime = performance.now();
         setScenario(loadedScenario);
         setOriginalScenario(JSON.parse(JSON.stringify(loadedScenario))); // 깊은 복사로 원본 보관
+        const stateSetTime = performance.now() - stateSetStartTime;
+        console.log('⏱️ [TIMING] 시나리오 상태 설정:', stateSetTime.toFixed(2), 'ms');
         
         // JSON을 Flow 노드와 엣지로 변환
+        const conversionStartTime = performance.now();
         convertScenarioToFlow(loadedScenario);
+        const conversionTime = performance.now() - conversionStartTime;
+        console.log('⏱️ [TIMING] Flow 노드/엣지 변환:', conversionTime.toFixed(2), 'ms');
         
         // 초기 상태 설정 (개선된 로직)
+        const initialStateStartTime = performance.now();
         const initialState = getInitialState(loadedScenario);
         if (initialState) {
           setCurrentState(initialState);
           console.log('🎯 초기 상태 설정:', initialState);
         }
+        const initialStateTime = performance.now() - initialStateStartTime;
+        console.log('⏱️ [TIMING] 초기 상태 설정:', initialStateTime.toFixed(2), 'ms');
         
         // 로딩 완료 처리 (최소 800ms는 로딩 상태 유지)
         const endTime = performance.now();
         const totalTime = endTime - loadingStartTime; // loadingStartTime 사용
+        const processingTime = endTime - scenarioProcessStartTime;
+        
+        console.log('📊 [TIMING] 시나리오 처리 세부 분석:');
+        console.log('  - 상태 설정:', stateSetTime.toFixed(2), 'ms', `(${(stateSetTime/processingTime*100).toFixed(1)}%)`);
+        console.log('  - Flow 변환:', conversionTime.toFixed(2), 'ms', `(${(conversionTime/processingTime*100).toFixed(1)}%)`);
+        console.log('  - 초기 상태:', initialStateTime.toFixed(2), 'ms', `(${(initialStateTime/processingTime*100).toFixed(1)}%)`);
+        console.log('⏱️ [TIMING] 총 처리 시간:', processingTime.toFixed(2), 'ms');
+        console.log('⏱️ [TIMING] 전체 로딩 시간:', totalTime.toFixed(2), 'ms');
+        
         const minLoadingTime = 800; // 최소 800ms 로딩 표시
         const remainingTime = Math.max(0, minLoadingTime - totalTime);
         
         setTimeout(() => {
           setLoadingTime(Math.round(totalTime));
           setIsLoading(false);
-          console.log(`✅ 시나리오 로딩 완료: ${totalTime.toFixed(0)}ms (표시: ${Math.round(totalTime + remainingTime)}ms)`);
+          console.log(`✅ [TIMING] 시나리오 로딩 완료: ${totalTime.toFixed(0)}ms (표시: ${Math.round(totalTime + remainingTime)}ms)`);
         }, remainingTime);
         
       } catch (error) {
-        console.error('시나리오 로딩 에러:', error);
+        console.error('❌ [TIMING] 시나리오 로딩 에러:', error);
         setIsLoading(false);
         setLoadingTime(null);
         alert('❌ 시나리오 로딩 중 오류가 발생했습니다: ' + (error as Error).message);
@@ -120,13 +143,19 @@ function App() {
   }, [getInitialState, loadingStartTime]);
 
   const convertScenarioToFlow = (scenario: Scenario) => {
+    const convertStartTime = performance.now();
+    console.log('🔄 [TIMING] convertScenarioToFlow 시작');
+    
     if (!scenario.plan || scenario.plan.length === 0) return;
     
     const dialogStates = scenario.plan[0].dialogState;
+    console.log('⏱️ [TIMING] dialogStates 수:', dialogStates.length);
+    
     const newNodes: FlowNode[] = [];
     const newEdges: FlowEdge[] = [];
     
     // 노드 생성
+    const nodeCreationStartTime = performance.now();
     dialogStates.forEach((state, index) => {
       const node: FlowNode = {
         id: state.name,
@@ -142,10 +171,18 @@ function App() {
       };
       newNodes.push(node);
     });
+    const nodeCreationTime = performance.now() - nodeCreationStartTime;
+    console.log('⏱️ [TIMING] 노드 생성:', nodeCreationTime.toFixed(2), 'ms');
 
     // 엣지 생성 (전이 관계 분석)
+    const edgeCreationStartTime = performance.now();
+    let conditionEdgeCount = 0;
+    let intentEdgeCount = 0;
+    let eventEdgeCount = 0;
+    
     dialogStates.forEach((state) => {
       // Condition handlers에서 전이 관계 추출
+      const conditionStartTime = performance.now();
       state.conditionHandlers?.forEach((handler, idx) => {
         if (handler.transitionTarget.dialogState && 
             handler.transitionTarget.dialogState !== '__END_SESSION__') {
@@ -157,6 +194,7 @@ function App() {
             type: 'smoothstep'
           };
           newEdges.push(edge);
+          conditionEdgeCount++;
         }
       });
 
@@ -171,6 +209,7 @@ function App() {
             type: 'smoothstep'
           };
           newEdges.push(edge);
+          intentEdgeCount++;
         }
       });
 
@@ -196,12 +235,32 @@ function App() {
             type: 'smoothstep'
           };
           newEdges.push(edge);
+          eventEdgeCount++;
         }
       });
     });
+    
+    const edgeCreationTime = performance.now() - edgeCreationStartTime;
+    console.log('⏱️ [TIMING] 엣지 생성:', edgeCreationTime.toFixed(2), 'ms');
+    console.log('📊 [TIMING] 엣지 종류별 개수:');
+    console.log('  - Condition 엣지:', conditionEdgeCount);
+    console.log('  - Intent 엣지:', intentEdgeCount);
+    console.log('  - Event 엣지:', eventEdgeCount);
+    console.log('  - 총 엣지:', newEdges.length);
 
+    // 상태 설정
+    const stateUpdateStartTime = performance.now();
     setNodes(newNodes);
     setEdges(newEdges);
+    const stateUpdateTime = performance.now() - stateUpdateStartTime;
+    
+    const totalConversionTime = performance.now() - convertStartTime;
+    console.log('⏱️ [TIMING] 상태 업데이트:', stateUpdateTime.toFixed(2), 'ms');
+    console.log('⏱️ [TIMING] convertScenarioToFlow 총 시간:', totalConversionTime.toFixed(2), 'ms');
+    console.log('📊 [TIMING] 변환 세부 분석:');
+    console.log('  - 노드 생성:', nodeCreationTime.toFixed(2), 'ms', `(${(nodeCreationTime/totalConversionTime*100).toFixed(1)}%)`);
+    console.log('  - 엣지 생성:', edgeCreationTime.toFixed(2), 'ms', `(${(edgeCreationTime/totalConversionTime*100).toFixed(1)}%)`);
+    console.log('  - 상태 업데이트:', stateUpdateTime.toFixed(2), 'ms', `(${(stateUpdateTime/totalConversionTime*100).toFixed(1)}%)`);
   };
 
   const handleNodeSelect = useCallback((node: FlowNode | null) => {

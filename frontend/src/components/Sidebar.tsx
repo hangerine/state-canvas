@@ -118,34 +118,58 @@ const Sidebar: React.FC<SidebarProps> = ({
     const file = event.target.files?.[0];
     if (!file) return;
 
-    console.log('📁 파일 선택됨:', file.name, '크기:', file.size);
+    // ⏱️ 시간 측정 시작
+    const overallStartTime = performance.now();
+    console.log('🚀 [TIMING] 파일 업로드 시작:', file.name, '크기:', file.size);
     
     // 파일이 선택되자마자 즉시 로딩 상태 시작
+    const loadingStartTime = performance.now();
     onLoadingStart();
+    console.log('⏱️ [TIMING] 로딩 상태 설정:', (performance.now() - loadingStartTime).toFixed(2), 'ms');
 
     const reader = new FileReader();
+    const readerStartTime = performance.now();
+    
     reader.onload = (e) => {
+      const fileReadTime = performance.now() - readerStartTime;
+      console.log('⏱️ [TIMING] 파일 읽기 완료:', fileReadTime.toFixed(2), 'ms');
+      
       try {
+        const parseStartTime = performance.now();
         const jsonContent = e.target?.result as string;
         const parsedScenario = JSON.parse(jsonContent);
+        const parseTime = performance.now() - parseStartTime;
+        console.log('⏱️ [TIMING] JSON 파싱 완료:', parseTime.toFixed(2), 'ms');
         
         // 기본 validation
+        const validationStartTime = performance.now();
         if (!validateScenario(parsedScenario)) {
           setValidationError('잘못된 시나리오 파일 형식입니다.');
           return;
         }
+        const validationTime = performance.now() - validationStartTime;
+        console.log('⏱️ [TIMING] 시나리오 검증 완료:', validationTime.toFixed(2), 'ms');
 
         setValidationError('');
-        console.log('✅ JSON 파싱 완료, onScenarioLoad 호출');
-        console.log('📡 현재 isLoading 상태:', isLoading);
+        
+        const totalPreprocessTime = performance.now() - overallStartTime;
+        console.log('⏱️ [TIMING] 전처리 총 시간:', totalPreprocessTime.toFixed(2), 'ms');
+        console.log('📊 [TIMING] 세부 시간 분석:');
+        console.log('  - 파일 읽기:', fileReadTime.toFixed(2), 'ms', `(${(fileReadTime/totalPreprocessTime*100).toFixed(1)}%)`);
+        console.log('  - JSON 파싱:', parseTime.toFixed(2), 'ms', `(${(parseTime/totalPreprocessTime*100).toFixed(1)}%)`);
+        console.log('  - 시나리오 검증:', validationTime.toFixed(2), 'ms', `(${(validationTime/totalPreprocessTime*100).toFixed(1)}%)`);
+        console.log('✅ [TIMING] onScenarioLoad 호출 시작');
+        
         onScenarioLoad(parsedScenario);
       } catch (error) {
+        console.error('❌ [TIMING] JSON 파싱 에러:', error);
         setValidationError('JSON 파싱 에러: ' + (error as Error).message);
       }
     };
     
     // 파일 input 값 초기화 (같은 파일 재선택 가능하도록)
     event.target.value = '';
+    console.log('⏱️ [TIMING] FileReader.readAsText() 호출');
     reader.readAsText(file);
   };
 
