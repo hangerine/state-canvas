@@ -7,7 +7,7 @@ from typing import Dict, Any, List, Optional
 from pydantic import BaseModel
 import logging
 
-from models.scenario import Scenario, ProcessInputRequest, StateTransition
+from models.scenario import Scenario, ProcessInputRequest, LegacyProcessInputRequest, StateTransition, UserInput, TextContent, CustomEventContent
 from services.state_engine import StateEngine
 from services.websocket_manager import WebSocketManager
 
@@ -173,13 +173,71 @@ async def reset_session(session_id: str, request: Optional[ResetSessionRequest] 
         logger.error(f"Session reset error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"세션 초기화 오류: {str(e)}")
 
-# 사용자 입력 처리 및 State 전이
+# 새로운 userInput 형식을 지원하는 엔드포인트
 @app.post("/api/process-input")
 async def process_input(request: ProcessInputRequest):
     """
-    사용자 입력을 처리하고 State 전이를 수행합니다.
+    새로운 userInput 형식으로 사용자 입력을 처리하고 State 전이를 수행합니다.
     """
-    logger.info(f"📥 Processing input: session={request.sessionId}, state={request.currentState}, input='{request.input}', event={request.eventType}")
+    logger.info(f"📥 Processing userInput: session={request.sessionId}, state={request.currentState}, userInput={request.userInput}")
+    
+    # 세션 메모리 가져오기 또는 생성
+    memory = get_or_create_session_memory(request.sessionId)
+    
+    # userInput에서 텍스트 추출 및 메모리 저장
+    user_text = ""
+    if request.userInput.type == "text":
+        if isinstance(request.userInput.content, dict) and "text" in request.userInput.content:
+            user_text = request.userInput.content["text"]
+        else:
+            # TextContent 객체인 경우
+            user_text = request.userInput.content.text if hasattr(request.userInput.content, 'text') else ""
+        
+        if user_text.strip():
+            memory["USER_TEXT_INPUT"] = [user_text.strip()]
+            
+            # NLU 결과가 있는 경우 메모리에 저장
+            if hasattr(request.userInput.content, 'nluResult') and request.userInput.content.nluResult:
+                memory["NLU_RESULT"] = request.userInput.content.nluResult.dict()
+    
+    elif request.userInput.type == "customEvent":
+        if isinstance(request.userInput.content, dict) and "type" in request.userInput.content:
+            event_type = request.userInput.content["type"]
+        else:
+            # CustomEventContent 객체인 경우
+            event_type = request.userInput.content.type if hasattr(request.userInput.content, 'type') else ""
+        
+        memory["CUSTOM_EVENT"] = {
+            "type": event_type,
+            "content": request.userInput.content.dict() if hasattr(request.userInput.content, 'dict') else request.userInput.content
+        }
+    
+    # State Engine에 시나리오 로드
+    state_engine.load_scenario(request.sessionId, request.scenario)
+    
+    # 입력 처리 (기존 state_engine은 텍스트를 기대하므로 변환)
+    result = await state_engine.process_input(
+        session_id=request.sessionId,
+        user_input=user_text,
+        current_state=request.currentState,
+        scenario=request.scenario,
+        memory=memory,
+        event_type=request.eventType
+    )
+    
+    # 세션 메모리 업데이트
+    update_session_memory(request.sessionId, result.get("memory", memory))
+    
+    logger.info(f"📤 Processing result: {result}")
+    return result
+
+# 기존 형식 지원을 위한 레거시 엔드포인트
+@app.post("/api/process-input-legacy")
+async def process_input_legacy(request: LegacyProcessInputRequest):
+    """
+    기존 input 형식으로 사용자 입력을 처리하고 State 전이를 수행합니다. (호환성 유지)
+    """
+    logger.info(f"📥 Processing legacy input: session={request.sessionId}, state={request.currentState}, input='{request.input}', event={request.eventType}")
     
     # 세션 메모리 가져오기 또는 생성
     memory = get_or_create_session_memory(request.sessionId)

@@ -1,5 +1,48 @@
 from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
+
+# 새로운 UserInput 모델 정의
+class UserInputValue(BaseModel):
+    scope: Optional[str] = None
+    type: str
+    value: Dict[str, Any]
+    version: str
+
+class CustomEventContent(BaseModel):
+    type: str
+    value: UserInputValue
+
+class NLUEntity(BaseModel):
+    role: str
+    type: str
+    text: str
+    normalization: str
+    extra: Dict[str, Any]
+
+class NLUNbest(BaseModel):
+    intent: str
+    confidenceScore: float
+    status: str
+    entities: List[NLUEntity]
+    extra: Dict[str, Any]
+
+class NLUResult(BaseModel):
+    nluNbest: List[NLUNbest]
+    text: str
+    extra: Dict[str, Any]
+
+class NLUInfo(BaseModel):
+    type: str
+    results: List[NLUResult]
+
+class TextContent(BaseModel):
+    text: str
+    nluResult: Optional[NLUInfo] = None
+    value: UserInputValue
+
+class UserInput(BaseModel):
+    type: str  # 'text' or 'customEvent'
+    content: Union[TextContent, CustomEventContent]
 
 class TransitionTarget(BaseModel):
     scenario: str
@@ -92,10 +135,18 @@ class Scenario(BaseModel):
 # API 요청/응답 모델
 class ProcessInputRequest(BaseModel):
     sessionId: str
-    input: str
+    userInput: UserInput
     currentState: str
     scenario: Dict[str, Any]
     eventType: Optional[str] = None  # 이벤트 수동 트리거용
+
+# 기존 형식 지원을 위한 레거시 모델 (호환성 유지)
+class LegacyProcessInputRequest(BaseModel):
+    sessionId: str
+    input: str
+    currentState: str
+    scenario: Dict[str, Any]
+    eventType: Optional[str] = None
 
 class StateTransition(BaseModel):
     fromState: str

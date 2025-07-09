@@ -1,6 +1,71 @@
 // 시나리오 JSON 구조 타입 정의
 import { CSSProperties } from 'react';
 
+// 새로운 UserInput 타입 정의
+export interface UserInputValue {
+  scope: string | null;
+  type: string;
+  value: Record<string, any>;
+  version: string;
+}
+
+export interface CustomEventContent {
+  type: string;
+  value: UserInputValue;
+}
+
+export interface NLUEntity {
+  role: string;
+  type: string;
+  text: string;
+  normalization?: string;
+  extra: Record<string, any>;
+}
+
+// UI에서 사용할 Entity 입력 타입
+export interface EntityInput {
+  id: string; // UI에서 관리용 임시 ID
+  role: string;
+  type: string;
+  text: string;
+  normalization?: string;
+  extraTypeKr?: string; // extra.type_kr 필드를 위한 간편 입력
+}
+
+export interface NLUResult {
+  nluNbest: Array<{
+    intent: string;
+    confidenceScore: number;
+    status: string;
+    entities: NLUEntity[];
+    extra: Record<string, any>;
+  }>;
+  text: string;
+  extra: Record<string, any>;
+}
+
+export interface TextContent {
+  text: string;
+  nluResult?: {
+    type: string;
+    results: NLUResult[];
+  };
+  value: UserInputValue;
+}
+
+export interface UserInput {
+  type: 'text' | 'customEvent';
+  content: TextContent | CustomEventContent;
+}
+
+export interface ProcessInputRequest {
+  sessionId: string;
+  userInput: UserInput;
+  currentState: string;
+  scenario: Scenario;
+  eventType?: string;
+}
+
 export interface TransitionTarget {
   scenario: string;
   dialogState: string;
