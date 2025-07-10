@@ -71,7 +71,13 @@ class StateEngine:
             logger.info(f"State {current_state} has apicall handlers - NO auto transitions, waiting for API execution")
             return auto_transitions
         
-        # 2. True 조건 확인 (webhook이나 event handler, apicall handler가 없는 경우에만)
+        # Intent Handler가 있는 상태에서는 자동 전이하지 않음 (사용자 입력 대기)
+        intent_handlers = current_dialog_state.get("intentHandlers", [])
+        if intent_handlers:
+            logger.info(f"State {current_state} has intent handlers - NO auto transitions, waiting for user input")
+            return auto_transitions
+        
+        # 2. True 조건 확인 (webhook이나 event handler, apicall handler, intent handler가 없는 경우에만)
         condition_handlers = current_dialog_state.get("conditionHandlers", [])
         for handler in condition_handlers:
             # handler가 딕셔너리인지 확인

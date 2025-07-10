@@ -312,11 +312,28 @@ const TestPanel: React.FC<TestPanelProps> = ({
     return getApiCallHandlers().length > 0;
   }, [getApiCallHandlers]);
 
+  // Intent 핸들러가 있는 상태인지 확인
+  const getIntentHandlers = useCallback(() => {
+    if (!scenario || !currentState) return [];
+    
+    const dialogState = scenario.plan[0]?.dialogState.find(
+      state => state.name === currentState
+    );
+    
+    return dialogState?.intentHandlers || [];
+  }, [scenario, currentState]);
+
+  // Intent 핸들러가 있는 상태인지 확인
+  const isIntentState = useCallback(() => {
+    return getIntentHandlers().length > 0;
+  }, [getIntentHandlers]);
+
   // Webhook 상태일 때 도움말 표시와 이벤트 상태 도움말 표시
   useEffect(() => {
     const webhookState = isWebhookState();
     const eventState = isEventState();
     const apiCallState = isApiCallState();
+    const intentState = isIntentState();
     
     if (webhookState) {
       addMessage('info', '🔗 Webhook 상태입니다. 다음 중 하나를 입력해보세요:\n- ACT_01_0212\n- ACT_01_0213\n- ACT_01_0235\n- 기타 (fallback으로 sts_router로 이동)');
@@ -342,6 +359,12 @@ const TestPanel: React.FC<TestPanelProps> = ({
         return `${handler.name} (${method} ${url})`;
       }).join('\n- ');
       addMessage('info', `🔄 API Call 상태입니다. 다음 API들이 자동으로 호출됩니다:\n- ${apiCallNames}`);
+    } else if (intentState) {
+      const intentHandlers = getIntentHandlers();
+      const intents = intentHandlers.map(handler => {
+        return handler.intent || 'Unknown';
+      }).join('\n- ');
+      addMessage('info', `💬 Intent 상태입니다. 사용자 입력을 기다리고 있습니다. 다음 intent들을 처리할 수 있습니다:\n- ${intents}`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentState, scenario]);
@@ -376,6 +399,12 @@ const TestPanel: React.FC<TestPanelProps> = ({
     // 현재 상태에 이벤트 핸들러가 있으면 자동 전이하지 않음
     if (isEventState()) {
       console.log(`🎯 상태 ${currentState}에 이벤트 핸들러가 있습니다. 수동 트리거 대기 중...`);
+      return;
+    }
+
+    // 현재 상태에 Intent 핸들러가 있으면 자동 전이하지 않음 (사용자 입력 대기)
+    if (isIntentState()) {
+      console.log(`💬 상태 ${currentState}에 Intent 핸들러가 있습니다. 사용자 입력 대기 중...`);
       return;
     }
 
@@ -427,7 +456,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
     } catch (error) {
       console.warn('Auto transition check failed:', error);
     }
-  }, [scenario, currentState, sessionId, isEventState, isApiCallState, addMessage, onStateChange]);
+  }, [scenario, currentState, sessionId, isEventState, isIntentState, isApiCallState, addMessage, onStateChange]);
 
   // 메시지 추가
   // const addMessage = (type: TestMessage['type'], content: string) => {
@@ -536,6 +565,12 @@ const TestPanel: React.FC<TestPanelProps> = ({
           const dialogState = scenario.plan[0]?.dialogState.find(s => s.name === initialState);
           if (dialogState?.eventHandlers && dialogState.eventHandlers.length > 0) {
             console.log(`🎯 상태 ${initialState}에 이벤트 핸들러가 있습니다. 수동 트리거 대기 중...`);
+            return;
+          }
+
+          // 해당 상태에 Intent 핸들러가 있는지 확인
+          if (dialogState?.intentHandlers && dialogState.intentHandlers.length > 0) {
+            console.log(`💬 상태 ${initialState}에 Intent 핸들러가 있습니다. 사용자 입력 대기 중...`);
             return;
           }
 
@@ -1034,6 +1069,13 @@ const TestPanel: React.FC<TestPanelProps> = ({
               size="small"
             />
           )}
+          {isIntentState() && (
+            <Chip
+              label="사용자 입력 대기"
+              color="primary"
+              size="small"
+            />
+          )}
           <Button onClick={handleReset} size="small" variant="outlined">
             초기화
           </Button>
@@ -1197,6 +1239,58 @@ const TestPanel: React.FC<TestPanelProps> = ({
                               {method} {url}
                             </Typography>
                           </Box>
+                        );
+                      })}
+                    </Box>
+                    <Divider />
+                  </Box>
+                )}
+
+                {/* Intent 상태일 때 빠른 입력 제안 */}
+                {isIntentState() && (
+                  <Box sx={{ 
+                    mb: 1, 
+                    height: 'auto',
+                    minHeight: '70px',
+                    maxHeight: '100px',
+                    flexShrink: 0
+                  }}>
+                    <Typography variant="caption" sx={{ mb: 1, display: 'block' }}>
+                      Intent 핸들러 (현재 상태: {currentState}) - 사용자 입력을 기다리고 있습니다:
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
+                      {getIntentHandlers().map((handler, index) => {
+                        const intent = handler.intent || 'Unknown';
+                        const targetState = handler.transitionTarget?.dialogState || 'Unknown';
+                        
+                        // Intent에 따른 샘플 입력 제안
+                        let sampleInput = '';
+                        if (intent === '__ANY_INTENT__') {
+                          sampleInput = '아무거나 입력';
+                        } else if (intent === 'Weather.Inform') {
+                          sampleInput = '날씨';
+                        } else if (intent === 'say.yes') {
+                          sampleInput = '네';
+                        } else if (intent === 'say.no') {
+                          sampleInput = '아니요';
+                        } else if (intent === 'Positive') {
+                          sampleInput = '긍정';
+                        } else {
+                          sampleInput = intent;
+                        }
+                        
+                        return (
+                          <Button
+                            key={`${currentState}-${intent}-${index}`}
+                            size="small"
+                            variant="outlined"
+                            color="primary"
+                            onClick={() => handleQuickInput(sampleInput)}
+                            sx={{ fontSize: '0.75rem' }}
+                            title={`${intent} → ${targetState}`}
+                          >
+                            {sampleInput}
+                          </Button>
                         );
                       })}
                     </Box>
