@@ -28,8 +28,8 @@ function App() {
   const [selectedNode, setSelectedNode] = useState<FlowNode | null>(null);
   const [currentState, setCurrentState] = useState<string>('');
   const [isTestMode, setIsTestMode] = useState(false);
-  const [testPanelHeight, setTestPanelHeight] = useState(300);
-  const [isResizing, setIsResizing] = useState(false);
+  const [testPanelWidth, setTestPanelWidth] = useState(400);
+  const [isTestPanelResizing, setIsTestPanelResizing] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(400);
   const [isSidebarResizing, setIsSidebarResizing] = useState(false);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
@@ -45,7 +45,7 @@ function App() {
   const [loadingTime, setLoadingTime] = useState<number | null>(null);
   const loadingStartTimeRef = useRef<number>(0);
 
-  const resizeRef = useRef<HTMLDivElement>(null);
+  const testPanelResizeRef = useRef<HTMLDivElement>(null);
   const sidebarResizeRef = useRef<HTMLDivElement>(null);
 
   // 로딩 시작 함수 (파일 선택 시 즉시 호출)
@@ -279,6 +279,13 @@ function App() {
     const newTestMode = !isTestMode;
     setIsTestMode(newTestMode);
     
+    // 테스트 패널 크기 조정
+    if (newTestMode) {
+      setTestPanelWidth(800); // 테스트 모드 켜질 때 최대 크기로 설정
+    } else {
+      setTestPanelWidth(400); // 테스트 모드 꺼질 때 기본 크기로 복원
+    }
+    
     if (newTestMode && scenario) {
       console.log('🚀 테스트 모드 시작 - 현재 상태:', currentState);
       
@@ -307,29 +314,29 @@ function App() {
     }
   }, [isTestMode, scenario, currentState]);
 
-  // 테스트 패널 리사이즈 핸들러
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+  // 테스트 패널 리사이즈 핸들러 (오른쪽 사이드)
+  const handleTestPanelMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    setIsResizing(true);
+    setIsTestPanelResizing(true);
     
-    const startY = e.clientY;
-    const startHeight = testPanelHeight;
+    const startX = e.clientX;
+    const startWidth = testPanelWidth;
     
     const handleMouseMove = (e: MouseEvent) => {
-      const deltaY = startY - e.clientY; // 마우스를 위로 올리면 양수
-      const newHeight = Math.max(150, Math.min(600, startHeight + deltaY)); // 최소 150px, 최대 600px
-      setTestPanelHeight(newHeight);
+      const deltaX = startX - e.clientX; // 마우스를 왼쪽으로 이동하면 양수
+      const newWidth = Math.max(300, Math.min(800, startWidth + deltaX)); // 최소 300px, 최대 800px
+      setTestPanelWidth(newWidth);
     };
     
     const handleMouseUp = () => {
-      setIsResizing(false);
+      setIsTestPanelResizing(false);
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
     
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
-  }, [testPanelHeight]);
+  }, [testPanelWidth]);
 
   // Sidebar 리사이즈 핸들러
   const handleSidebarMouseDown = useCallback((e: React.MouseEvent) => {
@@ -459,6 +466,14 @@ function App() {
     }
   }, [newScenario]);
 
+  // TestPanel에서 시나리오 업데이트 처리
+  const handleScenarioUpdate = useCallback((updatedScenario: Scenario) => {
+    setScenario(updatedScenario);
+    // originalScenario도 업데이트하여 변경사항이 올바르게 반영되도록 함
+    setOriginalScenario(JSON.parse(JSON.stringify(updatedScenario)));
+    console.log('🔄 시나리오 업데이트됨 (Intent Mapping 포함):', updatedScenario);
+  }, []);
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -528,13 +543,12 @@ function App() {
           />
         </Box>
 
-        {/* Main Content */}
-        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        {/* Main Content - Canvas */}
+        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'row' }}>
           {/* Canvas */}
           <Box sx={{ 
             flex: 1, 
-            // 테스트 모드일 때 Canvas 높이를 조정
-            height: isTestMode ? `calc(100vh - ${testPanelHeight}px)` : '100vh'
+            height: '100vh'
           }}>
             <FlowCanvas
               nodes={nodes}
@@ -546,38 +560,34 @@ function App() {
             />
           </Box>
 
-          {/* Test Panel */}
+          {/* Test Panel - Right Side */}
           {isTestMode && (
-            <Box 
-              sx={{ 
-                height: testPanelHeight, 
-                minHeight: testPanelHeight,
-                maxHeight: testPanelHeight,
-                borderTop: 1, 
-                borderColor: 'divider',
-                position: 'relative',
-                display: 'flex',
-                flexDirection: 'column',
-                overflow: 'hidden'
-              }}
-            >
+            <Box sx={{ 
+              width: testPanelWidth, 
+              minWidth: testPanelWidth,
+              maxWidth: testPanelWidth,
+              flexShrink: 0,
+              position: 'relative',
+              borderLeft: 1,
+              borderColor: 'divider'
+            }}>
               {/* Test Panel Resize Handle */}
               <Box
-                ref={resizeRef}
-                onMouseDown={handleMouseDown}
+                ref={testPanelResizeRef}
+                onMouseDown={handleTestPanelMouseDown}
                 sx={{
                   position: 'absolute',
                   top: 0,
                   left: 0,
-                  right: 0,
-                  height: '6px',
-                  cursor: 'ns-resize',
-                  backgroundColor: isResizing ? '#1976d2' : 'transparent',
-                  borderTop: isResizing ? '2px solid #1976d2' : '1px solid #e0e0e0',
+                  bottom: 0,
+                  width: '6px',
+                  cursor: 'ew-resize',
+                  backgroundColor: isTestPanelResizing ? '#1976d2' : 'transparent',
+                  borderLeft: isTestPanelResizing ? '2px solid #1976d2' : '1px solid #e0e0e0',
                   zIndex: 1000,
                   '&:hover': {
                     backgroundColor: '#f0f0f0',
-                    borderTop: '2px solid #1976d2',
+                    borderLeft: '2px solid #1976d2',
                   },
                   '&::before': {
                     content: '""',
@@ -585,9 +595,9 @@ function App() {
                     top: '50%',
                     left: '50%',
                     transform: 'translate(-50%, -50%)',
-                    width: '40px',
-                    height: '4px',
-                    backgroundColor: isResizing ? '#1976d2' : '#ccc',
+                    width: '4px',
+                    height: '40px',
+                    backgroundColor: isTestPanelResizing ? '#1976d2' : '#ccc',
                     borderRadius: '2px',
                     transition: 'background-color 0.2s ease',
                   },
@@ -598,12 +608,13 @@ function App() {
               />
               
               {/* Test Panel Content */}
-              <Box sx={{ flex: 1, paddingTop: '6px' }}>
-                <TestPanel
-                  scenario={scenario}
-                  currentState={currentState}
-                  onStateChange={setCurrentState}
-                />
+              <Box sx={{ flex: 1, paddingLeft: '6px', height: '100vh', overflow: 'hidden' }}>
+                          <TestPanel
+            scenario={scenario}
+            currentState={currentState}
+            onStateChange={setCurrentState}
+            onScenarioUpdate={handleScenarioUpdate}
+          />
               </Box>
             </Box>
           )}
@@ -614,7 +625,7 @@ function App() {
           sx={{ 
             position: 'fixed', 
             bottom: 16, 
-            right: 16, 
+            left: 16,
             zIndex: 1000 
           }}
         >
@@ -640,8 +651,10 @@ function App() {
           <Box 
             sx={{ 
               position: 'fixed', 
-              top: 16, 
-              right: 16, 
+              top: isTestMode ? undefined : 16,
+              bottom: isTestMode ? 80 : undefined,
+              left: isTestMode ? 16 : undefined,
+              right: isTestMode ? undefined : 16,
               zIndex: 1000,
               backgroundColor: '#1976d2',
               color: 'white',

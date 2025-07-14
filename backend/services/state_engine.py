@@ -15,6 +15,7 @@ class StateEngine:
     def __init__(self):
         self.scenarios: Dict[str, Dict[str, Any]] = {}
         self.sessions: Dict[str, Dict[str, Any]] = {}
+        self.global_intent_mapping: List[Dict[str, Any]] = []
     
     def load_scenario(self, session_id: str, scenario_data: Dict[str, Any]):
         """시나리오를 로드합니다."""
@@ -24,6 +25,11 @@ class StateEngine:
     def get_scenario(self, session_id: str) -> Optional[Dict[str, Any]]:
         """세션의 시나리오를 반환합니다."""
         return self.scenarios.get(session_id)
+    
+    def update_intent_mapping(self, intent_mapping: List[Dict[str, Any]]):
+        """글로벌 Intent Mapping을 업데이트합니다."""
+        self.global_intent_mapping = intent_mapping
+        logger.info(f"Updated global intent mapping with {len(intent_mapping)} rules")
     
     def get_initial_state(self, scenario: Dict[str, Any]) -> str:
         """시나리오의 초기 상태를 반환합니다."""
@@ -134,6 +140,25 @@ class StateEngine:
             
             # 빈 입력일 경우 자동 전이 확인 (webhook 상태가 아닐 때만)
             if not user_input.strip():
+                # 슬롯 필링 대기 중인지 확인
+                waiting_slot = memory.get("_WAITING_FOR_SLOT")
+                reprompt_handlers = memory.get("_REPROMPT_HANDLERS")
+                
+                if waiting_slot and reprompt_handlers:
+                    logger.info(f"🔄 Empty input while waiting for slot {waiting_slot}, triggering reprompt")
+                    no_match_result = self._handle_no_match_event(
+                        current_dialog_state, memory, scenario, current_state
+                    )
+                    if no_match_result:
+                        return {
+                            "new_state": no_match_result.get("new_state", current_state),
+                            "response": "\n".join(no_match_result.get("messages", [])),
+                            "transitions": [],
+                            "intent": "NO_MATCH_EVENT",
+                            "entities": {},
+                            "memory": memory
+                        }
+                
                 if is_webhook_state:
                     logger.info(f"State {current_state} has webhooks - no auto transition on empty input")
                     return {
@@ -312,48 +337,157 @@ class StateEngine:
     ) -> Dict[str, Any]:
         """일반 사용자 입력을 처리합니다."""
         
-        # NLU 시뮬레이션 (간단한 키워드 매칭)
-        intent, entities = self._simulate_nlu(user_input)
+        # 실제 NLU 결과 사용 (프론트엔드에서 받은 결과 우선)
+        intent, entities = self._get_nlu_results(user_input, memory, scenario, current_state)
         
-        # 메모리 업데이트
-        if entities:
-            memory.update(entities)
+        # Entity를 메모리에 저장 (type:role 형태의 키로)
+        self._store_entities_to_memory(entities, memory)
         
         transitions = []
         new_state = current_state
         response_messages = []
         
-        # 1. Intent Handler 확인
-        intent_transition = self._check_intent_handlers(
-            current_dialog_state, intent, memory
-        )
-        if intent_transition:
-            transitions.append(intent_transition)
-            new_state = intent_transition.toState
-            response_messages.append(f"🎯 인텐트 '{intent}' 처리됨")
+        # 슬롯 필링 대기 중인지 먼저 확인
+        waiting_slot = memory.get("_WAITING_FOR_SLOT")
+        reprompt_handlers = memory.get("_REPROMPT_HANDLERS")
+        reprompt_just_registered = memory.get("_REPROMPT_JUST_REGISTERED", False)
         
-        # 2. Condition Handler 확인 (전이가 없었을 경우)
-        if not intent_transition:
-            condition_transition = self._check_condition_handlers(
-                current_dialog_state, memory
+        if waiting_slot and reprompt_handlers:
+            logger.info(f"🎰 Currently waiting for slot: {waiting_slot}, just_registered: {reprompt_just_registered}")
+            
+            # 현재 입력으로 대기 중인 슬롯이 채워졌는지 직접 확인
+            slot_filled_by_current_input = False
+            
+            # 현재 다이얼로그 상태에서 슬롯 필링 폼 찾기
+            slot_filling_forms = current_dialog_state.get("slotFillingForm", [])
+            for form in slot_filling_forms:
+                if form.get("name") == waiting_slot:
+                    memory_slot_keys = form.get("memorySlotKey", [])
+                    
+                    # 각 메모리 키를 확인하여 슬롯이 채워졌는지 확인
+                    for memory_key in memory_slot_keys:
+                        if memory_key in memory and memory[memory_key]:
+                            slot_filled_by_current_input = True
+                            logger.info(f"🎰 Waiting slot {waiting_slot} filled by current input with key {memory_key}: {memory[memory_key]}")
+                            break
+                    break
+            
+            if slot_filled_by_current_input:
+                # 슬롯이 채워진 경우 정상적인 슬롯 필링 처리
+                logger.info(f"🎰 Slot {waiting_slot} filled, processing slot filling")
+                slot_filling_result = self._process_slot_filling(
+                    current_dialog_state, memory, scenario, current_state
+                )
+                
+                if slot_filling_result:
+                    new_state = slot_filling_result.get("new_state", current_state)
+                    response_messages.extend(slot_filling_result.get("messages", []))
+                    if slot_filling_result.get("transition"):
+                        transitions.append(slot_filling_result["transition"])
+                    
+                    # 슬롯 필링이 완료되었는지 확인
+                    if memory.get("SLOT_FILLING_COMPLETED"):
+                        logger.info("🎰 Slot filling completed, clearing reprompt handlers")
+                        self._clear_reprompt_handlers(memory, current_state)
+            else:
+                # 슬롯이 채워지지 않았을 때 처리
+                if reprompt_just_registered:
+                    # 첫 번째 시도: fill behavior directive만 실행
+                    logger.info(f"🔄 First attempt - Slot {waiting_slot} not filled, executing fill behavior directive only")
+                    
+                    # fill behavior의 promptAction 실행
+                    slot_filling_forms = current_dialog_state.get("slotFillingForm", [])
+                    for form in slot_filling_forms:
+                        if form.get("name") == waiting_slot:
+                            fill_behavior = form.get("fillBehavior", {})
+                            prompt_action = fill_behavior.get("promptAction", {})
+                            if prompt_action:
+                                prompt_message = self._execute_prompt_action(prompt_action, memory)
+                                if prompt_message:
+                                    response_messages.append(prompt_message)
+                                    logger.info("🎰 Fill behavior directive executed (first attempt)")
+                            break
+                    
+                    # 첫 번째 시도 플래그 제거
+                    memory.pop("_REPROMPT_JUST_REGISTERED", None)
+                else:
+                    # 두 번째 이후 시도: fill behavior directive + reprompt directive 모두 실행
+                    logger.info(f"🔄 Subsequent attempt - Slot {waiting_slot} not filled, executing both directives")
+                    
+                    # 1. fill behavior의 promptAction 실행
+                    slot_filling_forms = current_dialog_state.get("slotFillingForm", [])
+                    for form in slot_filling_forms:
+                        if form.get("name") == waiting_slot:
+                            fill_behavior = form.get("fillBehavior", {})
+                            prompt_action = fill_behavior.get("promptAction", {})
+                            if prompt_action:
+                                prompt_message = self._execute_prompt_action(prompt_action, memory)
+                                if prompt_message:
+                                    response_messages.append(prompt_message)
+                                    logger.info("🎰 Fill behavior directive executed")
+                            break
+                    
+                    # 2. reprompt handler의 directive 실행
+                    no_match_result = self._handle_no_match_event(
+                        current_dialog_state, memory, scenario, current_state
+                    )
+                    if no_match_result:
+                        response_messages.extend(no_match_result.get("messages", []))
+                        logger.info("🔄 Reprompt directive executed")
+                
+                # 현재 상태 유지
+                new_state = current_state
+        else:
+            # 일반 처리: Slot Filling 상태인지 확인
+            slot_filling_result = self._process_slot_filling(
+                current_dialog_state, memory, scenario, current_state
             )
-            if condition_transition:
-                transitions.append(condition_transition)
-                new_state = condition_transition.toState
-                response_messages.append(f"⚡ 조건 만족으로 전이")
+            
+            if slot_filling_result:
+                # Slot Filling 처리 결과
+                new_state = slot_filling_result.get("new_state", current_state)
+                response_messages.extend(slot_filling_result.get("messages", []))
+                if slot_filling_result.get("transition"):
+                    transitions.append(slot_filling_result["transition"])
+            else:
+                # 일반 Intent/Condition 처리
+                # 1. Intent Handler 확인
+                intent_transition = self._check_intent_handlers(
+                    current_dialog_state, intent, memory
+                )
+                if intent_transition:
+                    transitions.append(intent_transition)
+                    new_state = intent_transition.toState
+                    response_messages.append(f"🎯 인텐트 '{intent}' 처리됨")
+                
+                # 2. Condition Handler 확인 (전이가 없었을 경우)
+                if not intent_transition:
+                    condition_transition = self._check_condition_handlers(
+                        current_dialog_state, memory
+                    )
+                    if condition_transition:
+                        transitions.append(condition_transition)
+                        new_state = condition_transition.toState
+                        response_messages.append(f"⚡ 조건 만족으로 전이")
+                    else:
+                        # 3. 매치되지 않은 경우 NO_MATCH_EVENT 처리
+                        if intent == "NO_INTENT_FOUND" or not intent_transition:
+                            no_match_result = self._handle_no_match_event(
+                                current_dialog_state, memory, scenario, current_state
+                            )
+                            if no_match_result:
+                                new_state = no_match_result.get("new_state", current_state)
+                                response_messages.extend(no_match_result.get("messages", []))
+                                logger.info("🔄 NO_MATCH_EVENT processed")
         
         # 3. Entry Action 실행 (새로운 상태로 전이된 경우)
         if new_state != current_state:
+            # 상태가 변경되면 reprompt handler 해제
+            self._clear_reprompt_handlers(memory, current_state)
+            
             entry_response = self._execute_entry_action(scenario, new_state)
             if entry_response:
                 response_messages.append(entry_response)
-        
-        # 4. Slot Filling 처리
-        slot_filling_response = self._handle_slot_filling(
-            scenario, new_state, user_input, memory
-        )
-        if slot_filling_response:
-            response_messages.append(slot_filling_response)
         
         # 기본 응답 생성
         if not response_messages:
@@ -391,31 +525,306 @@ class StateEngine:
                     return dialog_state
         return None
     
-    def _simulate_nlu(self, user_input: str) -> Tuple[str, Dict[str, Any]]:
-        """간단한 NLU 시뮬레이션 (키워드 기반)"""
-        input_lower = user_input.lower()
+    def _clear_reprompt_handlers(self, memory: Dict[str, Any], current_state: str) -> None:
+        """reprompt handler 등록을 해제합니다."""
+        if memory.get("_WAITING_FOR_SLOT") or memory.get("_REPROMPT_HANDLERS"):
+            logger.info(f"🧹 Clearing reprompt handlers when leaving state: {current_state}")
+            memory.pop("_WAITING_FOR_SLOT", None)
+            memory.pop("_REPROMPT_HANDLERS", None)
+            memory.pop("_REPROMPT_JUST_REGISTERED", None)
+    
+    def _store_entities_to_memory(self, entities: Dict[str, Any], memory: Dict[str, Any]) -> None:
+        """Entity를 메모리에 type:role 형태의 키로 저장합니다."""
+        if not entities:
+            return
         
-        # 인텐트 매칭
-        if any(word in input_lower for word in ["날씨", "weather"]):
-            intent = "Weather.Inform"
-        elif any(word in input_lower for word in ["네", "yes", "좋아", "좋습니다"]):
-            intent = "say.yes"
-        elif any(word in input_lower for word in ["아니", "no", "싫어", "안됩니다"]):
-            intent = "say.no"
-        elif any(word in input_lower for word in ["긍정", "positive"]):
-            intent = "Positive"
-        else:
-            intent = "__ANY_INTENT__"
+        logger.info(f"🏷️ Storing entities to memory: {entities}")
         
-        # 엔티티 추출 (도시명 예시)
-        entities = {}
-        cities = ["서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종"]
-        for city in cities:
-            if city in user_input:
-                entities["CITY"] = city
-                break
+        # NLU 결과에서 받은 entities 처리
+        if "NLU_RESULT" in memory:
+            nlu_result = memory.get("NLU_RESULT", {})
+            results = nlu_result.get("results", [])
+            if results and len(results) > 0:
+                nlu_nbest = results[0].get("nluNbest", [])
+                if nlu_nbest and len(nlu_nbest) > 0:
+                    nlu_entities = nlu_nbest[0].get("entities", [])
+                    for entity in nlu_entities:
+                        if isinstance(entity, dict):
+                            entity_type = entity.get("type", "")
+                            entity_text = entity.get("text", "")
+                            entity_role = entity.get("role", "")
+                            
+                            if entity_type and entity_text:
+                                # role이 있으면 type:role, 없으면 type:type 형태로 저장
+                                if entity_role:
+                                    key = f"{entity_type}:{entity_role}"
+                                else:
+                                    key = f"{entity_type}:{entity_type}"
+                                
+                                memory[key] = entity_text
+                                memory[entity_type] = entity_text  # 기존 호환성을 위해 type만으로도 저장
+                                logger.info(f"🏷️ Entity stored: {key} = {entity_text}")
         
-        return intent, entities
+        # 기존 방식 entities도 처리
+        for entity_type, entity_value in entities.items():
+            if entity_type and entity_value:
+                key = f"{entity_type}:{entity_type}"
+                memory[key] = entity_value
+                memory[entity_type] = entity_value
+                logger.info(f"🏷️ Legacy entity stored: {key} = {entity_value}")
+    
+    def _process_slot_filling(
+        self, 
+        current_dialog_state: Dict[str, Any], 
+        memory: Dict[str, Any],
+        scenario: Dict[str, Any],
+        current_state: str
+    ) -> Optional[Dict[str, Any]]:
+        """복잡한 Slot Filling 로직을 처리합니다."""
+        
+        slot_filling_forms = current_dialog_state.get("slotFillingForm", [])
+        if not slot_filling_forms:
+            return None
+        
+        logger.info(f"🎰 Processing slot filling forms: {len(slot_filling_forms)} forms found")
+        
+        messages = []
+        all_required_filled = True
+        reprompt_just_registered = memory.get("_REPROMPT_JUST_REGISTERED", False)
+        
+        for form in slot_filling_forms:
+            slot_name = form.get("name", "")
+            required = form.get("required", "N") == "Y"
+            memory_slot_keys = form.get("memorySlotKey", [])
+            fill_behavior = form.get("fillBehavior", {})
+            
+            logger.info(f"🎰 Checking slot: {slot_name}, required: {required}, keys: {memory_slot_keys}")
+            
+            # 메모리에서 슬롯 값 확인
+            slot_filled = False
+            slot_value = None
+            for memory_key in memory_slot_keys:
+                if memory_key in memory and memory[memory_key]:
+                    slot_filled = True
+                    slot_value = memory[memory_key]
+                    logger.info(f"🎰 Slot {slot_name} filled with key {memory_key}: {slot_value}")
+                    break
+            
+            if required and not slot_filled:
+                all_required_filled = False
+                logger.info(f"🎰 Required slot {slot_name} not filled")
+                
+                # 이미 reprompt handler가 등록되어 있고 방금 등록된 상태가 아니라면 건너뛰기
+                if memory.get("_WAITING_FOR_SLOT") == slot_name and not reprompt_just_registered:
+                    logger.info(f"🎰 Already waiting for slot {slot_name}, skipping prompt")
+                    return None
+                
+                # fillBehavior의 promptAction 실행
+                prompt_action = fill_behavior.get("promptAction", {})
+                if prompt_action:
+                    prompt_message = self._execute_prompt_action(prompt_action, memory)
+                    if prompt_message:
+                        messages.append(prompt_message)
+                
+                # reprompt event handlers 등록 (현재 상태에서 대기)
+                reprompt_handlers = fill_behavior.get("repromptEventHandlers", [])
+                if reprompt_handlers:
+                    logger.info(f"🎰 Registering reprompt handlers for slot {slot_name}")
+                    # 여기서는 NO_MATCH_EVENT 처리를 위해 메모리에 상태 저장
+                    memory["_WAITING_FOR_SLOT"] = slot_name
+                    memory["_REPROMPT_HANDLERS"] = reprompt_handlers
+                    memory["_REPROMPT_JUST_REGISTERED"] = True
+                
+                return {
+                    "new_state": current_state,  # 현재 상태에서 대기
+                    "messages": messages,
+                    "transition": None
+                }
+            elif slot_filled and memory.get("_WAITING_FOR_SLOT") == slot_name:
+                # 슬롯이 방금 채워진 경우
+                logger.info(f"🎰 Slot {slot_name} just filled, clearing waiting state")
+                memory.pop("_WAITING_FOR_SLOT", None)
+                memory.pop("_REPROMPT_HANDLERS", None)
+                memory.pop("_REPROMPT_JUST_REGISTERED", None)
+        
+        # reprompt 방금 등록된 플래그 제거
+        if reprompt_just_registered:
+            memory.pop("_REPROMPT_JUST_REGISTERED", None)
+        
+        # 모든 필수 슬롯이 채워진 경우
+        if all_required_filled:
+            logger.info("🎰 All required slots filled, setting SLOT_FILLING_COMPLETED")
+            memory["SLOT_FILLING_COMPLETED"] = ""
+            
+            # 대기 상태 정리
+            memory.pop("_WAITING_FOR_SLOT", None)
+            memory.pop("_REPROMPT_HANDLERS", None)
+            memory.pop("_REPROMPT_JUST_REGISTERED", None)
+            
+            # 조건 핸들러 확인
+            condition_transition = self._check_condition_handlers(current_dialog_state, memory)
+            if condition_transition:
+                logger.info(f"🎰 Slot filling completed, transitioning to: {condition_transition.toState}")
+                return {
+                    "new_state": condition_transition.toState,
+                    "messages": messages,
+                    "transition": condition_transition
+                }
+        
+        return {
+            "new_state": current_state,
+            "messages": messages,
+            "transition": None
+        }
+    
+    def _execute_prompt_action(self, prompt_action: Dict[str, Any], memory: Dict[str, Any]) -> Optional[str]:
+        """promptAction을 실행하고 메시지를 반환합니다."""
+        directives = prompt_action.get("directives", [])
+        messages = []
+        
+        for directive in directives:
+            directive_name = directive.get("name", "")
+            content = directive.get("content", {})
+            
+            if directive_name == "customPayload":
+                # customPayload 처리
+                text_content = self._extract_text_from_custom_payload(content)
+                if text_content:
+                    # 템플릿 처리
+                    processed_text = self._process_template(text_content, memory)
+                    messages.append(processed_text)
+            elif directive_name == "speak" and isinstance(content, str):
+                # speak directive 처리
+                processed_text = self._process_template(content, memory)
+                messages.append(processed_text)
+        
+        return "; ".join(messages) if messages else None
+    
+    def _extract_text_from_custom_payload(self, content: Dict[str, Any]) -> Optional[str]:
+        """customPayload에서 텍스트를 추출합니다."""
+        try:
+            items = content.get("item", [])
+            messages = []
+            
+            for item in items:
+                if "section" in item:
+                    section_items = item["section"].get("item", [])
+                    for section_item in section_items:
+                        if "text" in section_item:
+                            text_content = section_item["text"].get("text", "")
+                            if text_content:
+                                # HTML 태그 제거
+                                import re
+                                clean_text = re.sub(r'<[^>]+>', '', text_content)
+                                messages.append(clean_text)
+            
+            return "; ".join(messages) if messages else None
+        except Exception as e:
+            logger.warning(f"Error extracting text from custom payload: {e}")
+            return None
+    
+    def _get_nlu_results(self, user_input: str, memory: Dict[str, Any], scenario: Optional[Dict[str, Any]] = None, current_state: str = "") -> Tuple[str, Dict[str, Any]]:
+        """실제 NLU 결과를 가져오거나 시뮬레이션을 사용합니다."""
+        
+        # 메모리에서 NLU 결과 확인 (프론트엔드에서 받은 실제 결과)
+        nlu_result = memory.get("NLU_RESULT")
+        if nlu_result and isinstance(nlu_result, dict):
+            try:
+                # NLU 결과에서 intent와 entities 추출
+                results = nlu_result.get("results", [])
+                if results and len(results) > 0:
+                    nlu_nbest = results[0].get("nluNbest", [])
+                    if nlu_nbest and len(nlu_nbest) > 0:
+                        first_result = nlu_nbest[0]
+                        base_intent = first_result.get("intent", "Fallback.Unknown")
+                        
+                        # 엔티티 추출
+                        entities = {}
+                        nlu_entities = first_result.get("entities", [])
+                        for entity in nlu_entities:
+                            if isinstance(entity, dict):
+                                entity_type = entity.get("type", "")
+                                entity_text = entity.get("text", "")
+                                if entity_type and entity_text:
+                                    entities[entity_type] = entity_text
+                        
+                        # DM Intent 매핑 적용
+                        final_intent = self._apply_dm_intent_mapping(base_intent, current_state, memory, scenario)
+                        
+                        logger.info(f"🧠 NLU result: base_intent='{base_intent}', final_intent='{final_intent}', entities={entities}")
+                        return final_intent, entities
+            except Exception as e:
+                logger.warning(f"Error parsing NLU result: {e}")
+        
+        # NLU 결과가 없으면 기본값 반환 (시뮬레이션 제거)
+        logger.info("⚠️ No NLU result found, returning default values")
+        return "NO_INTENT_FOUND", {}
+
+
+
+    def _apply_dm_intent_mapping(self, base_intent: str, current_state: str, memory: Dict[str, Any], scenario: Optional[Dict[str, Any]] = None) -> str:
+        """시나리오의 intentMapping을 적용하여 DM Intent를 결정합니다."""
+        
+        logger.info(f"🔍 DM Intent mapping - base_intent: {base_intent}, current_state: {current_state}")
+        logger.info(f"🔍 Current memory: {memory}")
+        
+        # 시나리오의 intentMapping과 글로벌 intentMapping을 결합
+        intent_mappings = []
+        
+        # 먼저 글로벌 Intent Mapping 추가
+        intent_mappings.extend(self.global_intent_mapping)
+        
+        # 그 다음 시나리오의 Intent Mapping 추가 (우선순위 높음)
+        if scenario:
+            intent_mappings.extend(scenario.get("intentMapping", []))
+        
+        logger.info(f"🔍 Found {len(intent_mappings)} total intent mappings (global: {len(self.global_intent_mapping)}, scenario: {len(scenario.get('intentMapping', []) if scenario else [])})")
+        
+        for i, mapping in enumerate(intent_mappings):
+            try:
+                logger.info(f"🔍 Checking mapping {i+1}: {mapping}")
+                
+                # 시나리오와 상태 매칭 확인
+                mapping_scenario = mapping.get("scenario", "")
+                mapping_state = mapping.get("dialogState", "")
+                
+                logger.info(f"🔍 State check - mapping_state: {mapping_state}, current_state: {current_state}")
+                
+                if mapping_state and mapping_state != current_state:
+                    logger.info(f"🔍 State mismatch - skipping mapping {i+1}")
+                    continue
+                
+                # Intent 매칭 확인
+                mapped_intents = mapping.get("intents", [])
+                logger.info(f"🔍 Intent check - mapped_intents: {mapped_intents}, base_intent: {base_intent}")
+                
+                if base_intent not in mapped_intents:
+                    logger.info(f"🔍 Intent not in mapped list - skipping mapping {i+1}")
+                    continue
+                
+                # 조건 확인
+                condition_statement = mapping.get("conditionStatement", "")
+                logger.info(f"🔍 Condition check - condition: {condition_statement}")
+                
+                if condition_statement:
+                    condition_result = self._evaluate_condition(condition_statement, memory)
+                    logger.info(f"🔍 Condition result: {condition_result}")
+                    if not condition_result:
+                        logger.info(f"🔍 Condition not met - skipping mapping {i+1}")
+                        continue
+                
+                # 모든 조건이 만족되면 DM Intent 반환
+                dm_intent = mapping.get("dmIntent", "")
+                if dm_intent:
+                    logger.info(f"🎯 DM Intent mapping applied: {base_intent} -> {dm_intent} (state: {current_state})")
+                    return dm_intent
+                    
+            except Exception as e:
+                logger.warning(f"Error applying DM intent mapping: {e}")
+        
+        # 매핑이 없으면 원래 intent 반환
+        logger.info(f"🔍 No mapping found - returning original intent: {base_intent}")
+        return base_intent
     
     def _check_intent_handlers(
         self, 
@@ -437,6 +846,11 @@ class StateEngine:
             
             # 정확한 인텐트 매칭 또는 __ANY_INTENT__
             if handler_intent == intent or handler_intent == "__ANY_INTENT__":
+                # Action 처리 (memoryActions 포함)
+                action = handler.get("action", {})
+                if action:
+                    self._execute_action(action, memory)
+                
                 target = handler.get("transitionTarget", {})
                 
                 return StateTransition(
@@ -447,8 +861,35 @@ class StateEngine:
                     handlerType="intent"
                 )
         
-        return None
-    
+                return None
+
+    def _execute_action(self, action: Dict[str, Any], memory: Dict[str, Any]) -> None:
+        """Action을 실행합니다 (memoryActions 포함)."""
+        try:
+            # Memory Actions 처리
+            memory_actions = action.get("memoryActions", [])
+            for memory_action in memory_actions:
+                if not isinstance(memory_action, dict):
+                    continue
+                
+                action_type = memory_action.get("actionType", "")
+                memory_slot_key = memory_action.get("memorySlotKey", "")
+                memory_slot_value = memory_action.get("memorySlotValue", "")
+                action_scope = memory_action.get("actionScope", "SESSION")
+                
+                if action_type == "ADD" and memory_slot_key:
+                    memory[memory_slot_key] = memory_slot_value
+                    logger.info(f"💾 Memory action executed: {memory_slot_key} = {memory_slot_value}")
+                elif action_type == "REMOVE" and memory_slot_key:
+                    if memory_slot_key in memory:
+                        del memory[memory_slot_key]
+                        logger.info(f"🗑️ Memory action executed: removed {memory_slot_key}")
+                
+            # 다른 Action 타입들도 여기에 추가 가능 (directives 등)
+            
+        except Exception as e:
+            logger.error(f"Error executing action: {e}")
+
     def _check_condition_handlers(
         self, 
         dialog_state: Dict[str, Any], 
@@ -483,24 +924,44 @@ class StateEngine:
     def _evaluate_condition(self, condition: str, memory: Dict[str, Any]) -> bool:
         """조건식을 평가합니다."""
         try:
+            logger.info(f"🔍 Evaluating condition: '{condition}'")
+            logger.info(f"🔍 Available memory keys: {list(memory.keys())}")
+            
             # 간단한 조건 평가
             if condition.strip() == "True" or condition.strip() == '"True"':
+                logger.info(f"🔍 Condition is literal True")
                 return True
             elif condition.strip() == "False" or condition.strip() == '"False"':
+                logger.info(f"🔍 Condition is literal False")
                 return False
             elif condition == "SLOT_FILLING_COMPLETED":
                 # Slot filling 완료 조건 (예시)
-                return memory.get("CITY") is not None
+                result = memory.get("CITY") is not None
+                logger.info(f"🔍 SLOT_FILLING_COMPLETED check: {result}")
+                return result
+            
+            original_condition = condition
             
             # 메모리 변수 치환
             for key, value in memory.items():
+                old_condition = condition
+                # {key} 형태 치환
                 condition = condition.replace(f"{{{key}}}", f'"{value}"')
+                # {$key} 형태 치환 
+                condition = condition.replace(f"{{${key}}}", f'"{value}"')
+                # ${key} 형태 치환 (기존 형태도 지원)
                 condition = condition.replace(f"${{{key}}}", f'"{value}"')
+                if old_condition != condition:
+                    logger.info(f"🔍 Replaced variable {key} with '{value}': '{old_condition}' -> '{condition}'")
             
             # NLU_INTENT 치환
             if "{$NLU_INTENT}" in condition:
                 nlu_intent = memory.get("NLU_INTENT", "")
+                old_condition = condition
                 condition = condition.replace("{$NLU_INTENT}", f'"{nlu_intent}"')
+                logger.info(f"🔍 Replaced NLU_INTENT: '{old_condition}' -> '{condition}'")
+            
+            logger.info(f"🔍 Final condition after substitution: '{condition}'")
             
             # 간단한 비교 연산 처리
             if "==" in condition:
@@ -508,13 +969,14 @@ class StateEngine:
                 left = left.strip().strip('"')
                 right = right.strip().strip('"')
                 result = left == right
-                logger.info(f"Condition evaluation: {left} == {right} -> {result}")
+                logger.info(f"🔍 Condition evaluation: '{left}' == '{right}' -> {result}")
                 return result
             
+            logger.warning(f"🔍 Unsupported condition format: '{condition}'")
             return False
             
         except Exception as e:
-            logger.error(f"Condition evaluation error: {e}")
+            logger.error(f"🔍 Condition evaluation error: {e}")
             return False
     
     def _execute_entry_action(self, scenario: Dict[str, Any], state_name: str) -> Optional[str]:
@@ -606,41 +1068,49 @@ class StateEngine:
         logger.info(f"Entry action result: {result}")
         return result
     
-    def _handle_slot_filling(
+    def _handle_no_match_event(
         self, 
-        scenario: Dict[str, Any], 
-        state_name: str, 
-        user_input: str, 
-        memory: Dict[str, Any]
-    ) -> Optional[str]:
-        """Slot Filling을 처리합니다."""
-        dialog_state = self._find_dialog_state(scenario, state_name)
-        if not dialog_state:
+        current_dialog_state: Dict[str, Any],
+        memory: Dict[str, Any],
+        scenario: Dict[str, Any],
+        current_state: str
+    ) -> Optional[Dict[str, Any]]:
+        """NO_MATCH_EVENT를 처리합니다 (reprompt handler)."""
+        
+        # 슬롯 대기 중인지 확인
+        waiting_slot = memory.get("_WAITING_FOR_SLOT")
+        reprompt_handlers = memory.get("_REPROMPT_HANDLERS", [])
+        
+        if not waiting_slot or not reprompt_handlers:
             return None
         
-        slot_filling_forms = dialog_state.get("slotFillingForm", [])
-        if not slot_filling_forms:
-            return None
+        logger.info(f"🔄 Handling NO_MATCH_EVENT for slot: {waiting_slot}")
         
-        messages = []
-        for form in slot_filling_forms:
-            slot_name = form.get("name")
-            required = form.get("required", "N") == "Y"
-            memory_slot_keys = form.get("memorySlotKey", [])
-            
-            # 메모리에 슬롯 값이 있는지 확인
-            slot_filled = False
-            for memory_key in memory_slot_keys:
-                if ":" in memory_key:
-                    key = memory_key.split(":")[0]
-                    if key in memory:
-                        slot_filled = True
-                        break
-            
-            if required and not slot_filled:
-                messages.append(f"📝 '{slot_name}' 정보가 필요합니다.")
+        # reprompt event handler 찾기
+        for handler in reprompt_handlers:
+            event = handler.get("event", {})
+            if event.get("type") == "NO_MATCH_EVENT":
+                action = handler.get("action", {})
+                
+                # action의 directive 실행
+                action_message = None
+                if action.get("directives"):
+                    action_message = self._execute_prompt_action(action, memory)
+                
+                # transition target 확인
+                transition_target = handler.get("transitionTarget", {})
+                target_state = transition_target.get("dialogState", "__CURRENT_DIALOG_STATE__")
+                
+                if target_state == "__CURRENT_DIALOG_STATE__":
+                    target_state = current_state
+                
+                return {
+                    "new_state": target_state,
+                    "messages": [action_message] if action_message else [],
+                    "transition": None
+                }
         
-        return "; ".join(messages) if messages else None
+        return None
 
     async def _handle_event_trigger(
         self,

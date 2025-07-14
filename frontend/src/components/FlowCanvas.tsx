@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import ReactFlow, {
   Node,
   Edge,
@@ -74,7 +74,27 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
   const [selectedNodes, setSelectedNodes] = useState<string[]>([]);
   const [selectedEdges, setSelectedEdges] = useState<string[]>([]);
   
-  const { project } = useReactFlow();
+  const { project, fitView } = useReactFlow();
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // 컨테이너 크기 변화 감지 및 자동 fitView
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      // 약간의 지연을 두고 fitView 호출 (레이아웃 완료 후)
+      setTimeout(() => {
+        fitView({ duration: 300 });
+      }, 100);
+    });
+
+    resizeObserver.observe(container);
+    
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [fitView]);
 
   // 선택된 노드/연결 삭제
   const handleDeleteSelected = useCallback(() => {
@@ -407,7 +427,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
   }, [contextMenu, propNodes, onNodesChange]);
 
   return (
-    <div style={{ width: '100%', height: '100%' }} onContextMenu={handleContextMenu}>
+    <div ref={containerRef} style={{ width: '100%', height: '100%' }} onContextMenu={handleContextMenu}>
       <ReactFlow
         nodes={nodes}
         edges={edges}

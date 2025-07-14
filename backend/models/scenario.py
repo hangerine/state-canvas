@@ -16,7 +16,7 @@ class NLUEntity(BaseModel):
     role: str
     type: str
     text: str
-    normalization: str
+    normalization: Optional[str] = None
     extra: Dict[str, Any]
 
 class NLUNbest(BaseModel):

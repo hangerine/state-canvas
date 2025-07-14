@@ -47,6 +47,11 @@ backend/env/
 backend/ENV/
 backend/env.bak/
 backend/venv.bak/
+nlu/venv/
+nlu/env/
+nlu/ENV/
+nlu/env.bak/
+nlu/venv.bak/
 .venv/
 .env/
 
@@ -180,4 +185,124 @@ ehthumbs.db
 # Project specific
 backend/sessions/
 backend/uploads/
-*.session 
+*.session
+
+# ===========================================
+# StateCanvas Project Specific
+# ===========================================
+
+# NLU service
+nlu/models/
+nlu/data/datasets/
+nlu/data/raw/
+nlu/data/processed/
+nlu/checkpoints/
+nlu/experiments/
+nlu/wandb/
+nlu/.wandb/
+
+# JSON Server Webhook
+json-server-webhook/node_modules/
+json-server-webhook/npm-debug.log*
+json-server-webhook/yarn-debug.log*
+json-server-webhook/yarn-error.log*
+
+# Monitoring and Performance files
+*.tsv
+*.jsonl
+prom_*.tsv
+prom_*.jsonl
+prometheus_data/
+grafana_data/
+monitoring_logs/
+
+# Scenario files (temporary/generated)
+*_modified.json
+*_test.json
+scenario_backup_*.json
+scenario_temp_*.json
+temp_scenario*.json
+
+# Backend specific
+backend/logs/
+backend/temp/
+backend/cache/
+backend/models/checkpoints/
+backend/static/uploads/
+
+# Frontend specific  
+frontend/.eslintcache
+frontend/build/
+frontend/dist/
+frontend/coverage/
+frontend/storybook-static/
+
+# Test files
+test_results/
+test_outputs/
+*.test.log
+coverage.xml
+junit.xml
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+*.docker.log
+
+# Kubernetes
+k8s-secrets/
+*.secret.yaml
+
+# Machine Learning
+*.h5
+*.pkl
+*.joblib
+*.model
+*.ckpt
+*.pb
+checkpoints/
+experiments/
+wandb/
+.neptune/
+mlruns/
+
+# Large data files
+*.csv.gz
+*.json.gz
+*.parquet
+data/raw/
+data/processed/
+data/external/
+
+# Backup files
+*.bak
+*.backup
+*~
+.#*
+#*#
+
+# IDE files
+*.swp
+*.swo
+*~
+.project
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# Cache directories
+.cache/
+.tmp/
+.sass-cache/
+.npm/
+.yarn/
+
+# Process files
+*.pid.lock
+pm2.log*
+pm2-error.log*
+
+# Service specific logs
+start_*.log
+service_*.log
+app_*.log

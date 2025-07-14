@@ -144,7 +144,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
   const addConditionHandler = () => {
     const newHandler: ConditionHandler = {
       conditionStatement: "True",
-      action: { directives: [] },
+      action: { directives: [], memoryActions: [] },
       transitionTarget: { scenario: "", dialogState: "" }
     };
     
@@ -180,10 +180,84 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
     });
   };
 
+  // Memory Actions 관리 함수들
+  const addMemoryActionToConditionHandler = (handlerIndex: number) => {
+    const updated = editedState.conditionHandlers?.map((handler, i) => {
+      if (i === handlerIndex) {
+        const newMemoryAction = {
+          actionType: "ADD",
+          memorySlotKey: "",
+          memorySlotValue: "",
+          actionScope: "SESSION"
+        };
+        return {
+          ...handler,
+          action: {
+            ...handler.action,
+            memoryActions: [...(handler.action.memoryActions || []), newMemoryAction]
+          }
+        };
+      }
+      return handler;
+    }) || [];
+    
+    setEditedState({
+      ...editedState,
+      conditionHandlers: updated
+    });
+  };
+
+  const removeMemoryActionFromConditionHandler = (handlerIndex: number, memoryActionIndex: number) => {
+    const updated = editedState.conditionHandlers?.map((handler, i) => {
+      if (i === handlerIndex) {
+        const filteredMemoryActions = handler.action.memoryActions?.filter((_, j) => j !== memoryActionIndex) || [];
+        return {
+          ...handler,
+          action: {
+            ...handler.action,
+            memoryActions: filteredMemoryActions
+          }
+        };
+      }
+      return handler;
+    }) || [];
+    
+    setEditedState({
+      ...editedState,
+      conditionHandlers: updated
+    });
+  };
+
+  const updateMemoryActionInConditionHandler = (handlerIndex: number, memoryActionIndex: number, field: string, value: string) => {
+    const updated = editedState.conditionHandlers?.map((handler, i) => {
+      if (i === handlerIndex) {
+        const updatedMemoryActions = handler.action.memoryActions?.map((memoryAction, j) => {
+          if (j === memoryActionIndex) {
+            return { ...memoryAction, [field]: value };
+          }
+          return memoryAction;
+        }) || [];
+        return {
+          ...handler,
+          action: {
+            ...handler.action,
+            memoryActions: updatedMemoryActions
+          }
+        };
+      }
+      return handler;
+    }) || [];
+    
+    setEditedState({
+      ...editedState,
+      conditionHandlers: updated
+    });
+  };
+
   const addIntentHandler = () => {
     const newHandler: IntentHandler = {
       intent: "",
-      action: { directives: [] },
+      action: { directives: [], memoryActions: [] },
       transitionTarget: { scenario: "", dialogState: "" }
     };
     
@@ -219,13 +293,87 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
     });
   };
 
+  // Memory Actions 관리 함수들
+  const addMemoryActionToIntentHandler = (handlerIndex: number) => {
+    const updated = editedState.intentHandlers?.map((handler, i) => {
+      if (i === handlerIndex) {
+        const newMemoryAction = {
+          actionType: "ADD",
+          memorySlotKey: "",
+          memorySlotValue: "",
+          actionScope: "SESSION"
+        };
+        return {
+          ...handler,
+          action: {
+            ...handler.action,
+            memoryActions: [...(handler.action.memoryActions || []), newMemoryAction]
+          }
+        };
+      }
+      return handler;
+    }) || [];
+    
+    setEditedState({
+      ...editedState,
+      intentHandlers: updated
+    });
+  };
+
+  const removeMemoryActionFromIntentHandler = (handlerIndex: number, memoryActionIndex: number) => {
+    const updated = editedState.intentHandlers?.map((handler, i) => {
+      if (i === handlerIndex) {
+        const filteredMemoryActions = handler.action.memoryActions?.filter((_, j) => j !== memoryActionIndex) || [];
+        return {
+          ...handler,
+          action: {
+            ...handler.action,
+            memoryActions: filteredMemoryActions
+          }
+        };
+      }
+      return handler;
+    }) || [];
+    
+    setEditedState({
+      ...editedState,
+      intentHandlers: updated
+    });
+  };
+
+  const updateMemoryActionInIntentHandler = (handlerIndex: number, memoryActionIndex: number, field: string, value: string) => {
+    const updated = editedState.intentHandlers?.map((handler, i) => {
+      if (i === handlerIndex) {
+        const updatedMemoryActions = handler.action.memoryActions?.map((memoryAction, j) => {
+          if (j === memoryActionIndex) {
+            return { ...memoryAction, [field]: value };
+          }
+          return memoryAction;
+        }) || [];
+        return {
+          ...handler,
+          action: {
+            ...handler.action,
+            memoryActions: updatedMemoryActions
+          }
+        };
+      }
+      return handler;
+    }) || [];
+    
+    setEditedState({
+      ...editedState,
+      intentHandlers: updated
+    });
+  };
+
   const addEventHandler = () => {
     const newHandler: EventHandler = {
       event: {
         type: "CUSTOM_EVENT",
         count: "1"
       },
-      action: { directives: [] },
+      action: { directives: [], memoryActions: [] },
       transitionTarget: { scenario: "", dialogState: "" }
     };
     
@@ -261,6 +409,80 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
             transitionTarget: { ...handler.transitionTarget, dialogState: value } 
           };
         }
+      }
+      return handler;
+    }) || [];
+    
+    setEditedState({
+      ...editedState,
+      eventHandlers: updated
+    });
+  };
+
+  // Memory Actions 관리 함수들
+  const addMemoryActionToEventHandler = (handlerIndex: number) => {
+    const updated = editedState.eventHandlers?.map((handler, i) => {
+      if (i === handlerIndex) {
+        const newMemoryAction = {
+          actionType: "ADD",
+          memorySlotKey: "",
+          memorySlotValue: "",
+          actionScope: "SESSION"
+        };
+        return {
+          ...handler,
+          action: {
+            ...handler.action,
+            memoryActions: [...(handler.action.memoryActions || []), newMemoryAction]
+          }
+        };
+      }
+      return handler;
+    }) || [];
+    
+    setEditedState({
+      ...editedState,
+      eventHandlers: updated
+    });
+  };
+
+  const removeMemoryActionFromEventHandler = (handlerIndex: number, memoryActionIndex: number) => {
+    const updated = editedState.eventHandlers?.map((handler, i) => {
+      if (i === handlerIndex) {
+        const filteredMemoryActions = handler.action.memoryActions?.filter((_, j) => j !== memoryActionIndex) || [];
+        return {
+          ...handler,
+          action: {
+            ...handler.action,
+            memoryActions: filteredMemoryActions
+          }
+        };
+      }
+      return handler;
+    }) || [];
+    
+    setEditedState({
+      ...editedState,
+      eventHandlers: updated
+    });
+  };
+
+  const updateMemoryActionInEventHandler = (handlerIndex: number, memoryActionIndex: number, field: string, value: string) => {
+    const updated = editedState.eventHandlers?.map((handler, i) => {
+      if (i === handlerIndex) {
+        const updatedMemoryActions = handler.action.memoryActions?.map((memoryAction, j) => {
+          if (j === memoryActionIndex) {
+            return { ...memoryAction, [field]: value };
+          }
+          return memoryAction;
+        }) || [];
+        return {
+          ...handler,
+          action: {
+            ...handler.action,
+            memoryActions: updatedMemoryActions
+          }
+        };
       }
       return handler;
     }) || [];
@@ -737,7 +959,81 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                       value={handler.transitionTarget.dialogState}
                       onChange={(e) => updateConditionHandler(index, 'transitionTarget', e.target.value)}
                       fullWidth
+                      sx={{ mb: 2 }}
                     />
+                    
+                    {/* Memory Actions */}
+                    <Typography variant="subtitle2" sx={{ mb: 1 }}>Memory Actions</Typography>
+                    {handler.action.memoryActions?.map((memoryAction, memoryIndex) => (
+                      <Box key={memoryIndex} sx={{ border: 1, borderColor: 'grey.300', p: 1, borderRadius: 1, mb: 1 }}>
+                        <Grid container spacing={1} alignItems="center">
+                          <Grid item xs={2}>
+                            <FormControl fullWidth size="small">
+                              <InputLabel>Type</InputLabel>
+                              <Select
+                                value={memoryAction.actionType}
+                                onChange={(e) => updateMemoryActionInConditionHandler(index, memoryIndex, 'actionType', e.target.value)}
+                                label="Type"
+                              >
+                                <MenuItem value="ADD">ADD</MenuItem>
+                                <MenuItem value="UPDATE">UPDATE</MenuItem>
+                                <MenuItem value="DELETE">DELETE</MenuItem>
+                              </Select>
+                            </FormControl>
+                          </Grid>
+                          <Grid item xs={3}>
+                            <TextField
+                              label="Memory Key"
+                              value={memoryAction.memorySlotKey}
+                              onChange={(e) => updateMemoryActionInConditionHandler(index, memoryIndex, 'memorySlotKey', e.target.value)}
+                              size="small"
+                              fullWidth
+                            />
+                          </Grid>
+                          <Grid item xs={3}>
+                            <TextField
+                              label="Memory Value"
+                              value={memoryAction.memorySlotValue}
+                              onChange={(e) => updateMemoryActionInConditionHandler(index, memoryIndex, 'memorySlotValue', e.target.value)}
+                              size="small"
+                              fullWidth
+                            />
+                          </Grid>
+                                                     <Grid item xs={2}>
+                             <FormControl fullWidth size="small">
+                               <InputLabel>Scope</InputLabel>
+                               <Select
+                                 value={memoryAction.actionScope}
+                                 onChange={(e) => updateMemoryActionInConditionHandler(index, memoryIndex, 'actionScope', e.target.value)}
+                                 label="Scope"
+                               >
+                                 <MenuItem value="SESSION">SESSION</MenuItem>
+                                 <MenuItem value="GLOBAL">GLOBAL</MenuItem>
+                                 <MenuItem value="SCENARIO">SCENARIO</MenuItem>
+                                 <MenuItem value="STATE">STATE</MenuItem>
+                               </Select>
+                             </FormControl>
+                           </Grid>
+                          <Grid item xs={2}>
+                            <IconButton 
+                              onClick={() => removeMemoryActionFromConditionHandler(index, memoryIndex)} 
+                              size="small"
+                              color="error"
+                            >
+                              <DeleteIcon />
+                            </IconButton>
+                          </Grid>
+                        </Grid>
+                      </Box>
+                    )) || []}
+                    <Button
+                      onClick={() => addMemoryActionToConditionHandler(index)}
+                      startIcon={<AddIcon />}
+                      variant="text"
+                      size="small"
+                    >
+                      Memory Action 추가
+                    </Button>
                   </Box>
                 ))}
                 <Button
@@ -781,7 +1077,81 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                       value={handler.transitionTarget.dialogState}
                       onChange={(e) => updateIntentHandler(index, 'transitionTarget', e.target.value)}
                       fullWidth
+                      sx={{ mb: 2 }}
                     />
+                    
+                    {/* Memory Actions */}
+                    <Typography variant="subtitle2" sx={{ mb: 1 }}>Memory Actions</Typography>
+                    {handler.action.memoryActions?.map((memoryAction, memoryIndex) => (
+                      <Box key={memoryIndex} sx={{ border: 1, borderColor: 'grey.300', p: 1, borderRadius: 1, mb: 1 }}>
+                        <Grid container spacing={1} alignItems="center">
+                          <Grid item xs={2}>
+                            <FormControl fullWidth size="small">
+                              <InputLabel>Type</InputLabel>
+                              <Select
+                                value={memoryAction.actionType}
+                                onChange={(e) => updateMemoryActionInIntentHandler(index, memoryIndex, 'actionType', e.target.value)}
+                                label="Type"
+                              >
+                                <MenuItem value="ADD">ADD</MenuItem>
+                                <MenuItem value="UPDATE">UPDATE</MenuItem>
+                                <MenuItem value="DELETE">DELETE</MenuItem>
+                              </Select>
+                            </FormControl>
+                          </Grid>
+                          <Grid item xs={3}>
+                            <TextField
+                              label="Memory Key"
+                              value={memoryAction.memorySlotKey}
+                              onChange={(e) => updateMemoryActionInIntentHandler(index, memoryIndex, 'memorySlotKey', e.target.value)}
+                              size="small"
+                              fullWidth
+                            />
+                          </Grid>
+                          <Grid item xs={3}>
+                            <TextField
+                              label="Memory Value"
+                              value={memoryAction.memorySlotValue}
+                              onChange={(e) => updateMemoryActionInIntentHandler(index, memoryIndex, 'memorySlotValue', e.target.value)}
+                              size="small"
+                              fullWidth
+                            />
+                          </Grid>
+                                                     <Grid item xs={2}>
+                             <FormControl fullWidth size="small">
+                               <InputLabel>Scope</InputLabel>
+                               <Select
+                                 value={memoryAction.actionScope}
+                                 onChange={(e) => updateMemoryActionInIntentHandler(index, memoryIndex, 'actionScope', e.target.value)}
+                                 label="Scope"
+                               >
+                                 <MenuItem value="SESSION">SESSION</MenuItem>
+                                 <MenuItem value="GLOBAL">GLOBAL</MenuItem>
+                                 <MenuItem value="SCENARIO">SCENARIO</MenuItem>
+                                 <MenuItem value="STATE">STATE</MenuItem>
+                               </Select>
+                             </FormControl>
+                           </Grid>
+                          <Grid item xs={2}>
+                            <IconButton 
+                              onClick={() => removeMemoryActionFromIntentHandler(index, memoryIndex)} 
+                              size="small"
+                              color="error"
+                            >
+                              <DeleteIcon />
+                            </IconButton>
+                          </Grid>
+                        </Grid>
+                      </Box>
+                    )) || []}
+                    <Button
+                      onClick={() => addMemoryActionToIntentHandler(index)}
+                      startIcon={<AddIcon />}
+                      variant="text"
+                      size="small"
+                    >
+                      Memory Action 추가
+                    </Button>
                   </Box>
                 ))}
                 <Button
@@ -826,7 +1196,81 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                       value={handler.transitionTarget.dialogState}
                       onChange={(e) => updateEventHandler(index, 'transitionTarget', e.target.value)}
                       fullWidth
+                      sx={{ mb: 2 }}
                     />
+                    
+                    {/* Memory Actions */}
+                    <Typography variant="subtitle2" sx={{ mb: 1 }}>Memory Actions</Typography>
+                    {handler.action.memoryActions?.map((memoryAction, memoryIndex) => (
+                      <Box key={memoryIndex} sx={{ border: 1, borderColor: 'grey.300', p: 1, borderRadius: 1, mb: 1 }}>
+                        <Grid container spacing={1} alignItems="center">
+                          <Grid item xs={2}>
+                            <FormControl fullWidth size="small">
+                              <InputLabel>Type</InputLabel>
+                              <Select
+                                value={memoryAction.actionType}
+                                onChange={(e) => updateMemoryActionInEventHandler(index, memoryIndex, 'actionType', e.target.value)}
+                                label="Type"
+                              >
+                                <MenuItem value="ADD">ADD</MenuItem>
+                                <MenuItem value="UPDATE">UPDATE</MenuItem>
+                                <MenuItem value="DELETE">DELETE</MenuItem>
+                              </Select>
+                            </FormControl>
+                          </Grid>
+                          <Grid item xs={3}>
+                            <TextField
+                              label="Memory Key"
+                              value={memoryAction.memorySlotKey}
+                              onChange={(e) => updateMemoryActionInEventHandler(index, memoryIndex, 'memorySlotKey', e.target.value)}
+                              size="small"
+                              fullWidth
+                            />
+                          </Grid>
+                          <Grid item xs={3}>
+                            <TextField
+                              label="Memory Value"
+                              value={memoryAction.memorySlotValue}
+                              onChange={(e) => updateMemoryActionInEventHandler(index, memoryIndex, 'memorySlotValue', e.target.value)}
+                              size="small"
+                              fullWidth
+                            />
+                          </Grid>
+                                                     <Grid item xs={2}>
+                             <FormControl fullWidth size="small">
+                               <InputLabel>Scope</InputLabel>
+                               <Select
+                                 value={memoryAction.actionScope}
+                                 onChange={(e) => updateMemoryActionInEventHandler(index, memoryIndex, 'actionScope', e.target.value)}
+                                 label="Scope"
+                               >
+                                 <MenuItem value="SESSION">SESSION</MenuItem>
+                                 <MenuItem value="GLOBAL">GLOBAL</MenuItem>
+                                 <MenuItem value="SCENARIO">SCENARIO</MenuItem>
+                                 <MenuItem value="STATE">STATE</MenuItem>
+                               </Select>
+                             </FormControl>
+                           </Grid>
+                          <Grid item xs={2}>
+                            <IconButton 
+                              onClick={() => removeMemoryActionFromEventHandler(index, memoryIndex)} 
+                              size="small"
+                              color="error"
+                            >
+                              <DeleteIcon />
+                            </IconButton>
+                          </Grid>
+                        </Grid>
+                      </Box>
+                    )) || []}
+                    <Button
+                      onClick={() => addMemoryActionToEventHandler(index)}
+                      startIcon={<AddIcon />}
+                      variant="text"
+                      size="small"
+                    >
+                      Memory Action 추가
+                    </Button>
                   </Box>
                 ))}
                 <Button

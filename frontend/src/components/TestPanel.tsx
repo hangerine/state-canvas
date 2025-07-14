@@ -36,10 +36,31 @@ import {
 import { Scenario, UserInput, ProcessInputRequest, EntityInput, NLUEntity } from '../types/scenario';
 import axios from 'axios';
 
+// NLU 관련 타입 정의 (임시로 any 사용, 추후 정확한 타입 정의 예정)
+interface TrainingUtterance {
+  id?: number;
+  text: string;
+  intent: string;
+  entities: any[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+
+
+interface IntentMapping {
+  scenario: string;
+  dialogState: string;
+  intents: string[];
+  conditionStatement: string;
+  dmIntent: string;
+}
+
 interface TestPanelProps {
   scenario: Scenario | null;
   currentState: string;
   onStateChange: (state: string) => void;
+  onScenarioUpdate?: (scenario: Scenario) => void;
 }
 
 interface TestMessage {
@@ -52,6 +73,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
   scenario,
   currentState,
   onStateChange,
+  onScenarioUpdate,
 }) => {
   const [inputText, setInputText] = useState('');
   const [messages, setMessages] = useState<TestMessage[]>([]);
@@ -62,7 +84,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
   // 새로운 input format 관련 상태
   const [inputType, setInputType] = useState<'text' | 'customEvent'>('text');
   const [eventType, setEventType] = useState('USER_DIALOG_START');
-  const [intentValue, setIntentValue] = useState('Weather.Inform');
+  const [intentValue, setIntentValue] = useState('');
   const [confidenceScore, setConfidenceScore] = useState(0.97);
   const [entities, setEntities] = useState<EntityInput[]>([]);
 
@@ -82,6 +104,34 @@ const TestPanel: React.FC<TestPanelProps> = ({
   // 전체화면 모달 관련 상태
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
 
+  // NLU 관리 관련 상태
+  const [nluUtterances, setNluUtterances] = useState<TrainingUtterance[]>([]);
+  const [nluNewUtterance, setNluNewUtterance] = useState<TrainingUtterance>({
+    text: '',
+    intent: '',
+    entities: []
+  });
+  const [nluNewIntentMode, setNluNewIntentMode] = useState(false);
+  const [nluSelectedText, setNluSelectedText] = useState<{start: number, end: number, text: string} | null>(null);
+  const [nluEntityModalOpen, setNluEntityModalOpen] = useState(false);
+  const [nluNewEntityType, setNluNewEntityType] = useState('');
+  const [nluNewEntityRole, setNluNewEntityRole] = useState('');
+  const [nluSelectedUtterance, setNluSelectedUtterance] = useState<TrainingUtterance | null>(null);
+  const [nluIntents, setNluIntents] = useState<string[]>([]);
+  const [nluEntityTypes, setNluEntityTypes] = useState<string[]>([]);
+  const [nluConnected, setNluConnected] = useState(false);
+
+  // Intent Mapping 관련 상태
+  const [intentMappings, setIntentMappings] = useState<IntentMapping[]>([]);
+  const [newIntentMapping, setNewIntentMapping] = useState<IntentMapping>({
+    scenario: 'Main',
+    dialogState: '',
+    intents: [],
+    conditionStatement: '',
+    dmIntent: ''
+  });
+  const [editingIntentMapping, setEditingIntentMapping] = useState<IntentMapping | null>(null);
+
   // 메시지 스크롤을 위한 ref
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -89,6 +139,26 @@ const TestPanel: React.FC<TestPanelProps> = ({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // NLU 연결 상태 확인
+  useEffect(() => {
+    const checkConnection = async () => {
+      await checkNluConnection();
+    };
+    checkConnection();
+    
+    // NLU 탭일 때 데이터 로드
+    if (currentTab === 2 && nluConnected) {
+      fetchNluUtterances();
+      fetchNluIntents();
+      fetchNluEntityTypes();
+    }
+  }, [currentTab, nluConnected]);
+
+  // 시나리오가 변경될 때 IntentMapping 로드
+  useEffect(() => {
+    loadIntentMappingsFromScenario();
+  }, [scenario]);
 
   // 메시지 추가 (useCallback으로 메모이제이션)
   const addMessage = useCallback((type: TestMessage['type'], content: string) => {
@@ -99,6 +169,264 @@ const TestPanel: React.FC<TestPanelProps> = ({
     };
     setMessages(prev => [...prev, newMessage]);
   }, []);
+
+  // NLU API 함수들
+  const checkNluConnection = async () => {
+    try {
+      const response = await axios.get('http://localhost:8001/health');
+      setNluConnected(response.status === 200);
+      return true;
+    } catch (error) {
+      setNluConnected(false);
+      return false;
+    }
+  };
+
+  const fetchNluUtterances = async () => {
+    try {
+      const response = await axios.get('http://localhost:8001/api/training/utterances');
+      setNluUtterances(response.data);
+    } catch (error) {
+      console.error('NLU 발화 목록 조회 실패:', error);
+    }
+  };
+
+  const fetchNluIntents = async () => {
+    try {
+      const response = await axios.get('http://localhost:8001/api/intents');
+      setNluIntents(response.data.intents || []);
+    } catch (error) {
+      console.error('NLU Intent 목록 조회 실패:', error);
+    }
+  };
+
+  const fetchNluEntityTypes = async () => {
+    try {
+      const response = await axios.get('http://localhost:8001/api/entity-types');
+      setNluEntityTypes(response.data.entity_types || []);
+    } catch (error) {
+      console.error('NLU Entity 타입 목록 조회 실패:', error);
+    }
+  };
+
+  const createNluUtterance = async (utterance: TrainingUtterance) => {
+    try {
+      const response = await axios.post('http://localhost:8001/api/training/utterances', utterance);
+      await fetchNluUtterances();
+      await fetchNluIntents();
+      return response.data;
+    } catch (error) {
+      console.error('NLU 발화 생성 실패:', error);
+      throw error;
+    }
+  };
+
+  const updateNluUtterance = async (id: number, utterance: TrainingUtterance) => {
+    try {
+      const response = await axios.put(`http://localhost:8001/api/training/utterances/${id}`, utterance);
+      await fetchNluUtterances();
+      await fetchNluIntents();
+      return response.data;
+    } catch (error) {
+      console.error('NLU 발화 수정 실패:', error);
+      throw error;
+    }
+  };
+
+  const deleteNluUtterance = async (id: number) => {
+    try {
+      await axios.delete(`http://localhost:8001/api/training/utterances/${id}`);
+      await fetchNluUtterances();
+      await fetchNluIntents();
+    } catch (error) {
+      console.error('NLU 발화 삭제 실패:', error);
+      throw error;
+    }
+  };
+
+
+
+  // Intent Mapping 관련 함수들
+  const loadIntentMappingsFromScenario = () => {
+    if (scenario && scenario.intentMapping) {
+      setIntentMappings(scenario.intentMapping);
+    }
+  };
+
+  const saveIntentMappingToScenario = async (mapping: IntentMapping) => {
+    if (!scenario) return;
+    
+    const updatedMappings = editingIntentMapping 
+      ? intentMappings.map(m => m === editingIntentMapping ? mapping : m)
+      : [...intentMappings, mapping];
+    
+    setIntentMappings(updatedMappings);
+    
+    // 시나리오 상태 업데이트 (부모 컴포넌트)
+    const updatedScenario = {
+      ...scenario,
+      intentMapping: updatedMappings
+    };
+    
+    try {
+      // 백엔드에 Intent Mapping 업데이트 요청
+      await axios.post('http://localhost:8000/api/intent-mapping', {
+        scenario: mapping.scenario,
+        intentMapping: updatedMappings
+      });
+      
+      // 부모 컴포넌트의 scenario 상태 업데이트
+      if (onScenarioUpdate) {
+        onScenarioUpdate(updatedScenario);
+      }
+      
+      console.log('Intent Mapping saved and applied to scenario:', mapping);
+      console.log('Updated scenario intentMapping:', updatedMappings);
+      
+      // 성공 메시지 표시 (스낵바 등으로 개선 가능)
+      alert('Intent Mapping이 성공적으로 저장되었습니다. 시나리오 테스트에 즉시 반영되며, 시나리오 저장 시에도 포함됩니다.');
+      
+    } catch (error) {
+      console.error('Intent Mapping 저장 실패:', error);
+      alert('Intent Mapping 저장에 실패했습니다.');
+    }
+  };
+
+  const deleteIntentMapping = async (mapping: IntentMapping) => {
+    if (!scenario) return;
+    
+    const updatedMappings = intentMappings.filter(m => m !== mapping);
+    setIntentMappings(updatedMappings);
+    
+    // 시나리오 상태 업데이트 (부모 컴포넌트)
+    const updatedScenario = {
+      ...scenario,
+      intentMapping: updatedMappings
+    };
+    
+    try {
+      // 백엔드에 Intent Mapping 업데이트 요청
+      await axios.post('http://localhost:8000/api/intent-mapping', {
+        scenario: mapping.scenario,
+        intentMapping: updatedMappings
+      });
+      
+      // 부모 컴포넌트의 scenario 상태 업데이트
+      if (onScenarioUpdate) {
+        onScenarioUpdate(updatedScenario);
+      }
+      
+      console.log('Intent Mapping deleted and updated in scenario');
+      
+    } catch (error) {
+      console.error('Intent Mapping 삭제 실패:', error);
+      alert('Intent Mapping 삭제에 실패했습니다.');
+    }
+  };
+
+  const getDialogStatesFromScenario = (): string[] => {
+    if (!scenario) return [];
+    
+    const states: string[] = [];
+    scenario.plan.forEach(plan => {
+      plan.dialogState.forEach(state => {
+        if (state.name) {
+          states.push(state.name);
+        }
+      });
+    });
+    return states;
+  };
+
+  // Entity 관리 함수들
+  const handleTextSelection = (e: React.MouseEvent<HTMLDivElement>) => {
+    const selection = window.getSelection();
+    if (selection && selection.toString().trim()) {
+      const selectedText = selection.toString().trim();
+      const range = selection.getRangeAt(0);
+      const start = range.startOffset;
+      const end = range.endOffset;
+      
+      setNluSelectedText({ start, end, text: selectedText });
+      setNluEntityModalOpen(true);
+      setNluNewEntityType('');
+      setNluNewEntityRole('');
+    }
+  };
+
+  const addEntityToUtterance = () => {
+    if (!nluSelectedText) return;
+    
+    const newEntity = {
+      start: nluSelectedText.start,
+      end: nluSelectedText.end,
+      value: nluSelectedText.text,
+      entity_type: nluNewEntityType,
+      role: nluNewEntityRole || nluNewEntityType,
+      normalization: ''
+    };
+
+    setNluNewUtterance(prev => ({
+      ...prev,
+      entities: [...prev.entities, newEntity]
+    }));
+
+    // 모달 닫기 및 상태 초기화
+    setNluEntityModalOpen(false);
+    setNluSelectedText(null);
+    setNluNewEntityType('');
+    setNluNewEntityRole('');
+  };
+
+  const removeEntityFromUtterance = (index: number) => {
+    setNluNewUtterance(prev => ({
+      ...prev,
+      entities: prev.entities.filter((_, i) => i !== index)
+    }));
+  };
+
+  const renderTextWithEntities = (text: string, entities: any[]) => {
+    if (!entities.length) return text;
+
+    // Entity 위치에 따라 정렬
+    const sortedEntities = [...entities].sort((a, b) => a.start - b.start);
+    let lastEnd = 0;
+    const parts = [];
+
+    sortedEntities.forEach((entity, index) => {
+      // Entity 이전 텍스트
+      if (entity.start > lastEnd) {
+        parts.push(text.slice(lastEnd, entity.start));
+      }
+      
+      // Entity 부분 (하이라이트)
+      parts.push(
+        <span
+          key={index}
+          style={{
+            backgroundColor: '#e3f2fd',
+            border: '1px solid #2196f3',
+            borderRadius: '3px',
+            padding: '1px 3px',
+            margin: '0 1px',
+            fontSize: '0.9em'
+          }}
+          title={`${entity.entity_type}: ${entity.role || entity.entity_type}`}
+        >
+          {entity.value}
+        </span>
+      );
+      
+      lastEnd = entity.end;
+    });
+
+    // 마지막 Entity 이후 텍스트
+    if (lastEnd < text.length) {
+      parts.push(text.slice(lastEnd));
+    }
+
+    return parts;
+  };
 
   // Entities 관리 함수들
   const addEntity = useCallback(() => {
@@ -468,15 +796,27 @@ const TestPanel: React.FC<TestPanelProps> = ({
   //   setMessages(prev => [...prev, newMessage]);
   // };
 
+  // NLU API 호출 함수
+  const callNluApi = async (text: string) => {
+    try {
+      const response = await axios.post('http://localhost:8001/api/infer', {
+        text: text,
+        session_id: sessionId,
+        context: {}
+      });
+      return response.data;
+    } catch (error) {
+      console.error('NLU API 호출 실패:', error);
+      return null;
+    }
+  };
+
   // 사용자 입력 전송
   const handleSendMessage = async () => {
     if (!scenario) return;
     
     // customEvent 타입이거나 text 타입에서 inputText가 있는 경우만 진행
     if (inputType === 'text' && !inputText.trim()) return;
-
-    // 새로운 UserInput format 생성
-    const userInput = createUserInput();
 
     // 메시지 표시용 텍스트 생성
     let displayMessage = '';
@@ -487,6 +827,93 @@ const TestPanel: React.FC<TestPanelProps> = ({
     }
     
     addMessage('user', displayMessage);
+
+    let userInput: UserInput;
+
+    // NLU 연동 플로우
+    console.log('🔍 NLU 연동 조건 확인:', {
+      inputType,
+      nluConnected,
+      intentValue,
+      shouldUseNLU: inputType === 'text' && nluConnected && !intentValue
+    });
+
+    if (inputType === 'text' && nluConnected && !intentValue) {
+      // NLU API 호출
+      addMessage('system', '🧠 NLU 분석 중...');
+      console.log('📡 NLU API 호출 시작:', inputText);
+      const nluResult = await callNluApi(inputText);
+      console.log('📥 NLU API 응답:', nluResult);
+      
+      if (nluResult) {
+        // NLU 결과를 포함한 UserInput 생성
+        userInput = {
+          type: 'text',
+          content: {
+            text: inputText,
+            value: {
+              scope: null,
+              type: 'text',
+              value: {},
+              version: '1.0'
+            },
+            nluResult: {
+              type: 'custom.nlu',
+              results: [
+                {
+                  nluNbest: [
+                    {
+                      intent: nluResult.dm_intent || nluResult.intent,
+                      confidenceScore: nluResult.confidence,
+                      status: 'accept',
+                      entities: nluResult.entities.map((entity: any) => ({
+                        role: entity.role || entity.entity_type, // role 입력이 없으면 type을 role로 사용
+                        type: entity.entity_type,
+                        text: entity.value,
+                        normalization: entity.normalization,
+                        extra: {}
+                      })),
+                      extra: {
+                        action_kr: nluResult.intent,
+                        analyzer: 'custom_nlu_service',
+                        domain: 'default',
+                        engine_score: nluResult.confidence,
+                        processing_time_ms: nluResult.processing_time_ms,
+                        dm_intent: nluResult.dm_intent
+                      }
+                    }
+                  ],
+                  text: inputText,
+                  extra: {}
+                }
+              ]
+            }
+          }
+        };
+
+        // NLU 결과 표시
+        const intentDisplay = nluResult.dm_intent ? 
+          `${nluResult.intent} → ${nluResult.dm_intent}` : 
+          nluResult.intent;
+        addMessage('system', 
+          `🧠 NLU 분석 완료: ${intentDisplay} (${(nluResult.confidence * 100).toFixed(1)}%)`
+        );
+        
+        if (nluResult.entities.length > 0) {
+          const entitiesText = nluResult.entities
+            .map((e: any) => `${e.entity_type}:${e.value}`)
+            .join(', ');
+          addMessage('system', `📍 추출된 엔티티: ${entitiesText}`);
+        }
+      } else {
+        // NLU API 실패 시 기본 UserInput 생성
+        addMessage('system', '⚠️ NLU 분석 실패 - 기본 처리로 진행');
+        userInput = createUserInput();
+      }
+    } else {
+      // 기존 방식 (수동 입력 또는 customEvent)
+      userInput = createUserInput();
+    }
 
     // 디버그용: 생성된 userInput을 콘솔에 표시
     console.log('📤 Generated userInput:', JSON.stringify(userInput, null, 2));
@@ -1095,6 +1522,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
         <Tabs value={currentTab} onChange={(e, newValue) => setCurrentTab(newValue)}>
           <Tab label="시나리오 테스트" />
           <Tab label="API 테스트" />
+          <Tab label={`NLU 관리 ${nluConnected ? '🟢' : '🔴'}`} />
         </Tabs>
       </Box>
 
@@ -1605,7 +2033,6 @@ const TestPanel: React.FC<TestPanelProps> = ({
                   flexShrink: 0,
                   alignItems: 'center',
                   mt: 2,
-                  mr: 24, // 오른쪽 여백을 더욱 크게 늘려서 테스트모드OFF 버튼과 충분한 간격 확보
                   p: 1,
                   bgcolor: 'background.paper',
                   borderTop: '2px solid',
@@ -1613,7 +2040,8 @@ const TestPanel: React.FC<TestPanelProps> = ({
                   borderRadius: '8px 8px 0 0',
                   boxShadow: '0 -2px 8px rgba(0,0,0,0.1)',
                   position: 'relative',
-                  zIndex: 10 // 다른 요소들보다 위에 표시
+                  zIndex: 10, // 다른 요소들보다 위에 표시
+                  width: '100%' // 전체 너비 사용
                 }}>
                   <TextField
                     fullWidth
@@ -1646,9 +2074,10 @@ const TestPanel: React.FC<TestPanelProps> = ({
                     }
                     sx={{ 
                       flexShrink: 0,
-                      minWidth: '80px',
+                      minWidth: '120px',
                       height: '44px',
-                      fontSize: '0.9rem'
+                      fontSize: '0.9rem',
+                      fontWeight: 'bold'
                     }}
                   >
                     {inputType === 'customEvent' ? 'Event 전송' : '전송'}
@@ -2019,6 +2448,449 @@ const TestPanel: React.FC<TestPanelProps> = ({
             )}
           </Box>
         )}
+
+        {currentTab === 2 && (
+          // NLU 관리 탭
+          <Box sx={{ 
+            flex: 1, 
+            display: 'flex', 
+            flexDirection: 'column', 
+            gap: 2,
+            minHeight: 0,
+            height: '100%',
+            overflow: 'auto',
+            pb: 4
+          }}>
+            {/* NLU 연결 상태 */}
+            <Alert 
+              severity={nluConnected ? "success" : "error"} 
+              sx={{ mb: 2 }}
+            >
+              {nluConnected 
+                ? "✅ NLU 서버 연결됨 (http://localhost:8001)" 
+                : "❌ NLU 서버 연결 실패 - 서버를 시작해주세요 (./start_nlu.sh)"
+              }
+            </Alert>
+
+            {nluConnected && (
+              <>
+                {/* 학습 발화 관리 섹션 */}
+                <Paper sx={{ p: 2 }}>
+                  <Typography variant="h6" sx={{ mb: 2 }}>
+                    📚 학습 발화 관리
+                  </Typography>
+                  
+                  {/* 새 발화 추가 */}
+                  <Box sx={{ mb: 3, p: 2, border: '1px dashed #ccc', borderRadius: 1 }}>
+                    <Typography variant="subtitle1" sx={{ mb: 2 }}>새 발화 추가</Typography>
+                    <Grid container spacing={2} sx={{ mb: 2 }}>
+                      <Grid item xs={6}>
+                        <TextField
+                          fullWidth
+                          label="발화 텍스트"
+                          value={nluNewUtterance.text}
+                          onChange={(e) => setNluNewUtterance(prev => ({ ...prev, text: e.target.value, entities: [] }))}
+                          placeholder="서울 날씨가 어때?"
+                        />
+                        
+                        {/* 텍스트 선택 영역 */}
+                        {nluNewUtterance.text && (
+                          <Box sx={{ mt: 2 }}>
+                            <Typography variant="caption" sx={{ mb: 1, display: 'block' }}>
+                              👆 텍스트를 드래그하여 Entity 선택:
+                            </Typography>
+                            <Box
+                              sx={{
+                                p: 2,
+                                border: '1px solid #ddd',
+                                borderRadius: 1,
+                                bgcolor: '#f9f9f9',
+                                cursor: 'text',
+                                userSelect: 'text',
+                                fontSize: '1.1em',
+                                lineHeight: 1.5
+                              }}
+                              onMouseUp={handleTextSelection}
+                            >
+                              {renderTextWithEntities(nluNewUtterance.text, nluNewUtterance.entities)}
+                            </Box>
+                          </Box>
+                        )}
+
+                        {/* Entity 목록 */}
+                        {nluNewUtterance.entities.length > 0 && (
+                          <Box sx={{ mt: 2 }}>
+                            <Typography variant="caption" sx={{ mb: 1, display: 'block' }}>
+                              📍 추출된 Entities:
+                            </Typography>
+                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                              {nluNewUtterance.entities.map((entity: any, index: number) => (
+                                <Chip
+                                  key={index}
+                                  label={`${entity.entity_type}: ${entity.value}`}
+                                  onDelete={() => removeEntityFromUtterance(index)}
+                                  size="small"
+                                  color="primary"
+                                  variant="outlined"
+                                />
+                              ))}
+                            </Box>
+                          </Box>
+                        )}
+                      </Grid>
+                      <Grid item xs={4}>
+                        {!nluNewIntentMode ? (
+                          <FormControl fullWidth>
+                            <InputLabel>Intent</InputLabel>
+                            <Select
+                              value={nluNewUtterance.intent}
+                              label="Intent"
+                              onChange={(e) => {
+                                if (e.target.value === 'NEW_INTENT') {
+                                  setNluNewIntentMode(true);
+                                  setNluNewUtterance(prev => ({ ...prev, intent: '' }));
+                                } else {
+                                  setNluNewUtterance(prev => ({ ...prev, intent: e.target.value }));
+                                }
+                              }}
+                            >
+                              {nluIntents.map(intent => (
+                                <MenuItem key={intent} value={intent}>{intent}</MenuItem>
+                              ))}
+                              <MenuItem value="NEW_INTENT">-- 새 Intent 입력 --</MenuItem>
+                            </Select>
+                          </FormControl>
+                        ) : (
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                            <TextField
+                              fullWidth
+                              label="새 Intent 이름"
+                              value={nluNewUtterance.intent}
+                              onChange={(e) => setNluNewUtterance(prev => ({ ...prev, intent: e.target.value }))}
+                              placeholder="예: Weather.Inform"
+                              autoFocus
+                            />
+                            <Box sx={{ display: 'flex', gap: 1 }}>
+                              <Button 
+                                size="small" 
+                                variant="outlined"
+                                onClick={() => {
+                                  setNluNewIntentMode(false);
+                                  setNluNewUtterance(prev => ({ ...prev, intent: '' }));
+                                }}
+                              >
+                                취소
+                              </Button>
+                              <Button 
+                                size="small" 
+                                variant="contained"
+                                disabled={!nluNewUtterance.intent.trim()}
+                                onClick={() => {
+                                  setNluNewIntentMode(false);
+                                  // Intent는 이미 입력되어 있으므로 그대로 유지
+                                }}
+                              >
+                                확인
+                              </Button>
+                            </Box>
+                          </Box>
+                        )}
+                      </Grid>
+                      <Grid item xs={2}>
+                        <Button
+                          variant="contained"
+                          fullWidth
+                          sx={{ height: '56px' }}
+                          disabled={!nluNewUtterance.text || !nluNewUtterance.intent}
+                          onClick={async () => {
+                            try {
+                              await createNluUtterance(nluNewUtterance);
+                              setNluNewUtterance({ text: '', intent: '', entities: [] });
+                              setNluNewIntentMode(false);
+                            } catch (error) {
+                              console.error('발화 추가 실패:', error);
+                            }
+                          }}
+                        >
+                          추가
+                        </Button>
+                      </Grid>
+                    </Grid>
+                  </Box>
+
+                  {/* 발화 목록 */}
+                  <Box sx={{ maxHeight: 400, overflow: 'auto' }}>
+                    <Typography variant="subtitle1" sx={{ mb: 1 }}>
+                      등록된 발화 ({nluUtterances.length}개)
+                    </Typography>
+                    {nluUtterances.length === 0 ? (
+                      <Box sx={{ 
+                        p: 2, 
+                        textAlign: 'center', 
+                        color: 'text.secondary',
+                        border: '1px dashed #ccc',
+                        borderRadius: 1
+                      }}>
+                        등록된 발화가 없습니다. 첫 번째 발화를 추가해보세요!
+                      </Box>
+                    ) : (
+                      <List>
+                        {nluUtterances.map((utterance, index) => (
+                          <ListItem key={utterance.id || index} sx={{ 
+                            border: '1px solid #eee', 
+                            borderRadius: 1, 
+                            mb: 1 
+                          }}>
+                            <ListItemText
+                              primary={
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <Typography variant="body1">{utterance.text}</Typography>
+                                  <Box sx={{ display: 'flex', gap: 1 }}>
+                                    <Chip 
+                                      label={utterance.intent} 
+                                      size="small" 
+                                      color="primary" 
+                                      variant="outlined"
+                                    />
+                                    {utterance.entities.length > 0 && (
+                                      <Chip 
+                                        label={`${utterance.entities.length} entities`} 
+                                        size="small" 
+                                        color="secondary" 
+                                        variant="outlined"
+                                      />
+                                    )}
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => utterance.id && deleteNluUtterance(utterance.id)}
+                                      color="error"
+                                    >
+                                      <DeleteIcon fontSize="small" />
+                                    </IconButton>
+                                  </Box>
+                                </Box>
+                              }
+                              secondary={
+                                utterance.entities.length > 0 ? (
+                                  <Box sx={{ mt: 1 }}>
+                                    {utterance.entities.map((entity: any, idx: number) => (
+                                      <Chip
+                                        key={idx}
+                                        label={`${entity.entity_type}: ${entity.value}`}
+                                        size="small"
+                                        sx={{ mr: 0.5, mb: 0.5 }}
+                                      />
+                                    ))}
+                                  </Box>
+                                ) : null
+                              }
+                            />
+                          </ListItem>
+                        ))}
+                      </List>
+                    )}
+                  </Box>
+                </Paper>
+
+
+
+                {/* Intent Mapping 관리 섹션 */}
+                <Paper sx={{ p: 2 }}>
+                  <Typography variant="h6" sx={{ mb: 1 }}>
+                    🔗 Intent Mapping 관리 (DM Intent)
+                  </Typography>
+                  <Typography variant="body2" sx={{ mb: 2, color: 'text.secondary' }}>
+                    Base Intent를 Dialog State별 조건에 따라 DM Intent로 매핑합니다. 저장 시 시나리오에 자동 반영됩니다.
+                  </Typography>
+                  
+                  {/* 새 IntentMapping 추가 */}
+                  <Box sx={{ mb: 3, p: 2, border: '1px dashed #ccc', borderRadius: 1 }}>
+                    <Typography variant="subtitle1" sx={{ mb: 1 }}>새 Intent Mapping 추가</Typography>
+                    <Typography variant="body2" sx={{ mb: 2, color: 'text.secondary' }}>
+                      특정 상태에서 Base Intent가 조건을 만족할 때 DM Intent로 변환됩니다.
+                    </Typography>
+                    
+                    <Grid container spacing={2} sx={{ mb: 2 }}>
+                      <Grid item xs={3}>
+                        <TextField
+                          fullWidth
+                          label="시나리오"
+                          value={newIntentMapping.scenario}
+                          onChange={(e) => setNewIntentMapping(prev => ({ ...prev, scenario: e.target.value }))}
+                          placeholder="Main"
+                          helperText="시나리오 이름"
+                        />
+                      </Grid>
+                      <Grid item xs={3}>
+                        <FormControl fullWidth>
+                          <InputLabel>Dialog State</InputLabel>
+                          <Select
+                            value={newIntentMapping.dialogState}
+                            label="Dialog State"
+                            onChange={(e) => setNewIntentMapping(prev => ({ ...prev, dialogState: e.target.value }))}
+                          >
+                            {getDialogStatesFromScenario().map(state => (
+                              <MenuItem key={state} value={state}>{state}</MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid item xs={3}>
+                        <TextField
+                          fullWidth
+                          label="DM Intent"
+                          value={newIntentMapping.dmIntent}
+                          onChange={(e) => setNewIntentMapping(prev => ({ ...prev, dmIntent: e.target.value }))}
+                          placeholder="Positive"
+                          helperText="변환될 Intent"
+                        />
+                      </Grid>
+                      <Grid item xs={3}>
+                        <TextField
+                          fullWidth
+                          label="Base Intents (쉼표 구분)"
+                          value={newIntentMapping.intents.join(', ')}
+                          onChange={(e) => setNewIntentMapping(prev => ({ 
+                            ...prev, 
+                            intents: e.target.value.split(',').map(s => s.trim()).filter(s => s) 
+                          }))}
+                          placeholder="say.yes, say.no"
+                          helperText="매핑 대상 Intent들"
+                        />
+                      </Grid>
+                    </Grid>
+                    
+                    <TextField
+                      fullWidth
+                      label="조건문 (메모리 변수 조건)"
+                      value={newIntentMapping.conditionStatement}
+                      onChange={(e) => setNewIntentMapping(prev => ({ ...prev, conditionStatement: e.target.value }))}
+                      placeholder='{$negInterSentence} == "True"'
+                      helperText='예: {$variable} == "value" 또는 {key} == "value"'
+                      sx={{ mb: 2 }}
+                    />
+                    
+                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                      <Button
+                        variant="contained"
+                        onClick={async () => {
+                          await saveIntentMappingToScenario(newIntentMapping);
+                          setNewIntentMapping({
+                            scenario: 'Main',
+                            dialogState: '',
+                            intents: [],
+                            conditionStatement: '',
+                            dmIntent: ''
+                          });
+                        }}
+                        disabled={!newIntentMapping.dialogState || !newIntentMapping.dmIntent || newIntentMapping.intents.length === 0}
+                      >
+                        매핑 추가
+                      </Button>
+                      
+                      <Button
+                        variant="outlined"
+                        onClick={() => {
+                          // 예시 데이터로 폼 채우기
+                          setNewIntentMapping({
+                            scenario: 'Main',
+                            dialogState: 'slot_filled_response',
+                            intents: ['say.yes', 'say.no'],
+                            conditionStatement: '{$negInterSentence} == "True"',
+                            dmIntent: 'Positive'
+                          });
+                        }}
+                      >
+                        예시 로드
+                      </Button>
+                    </Box>
+                  </Box>
+
+                  {/* Intent Mapping 목록 */}
+                  <Box>
+                    <Typography variant="subtitle1" sx={{ mb: 1 }}>
+                      등록된 Intent Mappings ({intentMappings.length}개)
+                    </Typography>
+                    <Typography variant="body2" sx={{ mb: 2, color: 'text.secondary' }}>
+                      시나리오 테스트 시 이 규칙들이 자동으로 적용됩니다.
+                    </Typography>
+                    {intentMappings.length === 0 ? (
+                      <Box sx={{ 
+                        p: 3, 
+                        textAlign: 'center', 
+                        color: 'text.secondary',
+                        border: '1px dashed #ccc',
+                        borderRadius: 1
+                      }}>
+                        <Typography>등록된 Intent Mapping이 없습니다.</Typography>
+                        <Typography variant="body2" sx={{ mt: 1 }}>
+                          "예시 로드" 버튼을 클릭하여 샘플 매핑을 추가해보세요.
+                        </Typography>
+                      </Box>
+                    ) : (
+                      <List>
+                        {intentMappings.map((mapping, index) => (
+                          <ListItem key={index} sx={{ 
+                            border: '1px solid #eee', 
+                            borderRadius: 1, 
+                            mb: 1,
+                            flexDirection: 'column',
+                            alignItems: 'stretch'
+                          }}>
+                            <Box sx={{ width: '100%' }}>
+                              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                                <Typography variant="h6" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+                                  {mapping.dialogState} → {mapping.dmIntent}
+                                </Typography>
+                                <Box sx={{ display: 'flex', gap: 1 }}>
+                                  <Chip label={mapping.scenario} size="small" color="secondary" />
+                                  <Button
+                                    size="small"
+                                    color="error"
+                                    variant="outlined"
+                                    onClick={() => deleteIntentMapping(mapping)}
+                                  >
+                                    삭제
+                                  </Button>
+                                </Box>
+                              </Box>
+                              
+                              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1 }}>
+                                <Typography variant="body2" sx={{ fontWeight: 'bold', mr: 1 }}>
+                                  Base Intents:
+                                </Typography>
+                                {mapping.intents.map((intent, idx) => (
+                                  <Chip key={idx} label={intent} size="small" variant="outlined" />
+                                ))}
+                              </Box>
+                              
+                              {mapping.conditionStatement && (
+                                <Box sx={{ 
+                                  p: 1, 
+                                  backgroundColor: 'grey.50', 
+                                  borderRadius: 1,
+                                  border: '1px solid',
+                                  borderColor: 'grey.300'
+                                }}>
+                                  <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 0.5 }}>
+                                    조건문:
+                                  </Typography>
+                                  <Typography variant="body2" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
+                                    {mapping.conditionStatement}
+                                  </Typography>
+                                </Box>
+                              )}
+                            </Box>
+                          </ListItem>
+                        ))}
+                      </List>
+                    )}
+                  </Box>
+                </Paper>
+              </>
+            )}
+          </Box>
+        )}
       </Box>
 
       {/* 전체화면 API 응답 모달 */}
@@ -2112,6 +2984,89 @@ const TestPanel: React.FC<TestPanelProps> = ({
         <DialogActions sx={{ p: 2 }}>
           <Button onClick={() => setFullscreenOpen(false)} variant="contained">
             닫기
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Entity 추가 모달 */}
+      <Dialog
+        open={nluEntityModalOpen}
+        onClose={() => setNluEntityModalOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          Entity 추가
+        </DialogTitle>
+        <DialogContent>
+          {nluSelectedText && (
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                선택된 텍스트:
+              </Typography>
+              <Box sx={{ 
+                p: 1, 
+                bgcolor: '#e3f2fd', 
+                borderRadius: 1, 
+                border: '1px solid #2196f3',
+                fontWeight: 'bold'
+              }}>
+                "{nluSelectedText.text}"
+              </Box>
+            </Box>
+          )}
+          
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid item xs={6}>
+              <FormControl fullWidth>
+                <InputLabel>Entity 타입</InputLabel>
+                <Select
+                  value={nluNewEntityType}
+                  label="Entity 타입"
+                  onChange={(e) => setNluNewEntityType(e.target.value)}
+                >
+                  {nluEntityTypes.map(type => (
+                    <MenuItem key={type} value={type}>{type}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              {!nluEntityTypes.includes(nluNewEntityType) && (
+                <TextField
+                  fullWidth
+                  size="small"
+                  label="새 Entity 타입"
+                  value={nluNewEntityType}
+                  onChange={(e) => setNluNewEntityType(e.target.value)}
+                  placeholder="예: CITY, PERSON"
+                  sx={{ mt: 1 }}
+                />
+              )}
+            </Grid>
+            <Grid item xs={6}>
+              <TextField
+                fullWidth
+                label="Role (선택사항)"
+                value={nluNewEntityRole}
+                onChange={(e) => setNluNewEntityRole(e.target.value)}
+                placeholder="기본값: Entity 타입과 동일"
+                helperText="비워두면 Entity 타입과 동일하게 설정됩니다"
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => setNluEntityModalOpen(false)}
+            color="inherit"
+          >
+            취소
+          </Button>
+          <Button
+            onClick={addEntityToUtterance}
+            variant="contained"
+            disabled={!nluNewEntityType.trim()}
+          >
+            추가
           </Button>
         </DialogActions>
       </Dialog>

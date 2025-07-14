@@ -129,6 +129,10 @@ async def download_scenario(session_id: str):
 class ResetSessionRequest(BaseModel):
     scenario: Optional[Dict[str, Any]] = None
 
+class UpdateIntentMappingRequest(BaseModel):
+    scenario: str
+    intentMapping: List[Dict[str, Any]]
+
 # 세션 초기화
 @app.post("/api/reset-session/{session_id}")
 async def reset_session(session_id: str, request: Optional[ResetSessionRequest] = None):
@@ -172,6 +176,34 @@ async def reset_session(session_id: str, request: Optional[ResetSessionRequest] 
     except Exception as e:
         logger.error(f"Session reset error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"세션 초기화 오류: {str(e)}")
+
+@app.post("/api/intent-mapping")
+async def update_intent_mapping(request: UpdateIntentMappingRequest):
+    """Intent Mapping을 업데이트하고 StateEngine에 실시간 반영합니다."""
+    try:
+        logger.info(f"Updating intent mapping for scenario: {request.scenario}")
+        
+        # StateEngine에 Intent Mapping 업데이트
+        state_engine.update_intent_mapping(request.intentMapping)
+        
+        # 모든 세션의 시나리오 업데이트
+        for session_id, session_data in active_sessions.items():
+            if session_data.get("scenario") and session_data["scenario"].get("plan"):
+                # 시나리오에 intentMapping 업데이트
+                session_data["scenario"]["intentMapping"] = request.intentMapping
+                logger.info(f"Updated intent mapping for session: {session_id}")
+        
+        logger.info("Intent mapping updated successfully")
+        
+        return {
+            "status": "success",
+            "message": "Intent mapping updated successfully",
+            "intentMapping": request.intentMapping
+        }
+        
+    except Exception as e:
+        logger.error(f"Error updating intent mapping: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update intent mapping: {str(e)}")
 
 # 새로운 userInput 형식을 지원하는 엔드포인트
 @app.post("/api/process-input")
