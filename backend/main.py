@@ -334,8 +334,20 @@ async def process_chatbot_input(request: ChatbotProcessRequest):
     # 세션 메모리 업데이트
     update_session_memory(request.sessionId, result.get("memory", memory))
     
-    logger.info(f"📤 Processing result: {result}")
-    return result
+    # 새로운 챗봇 응답 포맷으로 변환
+    chatbot_response = state_engine.create_chatbot_response(
+        new_state=result.get("new_state", request.currentState),
+        response_messages=[result.get("response", "")],
+        intent=result.get("intent", ""),
+        entities=result.get("entities", {}),
+        memory=result.get("memory", memory),
+        scenario=request.scenario,
+        used_slots=None,  # TODO: 추후 구현
+        event_type=request.eventType
+    )
+    
+    logger.info(f"📤 Processing result: {chatbot_response.dict()}")
+    return chatbot_response
 
 # 기존 형식 지원을 위한 레거시 엔드포인트
 @app.post("/api/process-input-legacy")

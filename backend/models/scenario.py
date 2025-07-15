@@ -187,3 +187,41 @@ class StateTransition(BaseModel):
     reason: str
     conditionMet: bool
     handlerType: str  # 'condition', 'intent', 'event' 
+
+# 새로운 챗봇 응답 포맷 모델들
+class ErrorInfo(BaseModel):
+    code: str = "0"
+    message: str = "[Success]"
+
+class DirectiveContent(BaseModel):
+    item: List[Dict[str, Any]] = []
+    record: Dict[str, Any] = {"text": ""}
+    templateId: str = "TM000000000000000001"
+    type: str = "MESSAGE"
+    version: str = "1.0"
+
+class ChatbotDirective(BaseModel):
+    name: str = "customPayload"
+    content: DirectiveContent
+
+class UsedSlot(BaseModel):
+    key: str
+    value: str
+    turn: str = ""
+
+class ResponseMeta(BaseModel):
+    intent: List[str] = []
+    event: Dict[str, Any] = {}
+    scenario: str = ""
+    dialogState: str = ""
+    fallbackType: str = "not_fallback"
+    usedSlots: List[UsedSlot] = []
+    allowFocusShift: str = "Y"
+
+class ChatbotResponse(BaseModel):
+    endSession: str = "N"
+    error: ErrorInfo = ErrorInfo()
+    directives: List[ChatbotDirective] = []
+    dialogResult: Dict[str, Any] = {}
+    meta: ResponseMeta = ResponseMeta()
+    log: Dict[str, Any] = {} 

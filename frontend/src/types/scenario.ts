@@ -236,3 +236,47 @@ export interface FlowEdge {
   label?: string;
   type?: string;
 } 
+
+// 새로운 챗봇 응답 포맷 타입들
+export interface ErrorInfo {
+  code: string;
+  message: string;
+}
+
+export interface DirectiveContent {
+  item: any[];
+  record: { text: string };
+  templateId: string;
+  type: string;
+  version: string;
+}
+
+export interface ChatbotDirective {
+  name: string;
+  content: DirectiveContent;
+}
+
+export interface UsedSlot {
+  key: string;
+  value: string;
+  turn: string;
+}
+
+export interface ResponseMeta {
+  intent: string[];
+  event: Record<string, any>;
+  scenario: string;
+  dialogState: string;
+  fallbackType: string;
+  usedSlots: UsedSlot[];
+  allowFocusShift: string;
+}
+
+export interface ChatbotResponse {
+  endSession: string;
+  error: ErrorInfo;
+  directives: ChatbotDirective[];
+  dialogResult: Record<string, any>;
+  meta: ResponseMeta;
+  log: Record<string, any>;
+} 

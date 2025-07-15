@@ -5,7 +5,7 @@ import aiohttp
 import asyncio
 from typing import Dict, Any, List, Optional, Tuple
 from jsonpath_ng import parse
-from models.scenario import StateTransition
+from models.scenario import StateTransition, ChatbotResponse, ErrorInfo, ChatbotDirective, DirectiveContent, ResponseMeta, UsedSlot
 
 logger = logging.getLogger(__name__)
 
@@ -677,28 +677,123 @@ class StateEngine:
             "transition": None
         }
     
-    def _execute_prompt_action(self, prompt_action: Dict[str, Any], memory: Dict[str, Any]) -> Optional[str]:
-        """promptAction을 실행하고 메시지를 반환합니다."""
-        directives = prompt_action.get("directives", [])
-        messages = []
+    def _execute_prompt_action(self, action: Dict[str, Any], memory: Dict[str, Any]) -> Optional[str]:
+        """Prompt action을 실행합니다."""
+        directives = action.get("directives", [])
+        if not directives:
+            return None
         
-        for directive in directives:
-            directive_name = directive.get("name", "")
-            content = directive.get("content", {})
-            
-            if directive_name == "customPayload":
-                # customPayload 처리
-                text_content = self._extract_text_from_custom_payload(content)
-                if text_content:
-                    # 템플릿 처리
-                    processed_text = self._process_template(text_content, memory)
-                    messages.append(processed_text)
-            elif directive_name == "speak" and isinstance(content, str):
-                # speak directive 처리
-                processed_text = self._process_template(content, memory)
-                messages.append(processed_text)
+        # 첫 번째 directive의 내용을 반환
+        first_directive = directives[0]
+        content = first_directive.get("content", {})
         
-        return "; ".join(messages) if messages else None
+        # 간단한 텍스트 추출
+        if "text" in content:
+            return content["text"]
+        
+        # 복잡한 구조에서 텍스트 추출
+        item = content.get("item", [])
+        if item and len(item) > 0:
+            first_item = item[0]
+            section = first_item.get("section", {})
+            section_items = section.get("item", [])
+            if section_items and len(section_items) > 0:
+                text_item = section_items[0].get("text", {})
+                return text_item.get("text", "")
+        
+        return None
+
+    def create_chatbot_response(
+        self,
+        new_state: str,
+        response_messages: List[str],
+        intent: str,
+        entities: Dict[str, Any],
+        memory: Dict[str, Any],
+        scenario: Dict[str, Any],
+        used_slots: Optional[List[Dict[str, str]]] = None,
+        event_type: Optional[str] = None
+    ) -> ChatbotResponse:
+        """새로운 챗봇 응답 포맷을 생성합니다."""
+        
+        # 세션 종료 여부 확인
+        end_session = "Y" if new_state == "__END_SESSION__" else "N"
+        
+        # Directives 생성
+        directives = []
+        for message in response_messages:
+            if message.strip():
+                directive_content = DirectiveContent(
+                    item=[
+                        {
+                            "section": {
+                                "class": "cb-section section_1",
+                                "item": [
+                                    {
+                                        "text": {
+                                            "class": "cb-text text",
+                                            "text": f"<p>{message}</p>"
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                )
+                directives.append(ChatbotDirective(content=directive_content))
+        
+        # Used slots 생성
+        used_slots_list = []
+        if used_slots:
+            for slot in used_slots:
+                used_slots_list.append(UsedSlot(
+                    key=slot.get("key", ""),
+                    value=slot.get("value", ""),
+                    turn=slot.get("turn", "")
+                ))
+        
+        # Intent 추가
+        if intent and intent != "NO_INTENT_FOUND":
+            used_slots_list.append(UsedSlot(
+                key="__NLU_INTENT__",
+                value=intent,
+                turn=""
+            ))
+        
+        # Event 추가
+        if event_type:
+            used_slots_list.append(UsedSlot(
+                key="EVENT_TYPE",
+                value=event_type,
+                turn=""
+            ))
+        
+        # 시나리오 이름 추출
+        scenario_name = ""
+        if scenario and "plan" in scenario:
+            plans = scenario["plan"]
+            if plans and len(plans) > 0:
+                scenario_name = plans[0].get("name", "")
+        
+        # Meta 정보 생성
+        meta = ResponseMeta(
+            intent=[intent] if intent and intent != "NO_INTENT_FOUND" else [""],
+            event={"type": event_type} if event_type else {},
+            scenario=scenario_name,
+            dialogState=new_state,
+            fallbackType="not_fallback",
+            usedSlots=used_slots_list,
+            allowFocusShift="Y"
+        )
+        
+        return ChatbotResponse(
+            endSession=end_session,
+            error=ErrorInfo(),
+            directives=directives,
+            dialogResult={},
+            meta=meta,
+            log={}
+        )
     
     def _extract_text_from_custom_payload(self, content: Dict[str, Any]) -> Optional[str]:
         """customPayload에서 텍스트를 추출합니다."""

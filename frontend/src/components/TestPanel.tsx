@@ -34,7 +34,7 @@ import {
   Add as AddIcon,
   Edit as EditIcon,
 } from '@mui/icons-material';
-import { Scenario, UserInput, ProcessInputRequest, EntityInput, NLUEntity, ChatbotInputRequest, ChatbotProcessRequest } from '../types/scenario';
+import { Scenario, UserInput, ProcessInputRequest, EntityInput, NLUEntity, ChatbotInputRequest, ChatbotProcessRequest, ChatbotResponse, ChatbotDirective } from '../types/scenario';
 import axios from 'axios';
 
 // NLU 관련 타입 정의 (임시로 any 사용, 추후 정확한 타입 정의 예정)
@@ -130,7 +130,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
   const [nluEntityTypes, setNluEntityTypes] = useState<string[]>([]);
   const [nluConnected, setNluConnected] = useState(false);
 
-  // Intent Mapping 관련 상태
+  // Intent Mapping 관리 상태
   const [intentMappings, setIntentMappings] = useState<IntentMapping[]>([]);
   const [newIntentMapping, setNewIntentMapping] = useState<IntentMapping>({
     scenario: 'Main',
@@ -809,18 +809,14 @@ const TestPanel: React.FC<TestPanelProps> = ({
 
       const response = await axios.post('http://localhost:8000/api/process-chatbot-input', chatbotRequestData);
 
-      // ApiCall 실행 결과 표시
-      if (response.data.intent === 'API_CALL' && response.data.new_state !== currentState) {
-        addMessage('system', `✅ API Call 완료: ${response.data.response || 'API 호출이 성공적으로 완료되었습니다.'}`);
-      }
-
-      // 자동 전이가 있는 경우 처리
-      if (response.data.new_state && response.data.new_state !== currentState) {
-        addMessage('transition', `🚀 자동 전이: ${currentState} → ${response.data.new_state}`);
-        onStateChange(response.data.new_state);
+      // 새로운 챗봇 응답 포맷 처리
+      if (response.data.meta && response.data.meta.dialogState !== currentState) {
+        addMessage('transition', `🚀 자동 전이: ${currentState} → ${response.data.meta.dialogState}`);
+        onStateChange(response.data.meta.dialogState);
         
-        if (response.data.response && response.data.intent !== 'API_CALL') {
-          addMessage('system', response.data.response);
+        // 응답 메시지가 있으면 표시
+        if (response.data.directives && response.data.directives.length > 0) {
+          handleChatbotResponse(response.data);
         }
       }
 
@@ -885,22 +881,8 @@ const TestPanel: React.FC<TestPanelProps> = ({
         console.log('📤 JSON request:', JSON.stringify(requestData, null, 2));
         const response = await axios.post('http://localhost:8000/api/process-chatbot-input', requestData);
         
-        // 응답 처리
-        if (response.data.transitions) {
-          response.data.transitions.forEach((transition: any) => {
-            addMessage('transition', 
-              `${transition.fromState} → ${transition.toState} (${transition.reason})`
-            );
-          });
-        }
-
-        if (response.data.new_state) {
-          onStateChange(response.data.new_state);
-        }
-
-        if (response.data.response) {
-          addMessage('system', response.data.response);
-        }
+        // 새로운 챗봇 응답 포맷 처리
+        handleChatbotResponse(response.data);
         
         // JSON 입력 성공 후 textarea 클리어
         setInputText('');
@@ -1046,27 +1028,8 @@ const TestPanel: React.FC<TestPanelProps> = ({
       console.log('📤 Generated chatbot request:', JSON.stringify(chatbotRequestData, null, 2));
       response = await axios.post('http://localhost:8000/api/process-chatbot-input', chatbotRequestData);
 
-      // API Call 실행 결과 표시
-      if (response.data.intent === 'API_CALL') {
-        addMessage('system', `🔄 API Call 실행됨: ${response.data.response || 'API 호출이 완료되었습니다.'}`);
-      }
-
-      // 응답 처리
-      if (response.data.transitions) {
-        response.data.transitions.forEach((transition: any) => {
-          addMessage('transition', 
-            `${transition.fromState} → ${transition.toState} (${transition.reason})`
-          );
-        });
-      }
-
-      if (response.data.new_state) {
-        onStateChange(response.data.new_state);
-      }
-
-      if (response.data.response && response.data.intent !== 'API_CALL') {
-        addMessage('system', response.data.response);
-      }
+      // 새로운 챗봇 응답 포맷 처리
+      handleChatbotResponse(response.data);
 
     } catch (error) {
       addMessage('system', '❌ Backend 연결 오류: ' + (error as Error).message);
@@ -1557,6 +1520,81 @@ const TestPanel: React.FC<TestPanelProps> = ({
         {renderJsonPathTooltip(obj, path)}
       </Box>
     );
+  };
+
+  // 새로운 챗봇 응답 처리 함수
+  const handleChatbotResponse = (response: ChatbotResponse) => {
+    // 에러 처리
+    if (response.error.code !== "0") {
+      addMessage('system', `❌ 오류: ${response.error.message}`);
+      return;
+    }
+    
+    // 상태 전이 처리
+    if (response.meta.dialogState) {
+      onStateChange(response.meta.dialogState);
+    }
+    
+    // Directives 처리
+    response.directives.forEach((directive: ChatbotDirective) => {
+      if (directive.name === "customPayload") {
+        const content = directive.content;
+        
+        // 텍스트 메시지 추출
+        content.item.forEach((item: any) => {
+          if (item.section && item.section.item) {
+            item.section.item.forEach((sectionItem: any) => {
+              if (sectionItem.text && sectionItem.text.text) {
+                // HTML 태그 제거
+                const cleanText = sectionItem.text.text.replace(/<[^>]*>/g, '');
+                addMessage('system', cleanText);
+              }
+              if (sectionItem.image) {
+                addMessage('system', `🖼️ 이미지: ${sectionItem.image.altText || '이미지'}`);
+              }
+            });
+          }
+        });
+      }
+    });
+    
+    // 메타 정보 표시
+    if (response.meta.intent.length > 0 && response.meta.intent[0]) {
+      addMessage('info', `🎯 Intent: ${response.meta.intent[0]}`);
+    }
+    
+    // Used slots 표시
+    if (response.meta.usedSlots.length > 0) {
+      const slotsText = response.meta.usedSlots
+        .map(slot => `${slot.key}: ${slot.value}`)
+        .join(', ');
+      addMessage('info', `📍 Used Slots: ${slotsText}`);
+    }
+    
+    // 세션 종료 처리
+    if (response.endSession === "Y") {
+      addMessage('system', '🔚 세션이 종료되었습니다.');
+    }
+  };
+
+  // 기존 응답 처리 함수 (레거시)
+  const handleLegacyResponse = (responseData: any) => {
+    // 응답 처리
+    if (responseData.transitions) {
+      responseData.transitions.forEach((transition: any) => {
+        addMessage('transition', 
+          `${transition.fromState} → ${transition.toState} (${transition.reason})`
+        );
+      });
+    }
+
+    if (responseData.new_state) {
+      onStateChange(responseData.new_state);
+    }
+
+    if (responseData.response) {
+      addMessage('system', responseData.response);
+    }
   };
 
   return (
