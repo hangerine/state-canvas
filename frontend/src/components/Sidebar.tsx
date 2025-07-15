@@ -634,16 +634,33 @@ const Sidebar: React.FC<SidebarProps> = ({
               <Typography variant="body2">Webhook Actions</Typography>
             </AccordionSummary>
             <AccordionDetails>
-              {selectedNode.data.dialogState.webhookActions?.map((webhook, idx) => (
-                <Box key={idx} sx={{ mb: 1 }}>
-                  <Chip 
-                    label={webhook.name} 
-                    size="small" 
-                    color="info" 
-                    variant="outlined"
-                  />
+              {selectedNode.data.dialogState.webhookActions && selectedNode.data.dialogState.webhookActions.length > 0 ? (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ mb: 1 }}>
+                    🔗 실제 webhook 호출 → NLU_INTENT 추출 → 조건 처리
+                  </Typography>
+                  {selectedNode.data.dialogState.webhookActions.map((webhook, idx) => (
+                    <Box key={idx} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Chip 
+                        label={webhook.name} 
+                        size="small" 
+                        color="error" 
+                        variant="outlined"
+                      />
+                      <Typography variant="caption" color="text.secondary">
+                        → 조건 처리
+                      </Typography>
+                    </Box>
+                  ))}
+                  {selectedNode.data.dialogState.apicallHandlers && selectedNode.data.dialogState.apicallHandlers.length > 0 && (
+                    <Typography variant="caption" color="warning.main" sx={{ mt: 1 }}>
+                      ⚠️ API Call Handler는 Webhook 상태에서 비활성화됨
+                    </Typography>
+                  )}
                 </Box>
-              )) || <Typography variant="caption">없음</Typography>}
+              ) : (
+                <Typography variant="caption">없음</Typography>
+              )}
             </AccordionDetails>
           </Accordion>
 

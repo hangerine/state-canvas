@@ -18,6 +18,7 @@ import {
   InputLabel,
   Chip,
   Grid,
+  Alert,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -1549,6 +1550,18 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
             </AccordionSummary>
             <AccordionDetails>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  <Typography variant="body2">
+                    <strong>Webhook 동작 방식:</strong><br/>
+                    1. 시나리오의 webhook 설정에서 URL 및 설정 정보를 읽어옴<br/>
+                    2. 사용자 입력을 포함한 표준 webhook 요청을 REST API로 전송<br/>
+                    3. 응답에서 NLU_INTENT를 추출하여 memory에 저장<br/>
+                    4. Condition Handler를 통해 다음 상태로 전이<br/>
+                    <br/>
+                    <strong>주의:</strong> Webhook Action이 있는 상태에서는 API Call Handler가 동작하지 않습니다.
+                  </Typography>
+                </Alert>
+                
                 {editedState.webhookActions?.map((action, index) => (
                   <Box key={index} sx={{ border: 1, borderColor: 'divider', p: 2, borderRadius: 1 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>

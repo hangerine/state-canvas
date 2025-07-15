@@ -1,3 +1,2752 @@
 {
-  "webhook": []
-} 
+  "webhook": [
+    {
+      "version": "1.0",
+      "request": {
+        "userId": "session-1752577237-236d1216",
+        "botId": "1370",
+        "botVersion": "5916",
+        "botName": "나단도움봇_테스트",
+        "botResourcePath": "/home/svcapp/application/dm-server/resource/1370-5916.json",
+        "sessionId": "session-1752577237-236d1216",
+        "requestId": "req-1752577237461-dcc4000b",
+        "userInput": {
+          "type": "text",
+          "content": {
+            "text": "ACT_01_0235",
+            "nluResult": {
+              "type": "skt.opennlu",
+              "results": [
+                {
+                  "nluNbest": [],
+                  "text": "ACT_01_0235",
+                  "extra": {}
+                }
+              ]
+            },
+            "value": {
+              "scope": null,
+              "type": "text",
+              "value": {},
+              "version": "1.0"
+            }
+          }
+        },
+        "context": {
+          "context": {
+            "client": {
+              "os": null,
+              "playStack": [],
+              "wakeupWord": " "
+            },
+            "supportedInterfaces": {
+              "ACP": null
+            },
+            "system": {
+              "accessToken": " ",
+              "device": {
+                "age": null,
+                "ageGroup": null,
+                "attributes": null,
+                "authToken": " ",
+                "birthdate": null,
+                "ci": null,
+                "defaultVoiceCode": null,
+                "deviceTtsOption": true,
+                "deviceUniqueId": null,
+                "gender": null,
+                "id": " ",
+                "iwfTypeCode": " ",
+                "latitude": null,
+                "longitude": null,
+                "phoneNumber": null,
+                "pocGroup": {},
+                "pocId": " ",
+                "pocName": null,
+                "pocServiceName": null,
+                "pocStatus": null,
+                "typeCode": null,
+                "typeId": null,
+                "useWakeupTts": null,
+                "userCharacterName": null,
+                "userCharacterTone": null,
+                "userCharacterVoice": null,
+                "userName": null,
+                "userType": null
+              },
+              "play": {
+                "alias": [],
+                "ambiguityHint": {},
+                "apiKey": " ",
+                "capabilityInterfaces": [
+                  " "
+                ],
+                "charge": " ",
+                "extendedAlias": [],
+                "interlockType": " ",
+                "invocationName": null,
+                "invocationType": " ",
+                "isSpecializedRoute": null,
+                "isTest": false,
+                "nluType": " ",
+                "permission": {
+                  "available": [
+                    " "
+                  ],
+                  "required": [
+                    " "
+                  ]
+                },
+                "playName": " ",
+                "playNo": 0,
+                "playRevisionId": " ",
+                "playServiceId": " ",
+                "playServiceName": " ",
+                "routingType": " ",
+                "specializedRouteOrder": null,
+                "status": " ",
+                "supportedPocList": [],
+                "systemCodes": null,
+                "type": " ",
+                "url": " ",
+                "useOAuth": false,
+                "voices": null
+              },
+              "serviceId": " ",
+              "serviceType": " ",
+              "userId": "session-1752577237-236d1216"
+            }
+          },
+          "request": {
+            "event": {
+              "scope": null,
+              "type": "text",
+              "value": {},
+              "version": "1.0"
+            },
+            "nlu": null,
+            "requestId": "req-1752577237461-dcc4000b",
+            "text": "ACT_01_0235",
+            "transactionId": "req-1752577237461-dcc4000b",
+            "type": "ACP.RecognizeResult"
+          },
+          "session": {
+            "id": "session-1752577237-236d1216",
+            "isNew": false,
+            "playId": 5021,
+            "playType": "BOT_GROUP"
+          },
+          "version": {
+            "client": "1.0",
+            "npk": "2.2",
+            "sdk": "1.0"
+          }
+        },
+        "headers": {
+          "Accept": [
+            "*/*"
+          ],
+          "Accept-Encoding": [
+            "gzip"
+          ],
+          "Content-Type": [
+            "application/json"
+          ],
+          "User-Agent": [
+            "ReactorNetty/1.2.4"
+          ],
+          "X-Trace-Id": [
+            "trace-492854de"
+          ],
+          "X-Trace-Requestid": [
+            "req-1752577237461-dcc4000b"
+          ],
+          "X-Trace-Sessionid": [
+            "session-1752577237-236d1216"
+          ],
+          "X-Transaction-Id": [
+            "req-1752577237461-dcc4000b"
+          ]
+        }
+      },
+      "webhook": {
+        "url": "http://localhost:3001/api/sentences/webhook",
+        "headers": {},
+        "timeoutInMilliSecond": 1000,
+        "retry": 3,
+        "requestId": "req-1752577237461-dcc4000b",
+        "sessionId": "session-1752577237-236d1216",
+        "botId": "1370",
+        "scenario": "Main",
+        "dialogState": "sts_webhook_test",
+        "tag": "",
+        "memorySlots": {
+          "CHATBOT_METADATA": {
+            "userId": "user-1752576966854",
+            "botId": "1370",
+            "botVersion": "5916",
+            "botName": "나단도움봇_테스트",
+            "botResourcePath": "1370-5916.json",
+            "requestId": "chatbot-1752577237460-he9qdvg9h",
+            "context": {},
+            "headers": {}
+          },
+          "USER_TEXT_INPUT": [
+            "ACT_01_0235"
+          ],
+          "NLU_RESULT": {
+            "type": "custom.nlu",
+            "results": [
+              {
+                "nluNbest": [
+                  {
+                    "intent": "Fallback.Unknown",
+                    "confidenceScore": 0.1,
+                    "status": "accept",
+                    "entities": [],
+                    "extra": {
+                      "action_kr": "Fallback.Unknown",
+                      "analyzer": "custom_nlu_service",
+                      "domain": "default",
+                      "engine_score": 0.1,
+                      "processing_time_ms": 0,
+                      "dm_intent": null
+                    }
+                  }
+                ],
+                "text": "ACT_01_0235",
+                "extra": {}
+              }
+            ]
+          },
+          "negInterSentence": "True",
+          "CITY:CITY": "서울",
+          "CITY": "서울",
+          "SLOT_FILLING_COMPLETED": "",
+          "sessionId": "session-1752577237-236d1216"
+        }
+      },
+      "apiId": "sentences",
+      "id": 1
+    },
+    {
+      "version": "1.0",
+      "request": {
+        "userId": "session-1752577237-236d1216",
+        "botId": "1370",
+        "botVersion": "5916",
+        "botName": "나단도움봇_테스트",
+        "botResourcePath": "/home/svcapp/application/dm-server/resource/1370-5916.json",
+        "sessionId": "session-1752577237-236d1216",
+        "requestId": "req-1752577237461-dcc4000b",
+        "userInput": {
+          "type": "text",
+          "content": {
+            "text": "ACT_01_0235",
+            "nluResult": {
+              "type": "skt.opennlu",
+              "results": [
+                {
+                  "nluNbest": [],
+                  "text": "ACT_01_0235",
+                  "extra": {}
+                }
+              ]
+            },
+            "value": {
+              "scope": null,
+              "type": "text",
+              "value": {},
+              "version": "1.0"
+            }
+          }
+        },
+        "context": {
+          "context": {
+            "client": {
+              "os": null,
+              "playStack": [],
+              "wakeupWord": " "
+            },
+            "supportedInterfaces": {
+              "ACP": null
+            },
+            "system": {
+              "accessToken": " ",
+              "device": {
+                "age": null,
+                "ageGroup": null,
+                "attributes": null,
+                "authToken": " ",
+                "birthdate": null,
+                "ci": null,
+                "defaultVoiceCode": null,
+                "deviceTtsOption": true,
+                "deviceUniqueId": null,
+                "gender": null,
+                "id": " ",
+                "iwfTypeCode": " ",
+                "latitude": null,
+                "longitude": null,
+                "phoneNumber": null,
+                "pocGroup": {},
+                "pocId": " ",
+                "pocName": null,
+                "pocServiceName": null,
+                "pocStatus": null,
+                "typeCode": null,
+                "typeId": null,
+                "useWakeupTts": null,
+                "userCharacterName": null,
+                "userCharacterTone": null,
+                "userCharacterVoice": null,
+                "userName": null,
+                "userType": null
+              },
+              "play": {
+                "alias": [],
+                "ambiguityHint": {},
+                "apiKey": " ",
+                "capabilityInterfaces": [
+                  " "
+                ],
+                "charge": " ",
+                "extendedAlias": [],
+                "interlockType": " ",
+                "invocationName": null,
+                "invocationType": " ",
+                "isSpecializedRoute": null,
+                "isTest": false,
+                "nluType": " ",
+                "permission": {
+                  "available": [
+                    " "
+                  ],
+                  "required": [
+                    " "
+                  ]
+                },
+                "playName": " ",
+                "playNo": 0,
+                "playRevisionId": " ",
+                "playServiceId": " ",
+                "playServiceName": " ",
+                "routingType": " ",
+                "specializedRouteOrder": null,
+                "status": " ",
+                "supportedPocList": [],
+                "systemCodes": null,
+                "type": " ",
+                "url": " ",
+                "useOAuth": false,
+                "voices": null
+              },
+              "serviceId": " ",
+              "serviceType": " ",
+              "userId": "session-1752577237-236d1216"
+            }
+          },
+          "request": {
+            "event": {
+              "scope": null,
+              "type": "text",
+              "value": {},
+              "version": "1.0"
+            },
+            "nlu": null,
+            "requestId": "req-1752577237461-dcc4000b",
+            "text": "ACT_01_0235",
+            "transactionId": "req-1752577237461-dcc4000b",
+            "type": "ACP.RecognizeResult"
+          },
+          "session": {
+            "id": "session-1752577237-236d1216",
+            "isNew": false,
+            "playId": 5021,
+            "playType": "BOT_GROUP"
+          },
+          "version": {
+            "client": "1.0",
+            "npk": "2.2",
+            "sdk": "1.0"
+          }
+        },
+        "headers": {
+          "Accept": [
+            "*/*"
+          ],
+          "Accept-Encoding": [
+            "gzip"
+          ],
+          "Content-Type": [
+            "application/json"
+          ],
+          "User-Agent": [
+            "ReactorNetty/1.2.4"
+          ],
+          "X-Trace-Id": [
+            "trace-492854de"
+          ],
+          "X-Trace-Requestid": [
+            "req-1752577237461-dcc4000b"
+          ],
+          "X-Trace-Sessionid": [
+            "session-1752577237-236d1216"
+          ],
+          "X-Transaction-Id": [
+            "req-1752577237461-dcc4000b"
+          ]
+        }
+      },
+      "webhook": {
+        "url": "http://localhost:3001/api/sentences/webhook",
+        "headers": {},
+        "timeoutInMilliSecond": 1000,
+        "retry": 3,
+        "requestId": "req-1752577237461-dcc4000b",
+        "sessionId": "session-1752577237-236d1216",
+        "botId": "1370",
+        "scenario": "Main",
+        "dialogState": "sts_webhook_test",
+        "tag": "",
+        "memorySlots": {
+          "CHATBOT_METADATA": {
+            "userId": "user-1752576966854",
+            "botId": "1370",
+            "botVersion": "5916",
+            "botName": "나단도움봇_테스트",
+            "botResourcePath": "1370-5916.json",
+            "requestId": "chatbot-1752577237460-he9qdvg9h",
+            "context": {},
+            "headers": {}
+          },
+          "USER_TEXT_INPUT": [
+            "ACT_01_0235"
+          ],
+          "NLU_RESULT": {
+            "type": "custom.nlu",
+            "results": [
+              {
+                "nluNbest": [
+                  {
+                    "intent": "Fallback.Unknown",
+                    "confidenceScore": 0.1,
+                    "status": "accept",
+                    "entities": [],
+                    "extra": {
+                      "action_kr": "Fallback.Unknown",
+                      "analyzer": "custom_nlu_service",
+                      "domain": "default",
+                      "engine_score": 0.1,
+                      "processing_time_ms": 0,
+                      "dm_intent": null
+                    }
+                  }
+                ],
+                "text": "ACT_01_0235",
+                "extra": {}
+              }
+            ]
+          },
+          "negInterSentence": "True",
+          "CITY:CITY": "서울",
+          "CITY": "서울",
+          "SLOT_FILLING_COMPLETED": "",
+          "sessionId": "session-1752577237-236d1216"
+        }
+      },
+      "apiId": "sentences",
+      "id": 2
+    },
+    {
+      "version": "1.0",
+      "request": {
+        "userId": "session-1752577237-236d1216",
+        "botId": "1370",
+        "botVersion": "5916",
+        "botName": "나단도움봇_테스트",
+        "botResourcePath": "/home/svcapp/application/dm-server/resource/1370-5916.json",
+        "sessionId": "session-1752577237-236d1216",
+        "requestId": "req-1752577237461-dcc4000b",
+        "userInput": {
+          "type": "text",
+          "content": {
+            "text": "ACT_01_0235",
+            "nluResult": {
+              "type": "skt.opennlu",
+              "results": [
+                {
+                  "nluNbest": [],
+                  "text": "ACT_01_0235",
+                  "extra": {}
+                }
+              ]
+            },
+            "value": {
+              "scope": null,
+              "type": "text",
+              "value": {},
+              "version": "1.0"
+            }
+          }
+        },
+        "context": {
+          "context": {
+            "client": {
+              "os": null,
+              "playStack": [],
+              "wakeupWord": " "
+            },
+            "supportedInterfaces": {
+              "ACP": null
+            },
+            "system": {
+              "accessToken": " ",
+              "device": {
+                "age": null,
+                "ageGroup": null,
+                "attributes": null,
+                "authToken": " ",
+                "birthdate": null,
+                "ci": null,
+                "defaultVoiceCode": null,
+                "deviceTtsOption": true,
+                "deviceUniqueId": null,
+                "gender": null,
+                "id": " ",
+                "iwfTypeCode": " ",
+                "latitude": null,
+                "longitude": null,
+                "phoneNumber": null,
+                "pocGroup": {},
+                "pocId": " ",
+                "pocName": null,
+                "pocServiceName": null,
+                "pocStatus": null,
+                "typeCode": null,
+                "typeId": null,
+                "useWakeupTts": null,
+                "userCharacterName": null,
+                "userCharacterTone": null,
+                "userCharacterVoice": null,
+                "userName": null,
+                "userType": null
+              },
+              "play": {
+                "alias": [],
+                "ambiguityHint": {},
+                "apiKey": " ",
+                "capabilityInterfaces": [
+                  " "
+                ],
+                "charge": " ",
+                "extendedAlias": [],
+                "interlockType": " ",
+                "invocationName": null,
+                "invocationType": " ",
+                "isSpecializedRoute": null,
+                "isTest": false,
+                "nluType": " ",
+                "permission": {
+                  "available": [
+                    " "
+                  ],
+                  "required": [
+                    " "
+                  ]
+                },
+                "playName": " ",
+                "playNo": 0,
+                "playRevisionId": " ",
+                "playServiceId": " ",
+                "playServiceName": " ",
+                "routingType": " ",
+                "specializedRouteOrder": null,
+                "status": " ",
+                "supportedPocList": [],
+                "systemCodes": null,
+                "type": " ",
+                "url": " ",
+                "useOAuth": false,
+                "voices": null
+              },
+              "serviceId": " ",
+              "serviceType": " ",
+              "userId": "session-1752577237-236d1216"
+            }
+          },
+          "request": {
+            "event": {
+              "scope": null,
+              "type": "text",
+              "value": {},
+              "version": "1.0"
+            },
+            "nlu": null,
+            "requestId": "req-1752577237461-dcc4000b",
+            "text": "ACT_01_0235",
+            "transactionId": "req-1752577237461-dcc4000b",
+            "type": "ACP.RecognizeResult"
+          },
+          "session": {
+            "id": "session-1752577237-236d1216",
+            "isNew": false,
+            "playId": 5021,
+            "playType": "BOT_GROUP"
+          },
+          "version": {
+            "client": "1.0",
+            "npk": "2.2",
+            "sdk": "1.0"
+          }
+        },
+        "headers": {
+          "Accept": [
+            "*/*"
+          ],
+          "Accept-Encoding": [
+            "gzip"
+          ],
+          "Content-Type": [
+            "application/json"
+          ],
+          "User-Agent": [
+            "ReactorNetty/1.2.4"
+          ],
+          "X-Trace-Id": [
+            "trace-492854de"
+          ],
+          "X-Trace-Requestid": [
+            "req-1752577237461-dcc4000b"
+          ],
+          "X-Trace-Sessionid": [
+            "session-1752577237-236d1216"
+          ],
+          "X-Transaction-Id": [
+            "req-1752577237461-dcc4000b"
+          ]
+        }
+      },
+      "webhook": {
+        "url": "http://localhost:3001/api/sentences/webhook",
+        "headers": {},
+        "timeoutInMilliSecond": 1000,
+        "retry": 3,
+        "requestId": "req-1752577237461-dcc4000b",
+        "sessionId": "session-1752577237-236d1216",
+        "botId": "1370",
+        "scenario": "Main",
+        "dialogState": "sts_webhook_test",
+        "tag": "",
+        "memorySlots": {
+          "CHATBOT_METADATA": {
+            "userId": "user-1752576966854",
+            "botId": "1370",
+            "botVersion": "5916",
+            "botName": "나단도움봇_테스트",
+            "botResourcePath": "1370-5916.json",
+            "requestId": "chatbot-1752577237460-he9qdvg9h",
+            "context": {},
+            "headers": {}
+          },
+          "USER_TEXT_INPUT": [
+            "ACT_01_0235"
+          ],
+          "NLU_RESULT": {
+            "type": "custom.nlu",
+            "results": [
+              {
+                "nluNbest": [
+                  {
+                    "intent": "Fallback.Unknown",
+                    "confidenceScore": 0.1,
+                    "status": "accept",
+                    "entities": [],
+                    "extra": {
+                      "action_kr": "Fallback.Unknown",
+                      "analyzer": "custom_nlu_service",
+                      "domain": "default",
+                      "engine_score": 0.1,
+                      "processing_time_ms": 0,
+                      "dm_intent": null
+                    }
+                  }
+                ],
+                "text": "ACT_01_0235",
+                "extra": {}
+              }
+            ]
+          },
+          "negInterSentence": "True",
+          "CITY:CITY": "서울",
+          "CITY": "서울",
+          "SLOT_FILLING_COMPLETED": "",
+          "sessionId": "session-1752577237-236d1216"
+        }
+      },
+      "apiId": "sentences",
+      "id": 3
+    },
+    {
+      "version": "1.0",
+      "request": {
+        "userId": "session-1752577237-236d1216",
+        "botId": "1370",
+        "botVersion": "5916",
+        "botName": "나단도움봇_테스트",
+        "botResourcePath": "/home/svcapp/application/dm-server/resource/1370-5916.json",
+        "sessionId": "session-1752577237-236d1216",
+        "requestId": "req-1752577256483-088c5396",
+        "userInput": {
+          "type": "text",
+          "content": {
+            "text": "ACT_01_0235",
+            "nluResult": {
+              "type": "skt.opennlu",
+              "results": [
+                {
+                  "nluNbest": [],
+                  "text": "ACT_01_0235",
+                  "extra": {}
+                }
+              ]
+            },
+            "value": {
+              "scope": null,
+              "type": "text",
+              "value": {},
+              "version": "1.0"
+            }
+          }
+        },
+        "context": {
+          "context": {
+            "client": {
+              "os": null,
+              "playStack": [],
+              "wakeupWord": " "
+            },
+            "supportedInterfaces": {
+              "ACP": null
+            },
+            "system": {
+              "accessToken": " ",
+              "device": {
+                "age": null,
+                "ageGroup": null,
+                "attributes": null,
+                "authToken": " ",
+                "birthdate": null,
+                "ci": null,
+                "defaultVoiceCode": null,
+                "deviceTtsOption": true,
+                "deviceUniqueId": null,
+                "gender": null,
+                "id": " ",
+                "iwfTypeCode": " ",
+                "latitude": null,
+                "longitude": null,
+                "phoneNumber": null,
+                "pocGroup": {},
+                "pocId": " ",
+                "pocName": null,
+                "pocServiceName": null,
+                "pocStatus": null,
+                "typeCode": null,
+                "typeId": null,
+                "useWakeupTts": null,
+                "userCharacterName": null,
+                "userCharacterTone": null,
+                "userCharacterVoice": null,
+                "userName": null,
+                "userType": null
+              },
+              "play": {
+                "alias": [],
+                "ambiguityHint": {},
+                "apiKey": " ",
+                "capabilityInterfaces": [
+                  " "
+                ],
+                "charge": " ",
+                "extendedAlias": [],
+                "interlockType": " ",
+                "invocationName": null,
+                "invocationType": " ",
+                "isSpecializedRoute": null,
+                "isTest": false,
+                "nluType": " ",
+                "permission": {
+                  "available": [
+                    " "
+                  ],
+                  "required": [
+                    " "
+                  ]
+                },
+                "playName": " ",
+                "playNo": 0,
+                "playRevisionId": " ",
+                "playServiceId": " ",
+                "playServiceName": " ",
+                "routingType": " ",
+                "specializedRouteOrder": null,
+                "status": " ",
+                "supportedPocList": [],
+                "systemCodes": null,
+                "type": " ",
+                "url": " ",
+                "useOAuth": false,
+                "voices": null
+              },
+              "serviceId": " ",
+              "serviceType": " ",
+              "userId": "session-1752577237-236d1216"
+            }
+          },
+          "request": {
+            "event": {
+              "scope": null,
+              "type": "text",
+              "value": {},
+              "version": "1.0"
+            },
+            "nlu": null,
+            "requestId": "req-1752577256483-088c5396",
+            "text": "ACT_01_0235",
+            "transactionId": "req-1752577256483-088c5396",
+            "type": "ACP.RecognizeResult"
+          },
+          "session": {
+            "id": "session-1752577237-236d1216",
+            "isNew": false,
+            "playId": 5021,
+            "playType": "BOT_GROUP"
+          },
+          "version": {
+            "client": "1.0",
+            "npk": "2.2",
+            "sdk": "1.0"
+          }
+        },
+        "headers": {
+          "Accept": [
+            "*/*"
+          ],
+          "Accept-Encoding": [
+            "gzip"
+          ],
+          "Content-Type": [
+            "application/json"
+          ],
+          "User-Agent": [
+            "ReactorNetty/1.2.4"
+          ],
+          "X-Trace-Id": [
+            "trace-6fde66de"
+          ],
+          "X-Trace-Requestid": [
+            "req-1752577256483-088c5396"
+          ],
+          "X-Trace-Sessionid": [
+            "session-1752577237-236d1216"
+          ],
+          "X-Transaction-Id": [
+            "req-1752577256483-088c5396"
+          ]
+        }
+      },
+      "webhook": {
+        "url": "http://localhost:3001/api/sentences/webhook",
+        "headers": {},
+        "timeoutInMilliSecond": 1000,
+        "retry": 3,
+        "requestId": "req-1752577256483-088c5396",
+        "sessionId": "session-1752577237-236d1216",
+        "botId": "1370",
+        "scenario": "Main",
+        "dialogState": "sts_webhook_test",
+        "tag": "",
+        "memorySlots": {
+          "CHATBOT_METADATA": {
+            "userId": "user-1752576966854",
+            "botId": "1370",
+            "botVersion": "5916",
+            "botName": "나단도움봇_테스트",
+            "botResourcePath": "1370-5916.json",
+            "requestId": "chatbot-1752577256480-834gy6dd3",
+            "context": {},
+            "headers": {}
+          },
+          "USER_TEXT_INPUT": [
+            "ACT_01_0235"
+          ],
+          "NLU_RESULT": {
+            "type": "custom.nlu",
+            "results": [
+              {
+                "nluNbest": [
+                  {
+                    "intent": "Fallback.Unknown",
+                    "confidenceScore": 0.1,
+                    "status": "accept",
+                    "entities": [],
+                    "extra": {
+                      "action_kr": "Fallback.Unknown",
+                      "analyzer": "custom_nlu_service",
+                      "domain": "default",
+                      "engine_score": 0.1,
+                      "processing_time_ms": 9,
+                      "dm_intent": null
+                    }
+                  }
+                ],
+                "text": "ACT_01_0235",
+                "extra": {}
+              }
+            ]
+          },
+          "negInterSentence": "True",
+          "CITY:CITY": "서울",
+          "CITY": "서울",
+          "SLOT_FILLING_COMPLETED": "",
+          "sessionId": "session-1752577237-236d1216"
+        }
+      },
+      "apiId": "sentences",
+      "id": 4
+    },
+    {
+      "version": "1.0",
+      "request": {
+        "userId": "session-1752577237-236d1216",
+        "botId": "1370",
+        "botVersion": "5916",
+        "botName": "나단도움봇_테스트",
+        "botResourcePath": "/home/svcapp/application/dm-server/resource/1370-5916.json",
+        "sessionId": "session-1752577237-236d1216",
+        "requestId": "req-1752577256483-088c5396",
+        "userInput": {
+          "type": "text",
+          "content": {
+            "text": "ACT_01_0235",
+            "nluResult": {
+              "type": "skt.opennlu",
+              "results": [
+                {
+                  "nluNbest": [],
+                  "text": "ACT_01_0235",
+                  "extra": {}
+                }
+              ]
+            },
+            "value": {
+              "scope": null,
+              "type": "text",
+              "value": {},
+              "version": "1.0"
+            }
+          }
+        },
+        "context": {
+          "context": {
+            "client": {
+              "os": null,
+              "playStack": [],
+              "wakeupWord": " "
+            },
+            "supportedInterfaces": {
+              "ACP": null
+            },
+            "system": {
+              "accessToken": " ",
+              "device": {
+                "age": null,
+                "ageGroup": null,
+                "attributes": null,
+                "authToken": " ",
+                "birthdate": null,
+                "ci": null,
+                "defaultVoiceCode": null,
+                "deviceTtsOption": true,
+                "deviceUniqueId": null,
+                "gender": null,
+                "id": " ",
+                "iwfTypeCode": " ",
+                "latitude": null,
+                "longitude": null,
+                "phoneNumber": null,
+                "pocGroup": {},
+                "pocId": " ",
+                "pocName": null,
+                "pocServiceName": null,
+                "pocStatus": null,
+                "typeCode": null,
+                "typeId": null,
+                "useWakeupTts": null,
+                "userCharacterName": null,
+                "userCharacterTone": null,
+                "userCharacterVoice": null,
+                "userName": null,
+                "userType": null
+              },
+              "play": {
+                "alias": [],
+                "ambiguityHint": {},
+                "apiKey": " ",
+                "capabilityInterfaces": [
+                  " "
+                ],
+                "charge": " ",
+                "extendedAlias": [],
+                "interlockType": " ",
+                "invocationName": null,
+                "invocationType": " ",
+                "isSpecializedRoute": null,
+                "isTest": false,
+                "nluType": " ",
+                "permission": {
+                  "available": [
+                    " "
+                  ],
+                  "required": [
+                    " "
+                  ]
+                },
+                "playName": " ",
+                "playNo": 0,
+                "playRevisionId": " ",
+                "playServiceId": " ",
+                "playServiceName": " ",
+                "routingType": " ",
+                "specializedRouteOrder": null,
+                "status": " ",
+                "supportedPocList": [],
+                "systemCodes": null,
+                "type": " ",
+                "url": " ",
+                "useOAuth": false,
+                "voices": null
+              },
+              "serviceId": " ",
+              "serviceType": " ",
+              "userId": "session-1752577237-236d1216"
+            }
+          },
+          "request": {
+            "event": {
+              "scope": null,
+              "type": "text",
+              "value": {},
+              "version": "1.0"
+            },
+            "nlu": null,
+            "requestId": "req-1752577256483-088c5396",
+            "text": "ACT_01_0235",
+            "transactionId": "req-1752577256483-088c5396",
+            "type": "ACP.RecognizeResult"
+          },
+          "session": {
+            "id": "session-1752577237-236d1216",
+            "isNew": false,
+            "playId": 5021,
+            "playType": "BOT_GROUP"
+          },
+          "version": {
+            "client": "1.0",
+            "npk": "2.2",
+            "sdk": "1.0"
+          }
+        },
+        "headers": {
+          "Accept": [
+            "*/*"
+          ],
+          "Accept-Encoding": [
+            "gzip"
+          ],
+          "Content-Type": [
+            "application/json"
+          ],
+          "User-Agent": [
+            "ReactorNetty/1.2.4"
+          ],
+          "X-Trace-Id": [
+            "trace-6fde66de"
+          ],
+          "X-Trace-Requestid": [
+            "req-1752577256483-088c5396"
+          ],
+          "X-Trace-Sessionid": [
+            "session-1752577237-236d1216"
+          ],
+          "X-Transaction-Id": [
+            "req-1752577256483-088c5396"
+          ]
+        }
+      },
+      "webhook": {
+        "url": "http://localhost:3001/api/sentences/webhook",
+        "headers": {},
+        "timeoutInMilliSecond": 1000,
+        "retry": 3,
+        "requestId": "req-1752577256483-088c5396",
+        "sessionId": "session-1752577237-236d1216",
+        "botId": "1370",
+        "scenario": "Main",
+        "dialogState": "sts_webhook_test",
+        "tag": "",
+        "memorySlots": {
+          "CHATBOT_METADATA": {
+            "userId": "user-1752576966854",
+            "botId": "1370",
+            "botVersion": "5916",
+            "botName": "나단도움봇_테스트",
+            "botResourcePath": "1370-5916.json",
+            "requestId": "chatbot-1752577256480-834gy6dd3",
+            "context": {},
+            "headers": {}
+          },
+          "USER_TEXT_INPUT": [
+            "ACT_01_0235"
+          ],
+          "NLU_RESULT": {
+            "type": "custom.nlu",
+            "results": [
+              {
+                "nluNbest": [
+                  {
+                    "intent": "Fallback.Unknown",
+                    "confidenceScore": 0.1,
+                    "status": "accept",
+                    "entities": [],
+                    "extra": {
+                      "action_kr": "Fallback.Unknown",
+                      "analyzer": "custom_nlu_service",
+                      "domain": "default",
+                      "engine_score": 0.1,
+                      "processing_time_ms": 9,
+                      "dm_intent": null
+                    }
+                  }
+                ],
+                "text": "ACT_01_0235",
+                "extra": {}
+              }
+            ]
+          },
+          "negInterSentence": "True",
+          "CITY:CITY": "서울",
+          "CITY": "서울",
+          "SLOT_FILLING_COMPLETED": "",
+          "sessionId": "session-1752577237-236d1216"
+        }
+      },
+      "apiId": "sentences",
+      "id": 5
+    },
+    {
+      "version": "1.0",
+      "request": {
+        "userId": "session-1752577237-236d1216",
+        "botId": "1370",
+        "botVersion": "5916",
+        "botName": "나단도움봇_테스트",
+        "botResourcePath": "/home/svcapp/application/dm-server/resource/1370-5916.json",
+        "sessionId": "session-1752577237-236d1216",
+        "requestId": "req-1752577256483-088c5396",
+        "userInput": {
+          "type": "text",
+          "content": {
+            "text": "ACT_01_0235",
+            "nluResult": {
+              "type": "skt.opennlu",
+              "results": [
+                {
+                  "nluNbest": [],
+                  "text": "ACT_01_0235",
+                  "extra": {}
+                }
+              ]
+            },
+            "value": {
+              "scope": null,
+              "type": "text",
+              "value": {},
+              "version": "1.0"
+            }
+          }
+        },
+        "context": {
+          "context": {
+            "client": {
+              "os": null,
+              "playStack": [],
+              "wakeupWord": " "
+            },
+            "supportedInterfaces": {
+              "ACP": null
+            },
+            "system": {
+              "accessToken": " ",
+              "device": {
+                "age": null,
+                "ageGroup": null,
+                "attributes": null,
+                "authToken": " ",
+                "birthdate": null,
+                "ci": null,
+                "defaultVoiceCode": null,
+                "deviceTtsOption": true,
+                "deviceUniqueId": null,
+                "gender": null,
+                "id": " ",
+                "iwfTypeCode": " ",
+                "latitude": null,
+                "longitude": null,
+                "phoneNumber": null,
+                "pocGroup": {},
+                "pocId": " ",
+                "pocName": null,
+                "pocServiceName": null,
+                "pocStatus": null,
+                "typeCode": null,
+                "typeId": null,
+                "useWakeupTts": null,
+                "userCharacterName": null,
+                "userCharacterTone": null,
+                "userCharacterVoice": null,
+                "userName": null,
+                "userType": null
+              },
+              "play": {
+                "alias": [],
+                "ambiguityHint": {},
+                "apiKey": " ",
+                "capabilityInterfaces": [
+                  " "
+                ],
+                "charge": " ",
+                "extendedAlias": [],
+                "interlockType": " ",
+                "invocationName": null,
+                "invocationType": " ",
+                "isSpecializedRoute": null,
+                "isTest": false,
+                "nluType": " ",
+                "permission": {
+                  "available": [
+                    " "
+                  ],
+                  "required": [
+                    " "
+                  ]
+                },
+                "playName": " ",
+                "playNo": 0,
+                "playRevisionId": " ",
+                "playServiceId": " ",
+                "playServiceName": " ",
+                "routingType": " ",
+                "specializedRouteOrder": null,
+                "status": " ",
+                "supportedPocList": [],
+                "systemCodes": null,
+                "type": " ",
+                "url": " ",
+                "useOAuth": false,
+                "voices": null
+              },
+              "serviceId": " ",
+              "serviceType": " ",
+              "userId": "session-1752577237-236d1216"
+            }
+          },
+          "request": {
+            "event": {
+              "scope": null,
+              "type": "text",
+              "value": {},
+              "version": "1.0"
+            },
+            "nlu": null,
+            "requestId": "req-1752577256483-088c5396",
+            "text": "ACT_01_0235",
+            "transactionId": "req-1752577256483-088c5396",
+            "type": "ACP.RecognizeResult"
+          },
+          "session": {
+            "id": "session-1752577237-236d1216",
+            "isNew": false,
+            "playId": 5021,
+            "playType": "BOT_GROUP"
+          },
+          "version": {
+            "client": "1.0",
+            "npk": "2.2",
+            "sdk": "1.0"
+          }
+        },
+        "headers": {
+          "Accept": [
+            "*/*"
+          ],
+          "Accept-Encoding": [
+            "gzip"
+          ],
+          "Content-Type": [
+            "application/json"
+          ],
+          "User-Agent": [
+            "ReactorNetty/1.2.4"
+          ],
+          "X-Trace-Id": [
+            "trace-6fde66de"
+          ],
+          "X-Trace-Requestid": [
+            "req-1752577256483-088c5396"
+          ],
+          "X-Trace-Sessionid": [
+            "session-1752577237-236d1216"
+          ],
+          "X-Transaction-Id": [
+            "req-1752577256483-088c5396"
+          ]
+        }
+      },
+      "webhook": {
+        "url": "http://localhost:3001/api/sentences/webhook",
+        "headers": {},
+        "timeoutInMilliSecond": 1000,
+        "retry": 3,
+        "requestId": "req-1752577256483-088c5396",
+        "sessionId": "session-1752577237-236d1216",
+        "botId": "1370",
+        "scenario": "Main",
+        "dialogState": "sts_webhook_test",
+        "tag": "",
+        "memorySlots": {
+          "CHATBOT_METADATA": {
+            "userId": "user-1752576966854",
+            "botId": "1370",
+            "botVersion": "5916",
+            "botName": "나단도움봇_테스트",
+            "botResourcePath": "1370-5916.json",
+            "requestId": "chatbot-1752577256480-834gy6dd3",
+            "context": {},
+            "headers": {}
+          },
+          "USER_TEXT_INPUT": [
+            "ACT_01_0235"
+          ],
+          "NLU_RESULT": {
+            "type": "custom.nlu",
+            "results": [
+              {
+                "nluNbest": [
+                  {
+                    "intent": "Fallback.Unknown",
+                    "confidenceScore": 0.1,
+                    "status": "accept",
+                    "entities": [],
+                    "extra": {
+                      "action_kr": "Fallback.Unknown",
+                      "analyzer": "custom_nlu_service",
+                      "domain": "default",
+                      "engine_score": 0.1,
+                      "processing_time_ms": 9,
+                      "dm_intent": null
+                    }
+                  }
+                ],
+                "text": "ACT_01_0235",
+                "extra": {}
+              }
+            ]
+          },
+          "negInterSentence": "True",
+          "CITY:CITY": "서울",
+          "CITY": "서울",
+          "SLOT_FILLING_COMPLETED": "",
+          "sessionId": "session-1752577237-236d1216"
+        }
+      },
+      "apiId": "sentences",
+      "id": 6
+    },
+    {
+      "version": "1.0",
+      "request": {
+        "userId": "session-1752577346-3e8f2325",
+        "botId": "1370",
+        "botVersion": "5916",
+        "botName": "나단도움봇_테스트",
+        "botResourcePath": "/home/svcapp/application/dm-server/resource/1370-5916.json",
+        "sessionId": "session-1752577346-3e8f2325",
+        "requestId": "req-1752577346138-743a013a",
+        "userInput": {
+          "type": "text",
+          "content": {
+            "text": "ACT_01_0235",
+            "nluResult": {
+              "type": "skt.opennlu",
+              "results": [
+                {
+                  "nluNbest": [],
+                  "text": "ACT_01_0235",
+                  "extra": {}
+                }
+              ]
+            },
+            "value": {
+              "scope": null,
+              "type": "text",
+              "value": {},
+              "version": "1.0"
+            }
+          }
+        },
+        "context": {
+          "context": {
+            "client": {
+              "os": null,
+              "playStack": [],
+              "wakeupWord": " "
+            },
+            "supportedInterfaces": {
+              "ACP": null
+            },
+            "system": {
+              "accessToken": " ",
+              "device": {
+                "age": null,
+                "ageGroup": null,
+                "attributes": null,
+                "authToken": " ",
+                "birthdate": null,
+                "ci": null,
+                "defaultVoiceCode": null,
+                "deviceTtsOption": true,
+                "deviceUniqueId": null,
+                "gender": null,
+                "id": " ",
+                "iwfTypeCode": " ",
+                "latitude": null,
+                "longitude": null,
+                "phoneNumber": null,
+                "pocGroup": {},
+                "pocId": " ",
+                "pocName": null,
+                "pocServiceName": null,
+                "pocStatus": null,
+                "typeCode": null,
+                "typeId": null,
+                "useWakeupTts": null,
+                "userCharacterName": null,
+                "userCharacterTone": null,
+                "userCharacterVoice": null,
+                "userName": null,
+                "userType": null
+              },
+              "play": {
+                "alias": [],
+                "ambiguityHint": {},
+                "apiKey": " ",
+                "capabilityInterfaces": [
+                  " "
+                ],
+                "charge": " ",
+                "extendedAlias": [],
+                "interlockType": " ",
+                "invocationName": null,
+                "invocationType": " ",
+                "isSpecializedRoute": null,
+                "isTest": false,
+                "nluType": " ",
+                "permission": {
+                  "available": [
+                    " "
+                  ],
+                  "required": [
+                    " "
+                  ]
+                },
+                "playName": " ",
+                "playNo": 0,
+                "playRevisionId": " ",
+                "playServiceId": " ",
+                "playServiceName": " ",
+                "routingType": " ",
+                "specializedRouteOrder": null,
+                "status": " ",
+                "supportedPocList": [],
+                "systemCodes": null,
+                "type": " ",
+                "url": " ",
+                "useOAuth": false,
+                "voices": null
+              },
+              "serviceId": " ",
+              "serviceType": " ",
+              "userId": "session-1752577346-3e8f2325"
+            }
+          },
+          "request": {
+            "event": {
+              "scope": null,
+              "type": "text",
+              "value": {},
+              "version": "1.0"
+            },
+            "nlu": null,
+            "requestId": "req-1752577346138-743a013a",
+            "text": "ACT_01_0235",
+            "transactionId": "req-1752577346138-743a013a",
+            "type": "ACP.RecognizeResult"
+          },
+          "session": {
+            "id": "session-1752577346-3e8f2325",
+            "isNew": false,
+            "playId": 5021,
+            "playType": "BOT_GROUP"
+          },
+          "version": {
+            "client": "1.0",
+            "npk": "2.2",
+            "sdk": "1.0"
+          }
+        },
+        "headers": {
+          "Accept": [
+            "*/*"
+          ],
+          "Accept-Encoding": [
+            "gzip"
+          ],
+          "Content-Type": [
+            "application/json"
+          ],
+          "User-Agent": [
+            "ReactorNetty/1.2.4"
+          ],
+          "X-Trace-Id": [
+            "trace-d59e8c5a"
+          ],
+          "X-Trace-Requestid": [
+            "req-1752577346138-743a013a"
+          ],
+          "X-Trace-Sessionid": [
+            "session-1752577346-3e8f2325"
+          ],
+          "X-Transaction-Id": [
+            "req-1752577346138-743a013a"
+          ]
+        }
+      },
+      "webhook": {
+        "url": "http://localhost:3001/api/sentences/webhook",
+        "headers": {},
+        "timeoutInMilliSecond": 1000,
+        "retry": 3,
+        "requestId": "req-1752577346138-743a013a",
+        "sessionId": "session-1752577346-3e8f2325",
+        "botId": "1370",
+        "scenario": "Main",
+        "dialogState": "sts_webhook_test",
+        "tag": "",
+        "memorySlots": {
+          "CHATBOT_METADATA": {
+            "userId": "user-1752576966854",
+            "botId": "1370",
+            "botVersion": "5916",
+            "botName": "나단도움봇_테스트",
+            "botResourcePath": "1370-5916.json",
+            "requestId": "chatbot-1752577346136-138ysy1pz",
+            "context": {},
+            "headers": {}
+          },
+          "USER_TEXT_INPUT": [
+            "ACT_01_0235"
+          ],
+          "NLU_RESULT": {
+            "type": "custom.nlu",
+            "results": [
+              {
+                "nluNbest": [
+                  {
+                    "intent": "Fallback.Unknown",
+                    "confidenceScore": 0.1,
+                    "status": "accept",
+                    "entities": [],
+                    "extra": {
+                      "action_kr": "Fallback.Unknown",
+                      "analyzer": "custom_nlu_service",
+                      "domain": "default",
+                      "engine_score": 0.1,
+                      "processing_time_ms": 1,
+                      "dm_intent": null
+                    }
+                  }
+                ],
+                "text": "ACT_01_0235",
+                "extra": {}
+              }
+            ]
+          },
+          "negInterSentence": "True",
+          "CITY:CITY": "서울",
+          "CITY": "서울",
+          "SLOT_FILLING_COMPLETED": "",
+          "sessionId": "session-1752577346-3e8f2325"
+        }
+      },
+      "apiId": "sentences",
+      "id": 7
+    },
+    {
+      "version": "1.0",
+      "request": {
+        "userId": "session-1752577346-3e8f2325",
+        "botId": "1370",
+        "botVersion": "5916",
+        "botName": "나단도움봇_테스트",
+        "botResourcePath": "/home/svcapp/application/dm-server/resource/1370-5916.json",
+        "sessionId": "session-1752577346-3e8f2325",
+        "requestId": "req-1752577346138-743a013a",
+        "userInput": {
+          "type": "text",
+          "content": {
+            "text": "ACT_01_0235",
+            "nluResult": {
+              "type": "skt.opennlu",
+              "results": [
+                {
+                  "nluNbest": [],
+                  "text": "ACT_01_0235",
+                  "extra": {}
+                }
+              ]
+            },
+            "value": {
+              "scope": null,
+              "type": "text",
+              "value": {},
+              "version": "1.0"
+            }
+          }
+        },
+        "context": {
+          "context": {
+            "client": {
+              "os": null,
+              "playStack": [],
+              "wakeupWord": " "
+            },
+            "supportedInterfaces": {
+              "ACP": null
+            },
+            "system": {
+              "accessToken": " ",
+              "device": {
+                "age": null,
+                "ageGroup": null,
+                "attributes": null,
+                "authToken": " ",
+                "birthdate": null,
+                "ci": null,
+                "defaultVoiceCode": null,
+                "deviceTtsOption": true,
+                "deviceUniqueId": null,
+                "gender": null,
+                "id": " ",
+                "iwfTypeCode": " ",
+                "latitude": null,
+                "longitude": null,
+                "phoneNumber": null,
+                "pocGroup": {},
+                "pocId": " ",
+                "pocName": null,
+                "pocServiceName": null,
+                "pocStatus": null,
+                "typeCode": null,
+                "typeId": null,
+                "useWakeupTts": null,
+                "userCharacterName": null,
+                "userCharacterTone": null,
+                "userCharacterVoice": null,
+                "userName": null,
+                "userType": null
+              },
+              "play": {
+                "alias": [],
+                "ambiguityHint": {},
+                "apiKey": " ",
+                "capabilityInterfaces": [
+                  " "
+                ],
+                "charge": " ",
+                "extendedAlias": [],
+                "interlockType": " ",
+                "invocationName": null,
+                "invocationType": " ",
+                "isSpecializedRoute": null,
+                "isTest": false,
+                "nluType": " ",
+                "permission": {
+                  "available": [
+                    " "
+                  ],
+                  "required": [
+                    " "
+                  ]
+                },
+                "playName": " ",
+                "playNo": 0,
+                "playRevisionId": " ",
+                "playServiceId": " ",
+                "playServiceName": " ",
+                "routingType": " ",
+                "specializedRouteOrder": null,
+                "status": " ",
+                "supportedPocList": [],
+                "systemCodes": null,
+                "type": " ",
+                "url": " ",
+                "useOAuth": false,
+                "voices": null
+              },
+              "serviceId": " ",
+              "serviceType": " ",
+              "userId": "session-1752577346-3e8f2325"
+            }
+          },
+          "request": {
+            "event": {
+              "scope": null,
+              "type": "text",
+              "value": {},
+              "version": "1.0"
+            },
+            "nlu": null,
+            "requestId": "req-1752577346138-743a013a",
+            "text": "ACT_01_0235",
+            "transactionId": "req-1752577346138-743a013a",
+            "type": "ACP.RecognizeResult"
+          },
+          "session": {
+            "id": "session-1752577346-3e8f2325",
+            "isNew": false,
+            "playId": 5021,
+            "playType": "BOT_GROUP"
+          },
+          "version": {
+            "client": "1.0",
+            "npk": "2.2",
+            "sdk": "1.0"
+          }
+        },
+        "headers": {
+          "Accept": [
+            "*/*"
+          ],
+          "Accept-Encoding": [
+            "gzip"
+          ],
+          "Content-Type": [
+            "application/json"
+          ],
+          "User-Agent": [
+            "ReactorNetty/1.2.4"
+          ],
+          "X-Trace-Id": [
+            "trace-d59e8c5a"
+          ],
+          "X-Trace-Requestid": [
+            "req-1752577346138-743a013a"
+          ],
+          "X-Trace-Sessionid": [
+            "session-1752577346-3e8f2325"
+          ],
+          "X-Transaction-Id": [
+            "req-1752577346138-743a013a"
+          ]
+        }
+      },
+      "webhook": {
+        "url": "http://localhost:3001/api/sentences/webhook",
+        "headers": {},
+        "timeoutInMilliSecond": 1000,
+        "retry": 3,
+        "requestId": "req-1752577346138-743a013a",
+        "sessionId": "session-1752577346-3e8f2325",
+        "botId": "1370",
+        "scenario": "Main",
+        "dialogState": "sts_webhook_test",
+        "tag": "",
+        "memorySlots": {
+          "CHATBOT_METADATA": {
+            "userId": "user-1752576966854",
+            "botId": "1370",
+            "botVersion": "5916",
+            "botName": "나단도움봇_테스트",
+            "botResourcePath": "1370-5916.json",
+            "requestId": "chatbot-1752577346136-138ysy1pz",
+            "context": {},
+            "headers": {}
+          },
+          "USER_TEXT_INPUT": [
+            "ACT_01_0235"
+          ],
+          "NLU_RESULT": {
+            "type": "custom.nlu",
+            "results": [
+              {
+                "nluNbest": [
+                  {
+                    "intent": "Fallback.Unknown",
+                    "confidenceScore": 0.1,
+                    "status": "accept",
+                    "entities": [],
+                    "extra": {
+                      "action_kr": "Fallback.Unknown",
+                      "analyzer": "custom_nlu_service",
+                      "domain": "default",
+                      "engine_score": 0.1,
+                      "processing_time_ms": 1,
+                      "dm_intent": null
+                    }
+                  }
+                ],
+                "text": "ACT_01_0235",
+                "extra": {}
+              }
+            ]
+          },
+          "negInterSentence": "True",
+          "CITY:CITY": "서울",
+          "CITY": "서울",
+          "SLOT_FILLING_COMPLETED": "",
+          "sessionId": "session-1752577346-3e8f2325"
+        }
+      },
+      "apiId": "sentences",
+      "id": 8
+    },
+    {
+      "version": "1.0",
+      "request": {
+        "userId": "session-1752577346-3e8f2325",
+        "botId": "1370",
+        "botVersion": "5916",
+        "botName": "나단도움봇_테스트",
+        "botResourcePath": "/home/svcapp/application/dm-server/resource/1370-5916.json",
+        "sessionId": "session-1752577346-3e8f2325",
+        "requestId": "req-1752577346138-743a013a",
+        "userInput": {
+          "type": "text",
+          "content": {
+            "text": "ACT_01_0235",
+            "nluResult": {
+              "type": "skt.opennlu",
+              "results": [
+                {
+                  "nluNbest": [],
+                  "text": "ACT_01_0235",
+                  "extra": {}
+                }
+              ]
+            },
+            "value": {
+              "scope": null,
+              "type": "text",
+              "value": {},
+              "version": "1.0"
+            }
+          }
+        },
+        "context": {
+          "context": {
+            "client": {
+              "os": null,
+              "playStack": [],
+              "wakeupWord": " "
+            },
+            "supportedInterfaces": {
+              "ACP": null
+            },
+            "system": {
+              "accessToken": " ",
+              "device": {
+                "age": null,
+                "ageGroup": null,
+                "attributes": null,
+                "authToken": " ",
+                "birthdate": null,
+                "ci": null,
+                "defaultVoiceCode": null,
+                "deviceTtsOption": true,
+                "deviceUniqueId": null,
+                "gender": null,
+                "id": " ",
+                "iwfTypeCode": " ",
+                "latitude": null,
+                "longitude": null,
+                "phoneNumber": null,
+                "pocGroup": {},
+                "pocId": " ",
+                "pocName": null,
+                "pocServiceName": null,
+                "pocStatus": null,
+                "typeCode": null,
+                "typeId": null,
+                "useWakeupTts": null,
+                "userCharacterName": null,
+                "userCharacterTone": null,
+                "userCharacterVoice": null,
+                "userName": null,
+                "userType": null
+              },
+              "play": {
+                "alias": [],
+                "ambiguityHint": {},
+                "apiKey": " ",
+                "capabilityInterfaces": [
+                  " "
+                ],
+                "charge": " ",
+                "extendedAlias": [],
+                "interlockType": " ",
+                "invocationName": null,
+                "invocationType": " ",
+                "isSpecializedRoute": null,
+                "isTest": false,
+                "nluType": " ",
+                "permission": {
+                  "available": [
+                    " "
+                  ],
+                  "required": [
+                    " "
+                  ]
+                },
+                "playName": " ",
+                "playNo": 0,
+                "playRevisionId": " ",
+                "playServiceId": " ",
+                "playServiceName": " ",
+                "routingType": " ",
+                "specializedRouteOrder": null,
+                "status": " ",
+                "supportedPocList": [],
+                "systemCodes": null,
+                "type": " ",
+                "url": " ",
+                "useOAuth": false,
+                "voices": null
+              },
+              "serviceId": " ",
+              "serviceType": " ",
+              "userId": "session-1752577346-3e8f2325"
+            }
+          },
+          "request": {
+            "event": {
+              "scope": null,
+              "type": "text",
+              "value": {},
+              "version": "1.0"
+            },
+            "nlu": null,
+            "requestId": "req-1752577346138-743a013a",
+            "text": "ACT_01_0235",
+            "transactionId": "req-1752577346138-743a013a",
+            "type": "ACP.RecognizeResult"
+          },
+          "session": {
+            "id": "session-1752577346-3e8f2325",
+            "isNew": false,
+            "playId": 5021,
+            "playType": "BOT_GROUP"
+          },
+          "version": {
+            "client": "1.0",
+            "npk": "2.2",
+            "sdk": "1.0"
+          }
+        },
+        "headers": {
+          "Accept": [
+            "*/*"
+          ],
+          "Accept-Encoding": [
+            "gzip"
+          ],
+          "Content-Type": [
+            "application/json"
+          ],
+          "User-Agent": [
+            "ReactorNetty/1.2.4"
+          ],
+          "X-Trace-Id": [
+            "trace-d59e8c5a"
+          ],
+          "X-Trace-Requestid": [
+            "req-1752577346138-743a013a"
+          ],
+          "X-Trace-Sessionid": [
+            "session-1752577346-3e8f2325"
+          ],
+          "X-Transaction-Id": [
+            "req-1752577346138-743a013a"
+          ]
+        }
+      },
+      "webhook": {
+        "url": "http://localhost:3001/api/sentences/webhook",
+        "headers": {},
+        "timeoutInMilliSecond": 1000,
+        "retry": 3,
+        "requestId": "req-1752577346138-743a013a",
+        "sessionId": "session-1752577346-3e8f2325",
+        "botId": "1370",
+        "scenario": "Main",
+        "dialogState": "sts_webhook_test",
+        "tag": "",
+        "memorySlots": {
+          "CHATBOT_METADATA": {
+            "userId": "user-1752576966854",
+            "botId": "1370",
+            "botVersion": "5916",
+            "botName": "나단도움봇_테스트",
+            "botResourcePath": "1370-5916.json",
+            "requestId": "chatbot-1752577346136-138ysy1pz",
+            "context": {},
+            "headers": {}
+          },
+          "USER_TEXT_INPUT": [
+            "ACT_01_0235"
+          ],
+          "NLU_RESULT": {
+            "type": "custom.nlu",
+            "results": [
+              {
+                "nluNbest": [
+                  {
+                    "intent": "Fallback.Unknown",
+                    "confidenceScore": 0.1,
+                    "status": "accept",
+                    "entities": [],
+                    "extra": {
+                      "action_kr": "Fallback.Unknown",
+                      "analyzer": "custom_nlu_service",
+                      "domain": "default",
+                      "engine_score": 0.1,
+                      "processing_time_ms": 1,
+                      "dm_intent": null
+                    }
+                  }
+                ],
+                "text": "ACT_01_0235",
+                "extra": {}
+              }
+            ]
+          },
+          "negInterSentence": "True",
+          "CITY:CITY": "서울",
+          "CITY": "서울",
+          "SLOT_FILLING_COMPLETED": "",
+          "sessionId": "session-1752577346-3e8f2325"
+        }
+      },
+      "apiId": "sentences",
+      "id": 9
+    },
+    {
+      "version": "1.0",
+      "request": {
+        "userId": "session-1752577346-3e8f2325",
+        "botId": "1370",
+        "botVersion": "5916",
+        "botName": "나단도움봇_테스트",
+        "botResourcePath": "/home/svcapp/application/dm-server/resource/1370-5916.json",
+        "sessionId": "session-1752577346-3e8f2325",
+        "requestId": "req-1752577440255-0280f765",
+        "userInput": {
+          "type": "text",
+          "content": {
+            "text": "ACT_01_0235",
+            "nluResult": {
+              "type": "skt.opennlu",
+              "results": [
+                {
+                  "nluNbest": [],
+                  "text": "ACT_01_0235",
+                  "extra": {}
+                }
+              ]
+            },
+            "value": {
+              "scope": null,
+              "type": "text",
+              "value": {},
+              "version": "1.0"
+            }
+          }
+        },
+        "context": {
+          "context": {
+            "client": {
+              "os": null,
+              "playStack": [],
+              "wakeupWord": " "
+            },
+            "supportedInterfaces": {
+              "ACP": null
+            },
+            "system": {
+              "accessToken": " ",
+              "device": {
+                "age": null,
+                "ageGroup": null,
+                "attributes": null,
+                "authToken": " ",
+                "birthdate": null,
+                "ci": null,
+                "defaultVoiceCode": null,
+                "deviceTtsOption": true,
+                "deviceUniqueId": null,
+                "gender": null,
+                "id": " ",
+                "iwfTypeCode": " ",
+                "latitude": null,
+                "longitude": null,
+                "phoneNumber": null,
+                "pocGroup": {},
+                "pocId": " ",
+                "pocName": null,
+                "pocServiceName": null,
+                "pocStatus": null,
+                "typeCode": null,
+                "typeId": null,
+                "useWakeupTts": null,
+                "userCharacterName": null,
+                "userCharacterTone": null,
+                "userCharacterVoice": null,
+                "userName": null,
+                "userType": null
+              },
+              "play": {
+                "alias": [],
+                "ambiguityHint": {},
+                "apiKey": " ",
+                "capabilityInterfaces": [
+                  " "
+                ],
+                "charge": " ",
+                "extendedAlias": [],
+                "interlockType": " ",
+                "invocationName": null,
+                "invocationType": " ",
+                "isSpecializedRoute": null,
+                "isTest": false,
+                "nluType": " ",
+                "permission": {
+                  "available": [
+                    " "
+                  ],
+                  "required": [
+                    " "
+                  ]
+                },
+                "playName": " ",
+                "playNo": 0,
+                "playRevisionId": " ",
+                "playServiceId": " ",
+                "playServiceName": " ",
+                "routingType": " ",
+                "specializedRouteOrder": null,
+                "status": " ",
+                "supportedPocList": [],
+                "systemCodes": null,
+                "type": " ",
+                "url": " ",
+                "useOAuth": false,
+                "voices": null
+              },
+              "serviceId": " ",
+              "serviceType": " ",
+              "userId": "session-1752577346-3e8f2325"
+            }
+          },
+          "request": {
+            "event": {
+              "scope": null,
+              "type": "text",
+              "value": {},
+              "version": "1.0"
+            },
+            "nlu": null,
+            "requestId": "req-1752577440255-0280f765",
+            "text": "ACT_01_0235",
+            "transactionId": "req-1752577440255-0280f765",
+            "type": "ACP.RecognizeResult"
+          },
+          "session": {
+            "id": "session-1752577346-3e8f2325",
+            "isNew": false,
+            "playId": 5021,
+            "playType": "BOT_GROUP"
+          },
+          "version": {
+            "client": "1.0",
+            "npk": "2.2",
+            "sdk": "1.0"
+          }
+        },
+        "headers": {
+          "Accept": [
+            "*/*"
+          ],
+          "Accept-Encoding": [
+            "gzip"
+          ],
+          "Content-Type": [
+            "application/json"
+          ],
+          "User-Agent": [
+            "ReactorNetty/1.2.4"
+          ],
+          "X-Trace-Id": [
+            "trace-f073f9df"
+          ],
+          "X-Trace-Requestid": [
+            "req-1752577440255-0280f765"
+          ],
+          "X-Trace-Sessionid": [
+            "session-1752577346-3e8f2325"
+          ],
+          "X-Transaction-Id": [
+            "req-1752577440255-0280f765"
+          ]
+        }
+      },
+      "webhook": {
+        "url": "http://localhost:3001/api/sentences/webhook",
+        "headers": {},
+        "timeoutInMilliSecond": 1000,
+        "retry": 3,
+        "requestId": "req-1752577440255-0280f765",
+        "sessionId": "session-1752577346-3e8f2325",
+        "botId": "1370",
+        "scenario": "Main",
+        "dialogState": "sts_webhook_test",
+        "tag": "",
+        "memorySlots": {
+          "CHATBOT_METADATA": {
+            "userId": "user-1752576966854",
+            "botId": "1370",
+            "botVersion": "5916",
+            "botName": "나단도움봇_테스트",
+            "botResourcePath": "1370-5916.json",
+            "requestId": "chatbot-1752577440252-rqwi01ye5",
+            "context": {},
+            "headers": {}
+          },
+          "USER_TEXT_INPUT": [
+            "ACT_01_0235"
+          ],
+          "NLU_RESULT": {
+            "type": "custom.nlu",
+            "results": [
+              {
+                "nluNbest": [
+                  {
+                    "intent": "Fallback.Unknown",
+                    "confidenceScore": 0.1,
+                    "status": "accept",
+                    "entities": [],
+                    "extra": {
+                      "action_kr": "Fallback.Unknown",
+                      "analyzer": "custom_nlu_service",
+                      "domain": "default",
+                      "engine_score": 0.1,
+                      "processing_time_ms": 2,
+                      "dm_intent": null
+                    }
+                  }
+                ],
+                "text": "ACT_01_0235",
+                "extra": {}
+              }
+            ]
+          },
+          "negInterSentence": "True",
+          "CITY:CITY": "서울",
+          "CITY": "서울",
+          "SLOT_FILLING_COMPLETED": "",
+          "sessionId": "session-1752577346-3e8f2325"
+        }
+      },
+      "apiId": "sentences",
+      "id": 10
+    },
+    {
+      "version": "1.0",
+      "request": {
+        "userId": "session-1752577346-3e8f2325",
+        "botId": "1370",
+        "botVersion": "5916",
+        "botName": "나단도움봇_테스트",
+        "botResourcePath": "/home/svcapp/application/dm-server/resource/1370-5916.json",
+        "sessionId": "session-1752577346-3e8f2325",
+        "requestId": "req-1752577440255-0280f765",
+        "userInput": {
+          "type": "text",
+          "content": {
+            "text": "ACT_01_0235",
+            "nluResult": {
+              "type": "skt.opennlu",
+              "results": [
+                {
+                  "nluNbest": [],
+                  "text": "ACT_01_0235",
+                  "extra": {}
+                }
+              ]
+            },
+            "value": {
+              "scope": null,
+              "type": "text",
+              "value": {},
+              "version": "1.0"
+            }
+          }
+        },
+        "context": {
+          "context": {
+            "client": {
+              "os": null,
+              "playStack": [],
+              "wakeupWord": " "
+            },
+            "supportedInterfaces": {
+              "ACP": null
+            },
+            "system": {
+              "accessToken": " ",
+              "device": {
+                "age": null,
+                "ageGroup": null,
+                "attributes": null,
+                "authToken": " ",
+                "birthdate": null,
+                "ci": null,
+                "defaultVoiceCode": null,
+                "deviceTtsOption": true,
+                "deviceUniqueId": null,
+                "gender": null,
+                "id": " ",
+                "iwfTypeCode": " ",
+                "latitude": null,
+                "longitude": null,
+                "phoneNumber": null,
+                "pocGroup": {},
+                "pocId": " ",
+                "pocName": null,
+                "pocServiceName": null,
+                "pocStatus": null,
+                "typeCode": null,
+                "typeId": null,
+                "useWakeupTts": null,
+                "userCharacterName": null,
+                "userCharacterTone": null,
+                "userCharacterVoice": null,
+                "userName": null,
+                "userType": null
+              },
+              "play": {
+                "alias": [],
+                "ambiguityHint": {},
+                "apiKey": " ",
+                "capabilityInterfaces": [
+                  " "
+                ],
+                "charge": " ",
+                "extendedAlias": [],
+                "interlockType": " ",
+                "invocationName": null,
+                "invocationType": " ",
+                "isSpecializedRoute": null,
+                "isTest": false,
+                "nluType": " ",
+                "permission": {
+                  "available": [
+                    " "
+                  ],
+                  "required": [
+                    " "
+                  ]
+                },
+                "playName": " ",
+                "playNo": 0,
+                "playRevisionId": " ",
+                "playServiceId": " ",
+                "playServiceName": " ",
+                "routingType": " ",
+                "specializedRouteOrder": null,
+                "status": " ",
+                "supportedPocList": [],
+                "systemCodes": null,
+                "type": " ",
+                "url": " ",
+                "useOAuth": false,
+                "voices": null
+              },
+              "serviceId": " ",
+              "serviceType": " ",
+              "userId": "session-1752577346-3e8f2325"
+            }
+          },
+          "request": {
+            "event": {
+              "scope": null,
+              "type": "text",
+              "value": {},
+              "version": "1.0"
+            },
+            "nlu": null,
+            "requestId": "req-1752577440255-0280f765",
+            "text": "ACT_01_0235",
+            "transactionId": "req-1752577440255-0280f765",
+            "type": "ACP.RecognizeResult"
+          },
+          "session": {
+            "id": "session-1752577346-3e8f2325",
+            "isNew": false,
+            "playId": 5021,
+            "playType": "BOT_GROUP"
+          },
+          "version": {
+            "client": "1.0",
+            "npk": "2.2",
+            "sdk": "1.0"
+          }
+        },
+        "headers": {
+          "Accept": [
+            "*/*"
+          ],
+          "Accept-Encoding": [
+            "gzip"
+          ],
+          "Content-Type": [
+            "application/json"
+          ],
+          "User-Agent": [
+            "ReactorNetty/1.2.4"
+          ],
+          "X-Trace-Id": [
+            "trace-f073f9df"
+          ],
+          "X-Trace-Requestid": [
+            "req-1752577440255-0280f765"
+          ],
+          "X-Trace-Sessionid": [
+            "session-1752577346-3e8f2325"
+          ],
+          "X-Transaction-Id": [
+            "req-1752577440255-0280f765"
+          ]
+        }
+      },
+      "webhook": {
+        "url": "http://localhost:3001/api/sentences/webhook",
+        "headers": {},
+        "timeoutInMilliSecond": 1000,
+        "retry": 3,
+        "requestId": "req-1752577440255-0280f765",
+        "sessionId": "session-1752577346-3e8f2325",
+        "botId": "1370",
+        "scenario": "Main",
+        "dialogState": "sts_webhook_test",
+        "tag": "",
+        "memorySlots": {
+          "CHATBOT_METADATA": {
+            "userId": "user-1752576966854",
+            "botId": "1370",
+            "botVersion": "5916",
+            "botName": "나단도움봇_테스트",
+            "botResourcePath": "1370-5916.json",
+            "requestId": "chatbot-1752577440252-rqwi01ye5",
+            "context": {},
+            "headers": {}
+          },
+          "USER_TEXT_INPUT": [
+            "ACT_01_0235"
+          ],
+          "NLU_RESULT": {
+            "type": "custom.nlu",
+            "results": [
+              {
+                "nluNbest": [
+                  {
+                    "intent": "Fallback.Unknown",
+                    "confidenceScore": 0.1,
+                    "status": "accept",
+                    "entities": [],
+                    "extra": {
+                      "action_kr": "Fallback.Unknown",
+                      "analyzer": "custom_nlu_service",
+                      "domain": "default",
+                      "engine_score": 0.1,
+                      "processing_time_ms": 2,
+                      "dm_intent": null
+                    }
+                  }
+                ],
+                "text": "ACT_01_0235",
+                "extra": {}
+              }
+            ]
+          },
+          "negInterSentence": "True",
+          "CITY:CITY": "서울",
+          "CITY": "서울",
+          "SLOT_FILLING_COMPLETED": "",
+          "sessionId": "session-1752577346-3e8f2325"
+        }
+      },
+      "apiId": "sentences",
+      "id": 11
+    },
+    {
+      "version": "1.0",
+      "request": {
+        "userId": "session-1752577346-3e8f2325",
+        "botId": "1370",
+        "botVersion": "5916",
+        "botName": "나단도움봇_테스트",
+        "botResourcePath": "/home/svcapp/application/dm-server/resource/1370-5916.json",
+        "sessionId": "session-1752577346-3e8f2325",
+        "requestId": "req-1752577440255-0280f765",
+        "userInput": {
+          "type": "text",
+          "content": {
+            "text": "ACT_01_0235",
+            "nluResult": {
+              "type": "skt.opennlu",
+              "results": [
+                {
+                  "nluNbest": [],
+                  "text": "ACT_01_0235",
+                  "extra": {}
+                }
+              ]
+            },
+            "value": {
+              "scope": null,
+              "type": "text",
+              "value": {},
+              "version": "1.0"
+            }
+          }
+        },
+        "context": {
+          "context": {
+            "client": {
+              "os": null,
+              "playStack": [],
+              "wakeupWord": " "
+            },
+            "supportedInterfaces": {
+              "ACP": null
+            },
+            "system": {
+              "accessToken": " ",
+              "device": {
+                "age": null,
+                "ageGroup": null,
+                "attributes": null,
+                "authToken": " ",
+                "birthdate": null,
+                "ci": null,
+                "defaultVoiceCode": null,
+                "deviceTtsOption": true,
+                "deviceUniqueId": null,
+                "gender": null,
+                "id": " ",
+                "iwfTypeCode": " ",
+                "latitude": null,
+                "longitude": null,
+                "phoneNumber": null,
+                "pocGroup": {},
+                "pocId": " ",
+                "pocName": null,
+                "pocServiceName": null,
+                "pocStatus": null,
+                "typeCode": null,
+                "typeId": null,
+                "useWakeupTts": null,
+                "userCharacterName": null,
+                "userCharacterTone": null,
+                "userCharacterVoice": null,
+                "userName": null,
+                "userType": null
+              },
+              "play": {
+                "alias": [],
+                "ambiguityHint": {},
+                "apiKey": " ",
+                "capabilityInterfaces": [
+                  " "
+                ],
+                "charge": " ",
+                "extendedAlias": [],
+                "interlockType": " ",
+                "invocationName": null,
+                "invocationType": " ",
+                "isSpecializedRoute": null,
+                "isTest": false,
+                "nluType": " ",
+                "permission": {
+                  "available": [
+                    " "
+                  ],
+                  "required": [
+                    " "
+                  ]
+                },
+                "playName": " ",
+                "playNo": 0,
+                "playRevisionId": " ",
+                "playServiceId": " ",
+                "playServiceName": " ",
+                "routingType": " ",
+                "specializedRouteOrder": null,
+                "status": " ",
+                "supportedPocList": [],
+                "systemCodes": null,
+                "type": " ",
+                "url": " ",
+                "useOAuth": false,
+                "voices": null
+              },
+              "serviceId": " ",
+              "serviceType": " ",
+              "userId": "session-1752577346-3e8f2325"
+            }
+          },
+          "request": {
+            "event": {
+              "scope": null,
+              "type": "text",
+              "value": {},
+              "version": "1.0"
+            },
+            "nlu": null,
+            "requestId": "req-1752577440255-0280f765",
+            "text": "ACT_01_0235",
+            "transactionId": "req-1752577440255-0280f765",
+            "type": "ACP.RecognizeResult"
+          },
+          "session": {
+            "id": "session-1752577346-3e8f2325",
+            "isNew": false,
+            "playId": 5021,
+            "playType": "BOT_GROUP"
+          },
+          "version": {
+            "client": "1.0",
+            "npk": "2.2",
+            "sdk": "1.0"
+          }
+        },
+        "headers": {
+          "Accept": [
+            "*/*"
+          ],
+          "Accept-Encoding": [
+            "gzip"
+          ],
+          "Content-Type": [
+            "application/json"
+          ],
+          "User-Agent": [
+            "ReactorNetty/1.2.4"
+          ],
+          "X-Trace-Id": [
+            "trace-f073f9df"
+          ],
+          "X-Trace-Requestid": [
+            "req-1752577440255-0280f765"
+          ],
+          "X-Trace-Sessionid": [
+            "session-1752577346-3e8f2325"
+          ],
+          "X-Transaction-Id": [
+            "req-1752577440255-0280f765"
+          ]
+        }
+      },
+      "webhook": {
+        "url": "http://localhost:3001/api/sentences/webhook",
+        "headers": {},
+        "timeoutInMilliSecond": 1000,
+        "retry": 3,
+        "requestId": "req-1752577440255-0280f765",
+        "sessionId": "session-1752577346-3e8f2325",
+        "botId": "1370",
+        "scenario": "Main",
+        "dialogState": "sts_webhook_test",
+        "tag": "",
+        "memorySlots": {
+          "CHATBOT_METADATA": {
+            "userId": "user-1752576966854",
+            "botId": "1370",
+            "botVersion": "5916",
+            "botName": "나단도움봇_테스트",
+            "botResourcePath": "1370-5916.json",
+            "requestId": "chatbot-1752577440252-rqwi01ye5",
+            "context": {},
+            "headers": {}
+          },
+          "USER_TEXT_INPUT": [
+            "ACT_01_0235"
+          ],
+          "NLU_RESULT": {
+            "type": "custom.nlu",
+            "results": [
+              {
+                "nluNbest": [
+                  {
+                    "intent": "Fallback.Unknown",
+                    "confidenceScore": 0.1,
+                    "status": "accept",
+                    "entities": [],
+                    "extra": {
+                      "action_kr": "Fallback.Unknown",
+                      "analyzer": "custom_nlu_service",
+                      "domain": "default",
+                      "engine_score": 0.1,
+                      "processing_time_ms": 2,
+                      "dm_intent": null
+                    }
+                  }
+                ],
+                "text": "ACT_01_0235",
+                "extra": {}
+              }
+            ]
+          },
+          "negInterSentence": "True",
+          "CITY:CITY": "서울",
+          "CITY": "서울",
+          "SLOT_FILLING_COMPLETED": "",
+          "sessionId": "session-1752577346-3e8f2325"
+        }
+      },
+      "apiId": "sentences",
+      "id": 12
+    }
+  ]
+}

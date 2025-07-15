@@ -36,6 +36,7 @@ import {
 } from '@mui/icons-material';
 import { Scenario, UserInput, ProcessInputRequest, EntityInput, NLUEntity, ChatbotInputRequest, ChatbotProcessRequest, ChatbotResponse, ChatbotDirective } from '../types/scenario';
 import axios from 'axios';
+import WebhookManager from './WebhookManager';
 
 // NLU 관련 타입 정의 (임시로 any 사용, 추후 정확한 타입 정의 예정)
 interface TrainingUtterance {
@@ -1690,6 +1691,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
           <Tab label="시나리오 테스트" />
           <Tab label="API 테스트" />
           <Tab label={`NLU 관리 ${nluConnected ? '🟢' : '🔴'}`} />
+          <Tab label="Webhook 관리" />
         </Tabs>
       </Box>
 
@@ -3098,6 +3100,23 @@ const TestPanel: React.FC<TestPanelProps> = ({
                 </Paper>
               </>
             )}
+          </Box>
+        )}
+
+        {currentTab === 3 && (
+          // Webhook 관리 탭
+          <Box sx={{ 
+            flex: 1, 
+            display: 'flex', 
+            flexDirection: 'column', 
+            minHeight: 0,
+            height: '100%',
+            overflow: 'auto'
+          }}>
+            <WebhookManager 
+              scenario={scenario}
+              onScenarioUpdate={onScenarioUpdate || (() => {})}
+            />
           </Box>
         )}
       </Box>

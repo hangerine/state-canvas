@@ -3,6 +3,8 @@ import re
 import json
 import aiohttp
 import asyncio
+import time
+import uuid
 from typing import Dict, Any, List, Optional, Tuple
 from jsonpath_ng import parse
 from models.scenario import StateTransition, ChatbotResponse, ErrorInfo, ChatbotDirective, DirectiveContent, ResponseMeta, UsedSlot
@@ -72,8 +74,9 @@ class StateEngine:
             return auto_transitions
         
         # ApiCall Handler가 있는 상태에서는 자동 전이하지 않음 (API 호출 대기)
+        # 단, webhook action이 있는 경우에는 API call handler를 무시
         apicall_handlers = current_dialog_state.get("apicallHandlers", [])
-        if apicall_handlers:
+        if apicall_handlers and not webhook_actions:
             logger.info(f"State {current_state} has apicall handlers - NO auto transitions, waiting for API execution")
             return auto_transitions
         
@@ -170,12 +173,14 @@ class StateEngine:
                         "memory": memory
                     }
                 else:
-                    # ApiCall Handler 확인
-                    apicall_result = await self._handle_apicall_handlers(
-                        current_state, current_dialog_state, scenario, memory
-                    )
-                    if apicall_result:
-                        return apicall_result
+                    # ApiCall Handler 확인 (webhook action이 있는 경우 제외)
+                    webhook_actions = current_dialog_state.get("webhookActions", [])
+                    if not webhook_actions:
+                        apicall_result = await self._handle_apicall_handlers(
+                            current_state, current_dialog_state, scenario, memory
+                        )
+                        if apicall_result:
+                            return apicall_result
                     
                     auto_transitions = self.check_auto_transitions(scenario, current_state, memory)
                     if auto_transitions:
@@ -224,14 +229,60 @@ class StateEngine:
         scenario: Dict[str, Any],
         memory: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Webhook 시뮬레이션을 처리합니다."""
+        """실제 Webhook 호출을 처리합니다."""
         
-        # 사용자 입력을 NLU_INTENT로 설정
-        memory["NLU_INTENT"] = user_input.strip()
+        # 시나리오에서 webhook 정보 가져오기
+        webhooks = scenario.get("webhooks", [])
+        if not webhooks:
+            logger.warning("No webhooks found in scenario")
+            return {
+                "error": "No webhooks configured in scenario",
+                "new_state": current_state,
+                "response": "❌ 시나리오에 webhook 설정이 없습니다.",
+                "transitions": []
+            }
+        
+        # 첫 번째 webhook 사용 (향후 확장 가능)
+        webhook_config = webhooks[0]
+        
+        # Webhook 요청 실행
+        webhook_response = await self._execute_webhook_call(
+            webhook_config, user_input, current_state, scenario, memory
+        )
+        
+        if webhook_response is None:
+            logger.error("Webhook call failed")
+            return {
+                "error": "Webhook call failed",
+                "new_state": current_state,
+                "response": "❌ Webhook 호출 실패",
+                "transitions": []
+            }
+        
+        # Webhook 응답에서 memory 업데이트
+        response_memory = webhook_response.get("memorySlots", {})
+        if response_memory:
+            memory.update(response_memory)
+            logger.info(f"Memory updated from webhook response: {response_memory}")
+        
+        # NLU_INTENT 추출 및 memory에 문자열로 저장
+        nlu_intent = ""
+        if "NLU_INTENT" in response_memory:
+            nlu_intent_data = response_memory["NLU_INTENT"]
+            if isinstance(nlu_intent_data, dict) and "value" in nlu_intent_data:
+                nlu_intent = nlu_intent_data["value"][0] if nlu_intent_data["value"] else ""
+            else:
+                nlu_intent = str(nlu_intent_data)
+            
+            # memory에 문자열로 저장 (조건 평가에서 사용하기 위해)
+            memory["NLU_INTENT"] = nlu_intent
+        
+        logger.info(f"Extracted NLU_INTENT from webhook: {nlu_intent}")
+        logger.info(f"Updated memory with NLU_INTENT: {memory.get('NLU_INTENT')}")
         
         transitions = []
         new_state = current_state
-        response_messages = [f"🔗 Webhook 응답 시뮬레이션: NLU_INTENT = '{user_input}'"]
+        response_messages = [f"🔗 Webhook 호출 완료: NLU_INTENT = '{nlu_intent}'"]
         
         # Condition Handler 확인
         condition_handlers = current_dialog_state.get("conditionHandlers", [])
@@ -322,7 +373,7 @@ class StateEngine:
             "new_state": new_state,
             "response": "\n".join(response_messages),
             "transitions": transition_dicts,
-            "intent": "WEBHOOK_SIMULATION",
+            "intent": "WEBHOOK_PROCESSING",
             "entities": {},
             "memory": memory
         }
@@ -1021,6 +1072,7 @@ class StateEngine:
         try:
             logger.info(f"🔍 Evaluating condition: '{condition}'")
             logger.info(f"🔍 Available memory keys: {list(memory.keys())}")
+            logger.info(f"🔍 NLU_INTENT value in memory: {memory.get('NLU_INTENT', 'NOT_FOUND')} (type: {type(memory.get('NLU_INTENT', 'NOT_FOUND'))})")
             
             # 간단한 조건 평가
             if condition.strip() == "True" or condition.strip() == '"True"':
@@ -1041,20 +1093,33 @@ class StateEngine:
             for key, value in memory.items():
                 old_condition = condition
                 # {key} 형태 치환
-                condition = condition.replace(f"{{{key}}}", f'"{value}"')
+                pattern1 = "{" + key + "}"
+                condition = condition.replace(pattern1, f'"{value}"')
                 # {$key} 형태 치환 
-                condition = condition.replace(f"{{${key}}}", f'"{value}"')
+                pattern2 = "{$" + key + "}"
+                condition = condition.replace(pattern2, f'"{value}"')
                 # ${key} 형태 치환 (기존 형태도 지원)
-                condition = condition.replace(f"${{{key}}}", f'"{value}"')
+                pattern3 = "${" + key + "}"
+                condition = condition.replace(pattern3, f'"{value}"')
                 if old_condition != condition:
-                    logger.info(f"🔍 Replaced variable {key} with '{value}': '{old_condition}' -> '{condition}'")
+                    logger.info(f"🔍 Replaced variable {key} (type: {type(value)}) with '{value}': '{old_condition}' -> '{condition}'")
             
-            # NLU_INTENT 치환
-            if "{$NLU_INTENT}" in condition:
-                nlu_intent = memory.get("NLU_INTENT", "")
+            # NLU_INTENT 치환 (다양한 형태 지원) - 메모리 변수 치환에서 처리되지 않은 경우만
+            if "{$NLU_INTENT}" in condition or "{NLU_INTENT}" in condition:
+                nlu_intent_data = memory.get("NLU_INTENT", "")
+                
+                # NLU_INTENT가 배열 형태인 경우 첫 번째 값 사용
+                if isinstance(nlu_intent_data, dict) and "value" in nlu_intent_data:
+                    nlu_intent = nlu_intent_data["value"][0] if nlu_intent_data["value"] else ""
+                elif isinstance(nlu_intent_data, list) and nlu_intent_data:
+                    nlu_intent = nlu_intent_data[0]
+                else:
+                    nlu_intent = str(nlu_intent_data)
+                
                 old_condition = condition
                 condition = condition.replace("{$NLU_INTENT}", f'"{nlu_intent}"')
-                logger.info(f"🔍 Replaced NLU_INTENT: '{old_condition}' -> '{condition}'")
+                condition = condition.replace("{NLU_INTENT}", f'"{nlu_intent}"')
+                logger.info(f"🔍 Replaced NLU_INTENT with '{nlu_intent}': '{old_condition}' -> '{condition}'")
             
             logger.info(f"🔍 Final condition after substitution: '{condition}'")
             
@@ -1371,39 +1436,380 @@ class StateEngine:
                 
                 # 응답 매핑 처리
                 mappings = apicall_config.get("formats", {}).get("responseMappings", {})
+                
+                # 기본 매핑이 없는 경우 표준 webhook 형식에 맞는 기본 매핑 적용
+                if not mappings:
+                    # 표준 webhook 응답 형식 감지 (memorySlots 구조)
+                    if "memorySlots" in response_data and "NLU_INTENT" in response_data["memorySlots"]:
+                        logger.info("📋 Detected standard webhook response format, applying default mappings")
+                        mappings = {
+                            "NLU_INTENT": "$.memorySlots.NLU_INTENT.value[0]",
+                            "STS_CONFIDENCE": "$.memorySlots.STS_CONFIDENCE.value[0]",
+                            "USER_TEXT_INPUT": "$.memorySlots.USER_TEXT_INPUT.value[0]"
+                        }
+                
                 if mappings:
                     self._apply_response_mappings(response_data, mappings, memory)
                 
                 logger.info(f"📋 Memory after response mapping: {memory}")
                 
-                # 전이 처리
-                target = handler.get("transitionTarget", {})
-                new_state = target.get("dialogState", current_state)
+                # API call 실행 후 condition handler도 실행하여 조건에 따른 전이 처리
+                logger.info("📋 API call completed, now checking condition handlers...")
                 
-                if new_state != current_state:
-                    # Entry Action 실행
-                    entry_response = self._execute_entry_action(scenario, new_state)
+                # Condition Handler 확인
+                condition_handlers = current_dialog_state.get("conditionHandlers", [])
+                matched_condition = False
+                transitions = []
+                response_messages = [f"🔄 API 호출 완료: {handler.get('name', 'Unknown')}"]
+                
+                # 먼저 True가 아닌 조건들을 확인
+                for cond_handler in condition_handlers:
+                    if not isinstance(cond_handler, dict):
+                        logger.warning(f"Condition handler is not a dict: {cond_handler}")
+                        continue
+                        
+                    condition = cond_handler.get("conditionStatement", "")
                     
-                    return {
-                        "new_state": new_state,
-                        "response": entry_response or f"🔄 API 호출 완료 → {new_state}",
-                        "transitions": [{
-                            "fromState": current_state,
-                            "toState": new_state,
-                            "reason": f"API Call: {handler.get('name', 'Unknown')}",
-                            "conditionMet": True,
-                            "handlerType": "apicall"
-                        }],
-                        "intent": "API_CALL",
-                        "entities": {},
-                        "memory": memory
-                    }
+                    # True 조건은 맨 마지막에 체크 (fallback)
+                    if condition.strip() == "True" or condition.strip() == '"True"':
+                        continue
+                        
+                    # 조건 평가
+                    logger.info(f"🔍 Evaluating condition: '{condition}' with memory: {memory}")
+                    logger.info(f"🔍 NLU_INTENT in memory: {memory.get('NLU_INTENT', 'NOT_FOUND')}")
+                    condition_result = self._evaluate_condition(condition, memory)
+                    logger.info(f"🔍 Condition result: {condition_result}")
+                    
+                    if condition_result:
+                        cond_target = cond_handler.get("transitionTarget", {})
+                        new_state = cond_target.get("dialogState", current_state)
+                        
+                        transition = StateTransition(
+                            fromState=current_state,
+                            toState=new_state,
+                            reason=f"API Call + 조건 매칭: {condition}",
+                            conditionMet=True,
+                            handlerType="apicall_condition"
+                        )
+                        transitions.append(transition)
+                        response_messages.append(f"✅ 조건 '{condition}' 매칭됨 → {new_state}")
+                        matched_condition = True
+                        break
+                
+                # 조건에 매칭되지 않으면 fallback (True 조건) 실행
+                if not matched_condition:
+                    for cond_handler in condition_handlers:
+                        if not isinstance(cond_handler, dict):
+                            logger.warning(f"Condition handler is not a dict: {cond_handler}")
+                            continue
+                            
+                        condition = cond_handler.get("conditionStatement", "")
+                        if condition.strip() == "True" or condition.strip() == '"True"':
+                            cond_target = cond_handler.get("transitionTarget", {})
+                            new_state = cond_target.get("dialogState", current_state)
+                            
+                            transition = StateTransition(
+                                fromState=current_state,
+                                toState=new_state,
+                                reason="API Call + 조건 불일치 - fallback 실행",
+                                conditionMet=True,
+                                handlerType="apicall_condition"
+                            )
+                            transitions.append(transition)
+                            response_messages.append(f"❌ 조건 불일치 - fallback으로 {new_state}로 이동")
+                            break
+                
+                # 조건이 없으면 기본 전이 처리
+                if not condition_handlers:
+                    target = handler.get("transitionTarget", {})
+                    new_state = target.get("dialogState", current_state)
+                    response_messages.append(f"조건 없음 → {new_state}")
+                
+                # Entry Action 실행 (새로운 상태로 전이된 경우)
+                if new_state != current_state:
+                    try:
+                        logger.info(f"Executing entry action for transition: {current_state} -> {new_state}")
+                        entry_response = self._execute_entry_action(scenario, new_state)
+                        logger.info(f"Entry action completed: {entry_response}")
+                        if entry_response:
+                            response_messages.append(entry_response)
+                    except Exception as e:
+                        logger.error(f"Error executing entry action: {e}")
+                        response_messages.append(f"⚠️ Entry action 실행 중 에러: {str(e)}")
+                
+                # transitions 리스트 처리
+                try:
+                    transition_dicts = []
+                    for t in transitions:
+                        if hasattr(t, 'dict'):
+                            transition_dicts.append(t.dict())
+                        elif hasattr(t, 'model_dump'):
+                            transition_dicts.append(t.model_dump())
+                        else:
+                            logger.warning(f"Transition object has no dict method: {t}")
+                            transition_dicts.append(str(t))
+                except Exception as e:
+                    logger.error(f"Error processing transitions in API call handler: {e}")
+                    transition_dicts = []
+                
+                return {
+                    "new_state": new_state,
+                    "response": "\n".join(response_messages),
+                    "transitions": transition_dicts,
+                    "intent": "API_CALL_CONDITION",
+                    "entities": {},
+                    "memory": memory
+                }
             
             except Exception as e:
                 logger.error(f"Error processing apicall handler: {e}")
                 continue
         
         return None
+
+    async def _execute_webhook_call(
+        self,
+        webhook_config: Dict[str, Any],
+        user_input: str,
+        current_state: str,
+        scenario: Dict[str, Any],
+        memory: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """실제 Webhook 호출을 실행합니다."""
+        
+        try:
+            url = webhook_config.get("url", "")
+            timeout = webhook_config.get("timeoutInMilliSecond", 5000) / 1000  # ms to seconds
+            retry_count = webhook_config.get("retry", 3)
+            webhook_headers = webhook_config.get("headers", {})
+            
+            # 세션 ID 및 요청 ID 생성
+            session_id = memory.get("sessionId")
+            if not session_id:
+                # 새로운 세션 ID 생성 및 메모리에 저장
+                session_id = f"session-{int(time.time())}-{uuid.uuid4().hex[:8]}"
+                memory["sessionId"] = session_id
+            
+            request_id = f"req-{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
+            
+            # Webhook 요청 데이터 구성
+            webhook_request = {
+                "version": "1.0",
+                "request": {
+                    "userId": session_id,
+                    "botId": "1370",
+                    "botVersion": "5916",
+                    "botName": "나단도움봇_테스트",
+                    "botResourcePath": "/home/svcapp/application/dm-server/resource/1370-5916.json",
+                    "sessionId": session_id,
+                    "requestId": request_id,
+                    "userInput": {
+                        "type": "text",
+                        "content": {
+                            "text": user_input,
+                            "nluResult": {
+                                "type": "skt.opennlu",
+                                "results": [
+                                    {
+                                        "nluNbest": [],
+                                        "text": user_input,
+                                        "extra": {}
+                                    }
+                                ]
+                            },
+                            "value": {
+                                "scope": None,
+                                "type": "text",
+                                "value": {},
+                                "version": "1.0"
+                            }
+                        }
+                    },
+                    "context": {
+                        "context": {
+                            "client": {
+                                "os": None,
+                                "playStack": [],
+                                "wakeupWord": " "
+                            },
+                            "supportedInterfaces": {
+                                "ACP": None
+                            },
+                            "system": {
+                                "accessToken": " ",
+                                "device": {
+                                    "age": None,
+                                    "ageGroup": None,
+                                    "attributes": None,
+                                    "authToken": " ",
+                                    "birthdate": None,
+                                    "ci": None,
+                                    "defaultVoiceCode": None,
+                                    "deviceTtsOption": True,
+                                    "deviceUniqueId": None,
+                                    "gender": None,
+                                    "id": " ",
+                                    "iwfTypeCode": " ",
+                                    "latitude": None,
+                                    "longitude": None,
+                                    "phoneNumber": None,
+                                    "pocGroup": {},
+                                    "pocId": " ",
+                                    "pocName": None,
+                                    "pocServiceName": None,
+                                    "pocStatus": None,
+                                    "typeCode": None,
+                                    "typeId": None,
+                                    "useWakeupTts": None,
+                                    "userCharacterName": None,
+                                    "userCharacterTone": None,
+                                    "userCharacterVoice": None,
+                                    "userName": None,
+                                    "userType": None
+                                },
+                                "play": {
+                                    "alias": [],
+                                    "ambiguityHint": {},
+                                    "apiKey": " ",
+                                    "capabilityInterfaces": [" "],
+                                    "charge": " ",
+                                    "extendedAlias": [],
+                                    "interlockType": " ",
+                                    "invocationName": None,
+                                    "invocationType": " ",
+                                    "isSpecializedRoute": None,
+                                    "isTest": False,
+                                    "nluType": " ",
+                                    "permission": {
+                                        "available": [" "],
+                                        "required": [" "]
+                                    },
+                                    "playName": " ",
+                                    "playNo": 0,
+                                    "playRevisionId": " ",
+                                    "playServiceId": " ",
+                                    "playServiceName": " ",
+                                    "routingType": " ",
+                                    "specializedRouteOrder": None,
+                                    "status": " ",
+                                    "supportedPocList": [],
+                                    "systemCodes": None,
+                                    "type": " ",
+                                    "url": " ",
+                                    "useOAuth": False,
+                                    "voices": None
+                                },
+                                "serviceId": " ",
+                                "serviceType": " ",
+                                "userId": session_id
+                            }
+                        },
+                        "request": {
+                            "event": {
+                                "scope": None,
+                                "type": "text",
+                                "value": {},
+                                "version": "1.0"
+                            },
+                            "nlu": None,
+                            "requestId": request_id,
+                            "text": user_input,
+                            "transactionId": request_id,
+                            "type": "ACP.RecognizeResult"
+                        },
+                        "session": {
+                            "id": session_id,
+                            "isNew": False,
+                            "playId": 5021,
+                            "playType": "BOT_GROUP"
+                        },
+                        "version": {
+                            "client": "1.0",
+                            "npk": "2.2",
+                            "sdk": "1.0"
+                        }
+                    },
+                    "headers": {
+                        "Accept": ["*/*"],
+                        "Accept-Encoding": ["gzip"],
+                        "Content-Type": ["application/json"],
+                        "User-Agent": ["ReactorNetty/1.2.4"],
+                        "X-Trace-Id": [f"trace-{uuid.uuid4().hex[:8]}"],
+                        "X-Trace-Requestid": [request_id],
+                        "X-Trace-Sessionid": [session_id],
+                        "X-Transaction-Id": [request_id]
+                    }
+                },
+                "webhook": {
+                    "url": url,
+                    "headers": webhook_headers,
+                    "timeoutInMilliSecond": webhook_config.get("timeoutInMilliSecond", 5000),
+                    "retry": retry_count,
+                    "requestId": request_id,
+                    "sessionId": session_id,
+                    "botId": "1370",
+                    "scenario": "Main",
+                    "dialogState": current_state,
+                    "tag": "",
+                    "memorySlots": memory
+                }
+            }
+            
+            # Headers 준비
+            headers = {"Content-Type": "application/json"}
+            if webhook_headers:
+                headers.update(webhook_headers)
+            
+            logger.info(f"📡 Webhook request to {url}")
+            logger.info(f"📋 Request data: {json.dumps(webhook_request, indent=2, ensure_ascii=False)}")
+            
+            # 재시도 로직
+            last_exception = None
+            for attempt in range(retry_count):
+                try:
+                    logger.info(f"🔄 Webhook attempt {attempt + 1}/{retry_count}")
+                    
+                    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
+                        async with session.post(
+                            url=url,
+                            json=webhook_request,
+                            headers=headers
+                        ) as response:
+                            response_text = await response.text()
+                            logger.info(f"📥 Webhook response status: {response.status}")
+                            logger.info(f"📥 Webhook response text: {response_text}")
+                            
+                            if response.status == 200:
+                                try:
+                                    response_json = json.loads(response_text)
+                                    logger.info(f"✅ Webhook call successful: {response_json}")
+                                    return response_json
+                                except json.JSONDecodeError as e:
+                                    logger.error(f"Invalid JSON response: {e}")
+                                    logger.error(f"Response text: {response_text}")
+                                    return {"raw_response": response_text}
+                            else:
+                                logger.warning(f"Webhook failed with status {response.status}: {response_text}")
+                                last_exception = Exception(f"HTTP {response.status}: {response_text}")
+                
+                except asyncio.TimeoutError:
+                    logger.warning(f"Webhook timeout on attempt {attempt + 1}")
+                    last_exception = Exception("Request timeout")
+                except Exception as e:
+                    logger.warning(f"Webhook error on attempt {attempt + 1}: {e}")
+                    last_exception = e
+                
+                # 마지막 시도가 아니면 잠시 대기
+                if attempt < retry_count - 1:
+                    await asyncio.sleep(1)
+            
+            # 모든 재시도 실패
+            logger.error(f"Webhook call failed after {retry_count} attempts: {last_exception}")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Webhook call execution error: {e}")
+            return None
 
     async def _execute_api_call(
         self,

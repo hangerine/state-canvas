@@ -6,6 +6,7 @@ import Sidebar from './components/Sidebar';
 import FlowCanvas from './components/FlowCanvas';
 import TestPanel from './components/TestPanel';
 import ScenarioSaveModal from './components/ScenarioSaveModal';
+import WebhookManager from './components/WebhookManager';
 import { Scenario, FlowNode, FlowEdge } from './types/scenario';
 import { 
   convertNodesToScenario, 
