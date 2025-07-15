@@ -58,9 +58,43 @@ export interface UserInput {
   content: TextContent | CustomEventContent;
 }
 
+// 새로운 챗봇 입력 포맷 타입들 - 사용자가 원하는 정확한 포맷
+export interface ChatbotInputRequest {
+  userId: string;
+  botId: string;
+  botVersion: string;
+  botName: string;
+  botResourcePath?: string;
+  sessionId: string;
+  requestId: string;
+  userInput: UserInput;
+  context?: Record<string, any>;
+  headers?: Record<string, any>;
+}
+
 export interface ProcessInputRequest {
   sessionId: string;
   userInput: UserInput;
+  currentState: string;
+  scenario: Scenario;
+  eventType?: string;
+}
+
+// 새로운 챗봇 포맷을 위한 요청 타입 - 플랫 구조
+export interface ChatbotProcessRequest {
+  // 기본 챗봇 요청 필드들
+  userId: string;
+  botId: string;
+  botVersion: string;
+  botName: string;
+  botResourcePath?: string;
+  sessionId: string;
+  requestId: string;
+  userInput: UserInput;
+  context?: Record<string, any>;
+  headers?: Record<string, any>;
+  
+  // 추가 처리 필드들
   currentState: string;
   scenario: Scenario;
   eventType?: string;

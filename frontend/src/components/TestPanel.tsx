@@ -24,6 +24,7 @@ import {
   DialogContent,
   DialogActions,
   Grid,
+  Switch,
 } from '@mui/material';
 import { 
   ContentCopy as CopyIcon, 
@@ -33,7 +34,7 @@ import {
   Add as AddIcon,
   Edit as EditIcon,
 } from '@mui/icons-material';
-import { Scenario, UserInput, ProcessInputRequest, EntityInput, NLUEntity } from '../types/scenario';
+import { Scenario, UserInput, ProcessInputRequest, EntityInput, NLUEntity, ChatbotInputRequest, ChatbotProcessRequest } from '../types/scenario';
 import axios from 'axios';
 
 // NLU 관련 타입 정의 (임시로 any 사용, 추후 정확한 타입 정의 예정)
@@ -87,6 +88,14 @@ const TestPanel: React.FC<TestPanelProps> = ({
   const [intentValue, setIntentValue] = useState('');
   const [confidenceScore, setConfidenceScore] = useState(0.97);
   const [entities, setEntities] = useState<EntityInput[]>([]);
+
+  // 챗봇 입력 포맷 관련 상태 - 이제 챗봇 포맷이 기본값
+  const [useJsonInputMode, setUseJsonInputMode] = useState(false); // JSON 입력 모드 토글
+  const [userId] = useState(() => 'user-' + Date.now());
+  const [botId] = useState('1370');
+  const [botVersion] = useState('5916');
+  const [botName] = useState('나단도움봇_테스트');
+  const [requestId, setRequestId] = useState(() => 'chatbot-' + Date.now());
 
   // 탭 관련 상태
   const [currentTab, setCurrentTab] = useState(0);
@@ -534,6 +543,31 @@ const TestPanel: React.FC<TestPanelProps> = ({
     }
   }, [inputType, inputText, eventType, intentValue, confidenceScore, entities, convertEntitiesToNLUFormat]);
 
+  // 새로운 챗봇 입력 포맷 생성 함수
+  const createChatbotProcessRequest = useCallback((): ChatbotProcessRequest => {
+    // 매 요청마다 새로운 requestId 생성
+    const newRequestId = 'chatbot-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+    setRequestId(newRequestId);
+    
+    return {
+      // 기본 챗봇 요청 필드들
+      userId,
+      botId,
+      botVersion,
+      botName,
+      botResourcePath: `${botId}-${botVersion}.json`,
+      sessionId,
+      requestId: newRequestId,
+      userInput: createUserInput(),
+      context: {},
+      headers: {},
+      
+      // 추가 처리 필드들
+      currentState,
+      scenario: scenario!
+    };
+  }, [userId, botId, botVersion, botName, sessionId, createUserInput, currentState, scenario]);
+
   // 시나리오 변경 감지를 위한 해시 생성
   const generateScenarioHash = useCallback((scenario: Scenario | null): string => {
     if (!scenario) return '';
@@ -743,28 +777,37 @@ const TestPanel: React.FC<TestPanelProps> = ({
     }
 
     try {
-      // 빈 입력으로 자동 전이 확인 - 새로운 userInput 형식 사용
-      const emptyUserInput: UserInput = {
-        type: 'text',
-        content: {
-          text: '',
-          value: {
-            scope: null,
-            type: 'text',
-            value: {},
-            version: '1.0'
-          }
-        }
-      };
-
-      const requestData: ProcessInputRequest = {
+      // 챗봇 포맷으로 자동 전이 확인 (기본값)
+      const chatbotRequestData: ChatbotProcessRequest = {
+        // 기본 챗봇 요청 필드들
+        userId,
+        botId,
+        botVersion,
+        botName,
+        botResourcePath: `${botId}-${botVersion}.json`,
         sessionId,
-        userInput: emptyUserInput,
+        requestId: 'chatbot-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+        userInput: {
+          type: 'text',
+          content: {
+            text: '',
+            value: {
+              scope: null,
+              type: 'text',
+              value: {},
+              version: '1.0'
+            }
+          }
+        },
+        context: {},
+        headers: {},
+        
+        // 추가 처리 필드들
         currentState,
-        scenario: scenario,
+        scenario: scenario!
       };
 
-      const response = await axios.post('http://localhost:8000/api/process-input', requestData);
+      const response = await axios.post('http://localhost:8000/api/process-chatbot-input', chatbotRequestData);
 
       // ApiCall 실행 결과 표시
       if (response.data.intent === 'API_CALL' && response.data.new_state !== currentState) {
@@ -784,7 +827,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
     } catch (error) {
       console.warn('Auto transition check failed:', error);
     }
-  }, [scenario, currentState, sessionId, isEventState, isIntentState, isApiCallState, addMessage, onStateChange]);
+  }, [scenario, currentState, sessionId, isEventState, isIntentState, isApiCallState, addMessage, onStateChange, useJsonInputMode]);
 
   // 메시지 추가
   // const addMessage = (type: TestMessage['type'], content: string) => {
@@ -815,6 +858,66 @@ const TestPanel: React.FC<TestPanelProps> = ({
   const handleSendMessage = async () => {
     if (!scenario) return;
     
+    // JSON 입력 모드일 때
+    if (useJsonInputMode) {
+      if (!inputText.trim()) return;
+      
+      try {
+        // JSON 파싱
+        const jsonRequest = JSON.parse(inputText);
+        
+        // 필수 필드 확인
+        if (!jsonRequest.userId || !jsonRequest.sessionId || !jsonRequest.userInput) {
+          addMessage('system', '❌ JSON 형식 오류: userId, sessionId, userInput 필드가 필요합니다.');
+          return;
+        }
+        
+        // currentState와 scenario 추가
+        const requestData = {
+          ...jsonRequest,
+          currentState,
+          scenario: scenario
+        };
+        
+        addMessage('user', `[JSON] ${JSON.stringify(jsonRequest.userInput, null, 2)}`);
+        addMessage('system', '📤 JSON 요청을 전송합니다...');
+        
+        console.log('📤 JSON request:', JSON.stringify(requestData, null, 2));
+        const response = await axios.post('http://localhost:8000/api/process-chatbot-input', requestData);
+        
+        // 응답 처리
+        if (response.data.transitions) {
+          response.data.transitions.forEach((transition: any) => {
+            addMessage('transition', 
+              `${transition.fromState} → ${transition.toState} (${transition.reason})`
+            );
+          });
+        }
+
+        if (response.data.new_state) {
+          onStateChange(response.data.new_state);
+        }
+
+        if (response.data.response) {
+          addMessage('system', response.data.response);
+        }
+        
+        // JSON 입력 성공 후 textarea 클리어
+        setInputText('');
+        
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          addMessage('system', '❌ JSON 파싱 오류: ' + error.message);
+        } else {
+          addMessage('system', '❌ 요청 처리 오류: ' + (error as Error).message);
+        }
+        console.error('JSON processing error:', error);
+      }
+      
+      return;
+    }
+    
+    // 기본 챗봇 포맷 모드 (기존 로직)
     // customEvent 타입이거나 text 타입에서 inputText가 있는 경우만 진행
     if (inputType === 'text' && !inputText.trim()) return;
 
@@ -915,19 +1018,33 @@ const TestPanel: React.FC<TestPanelProps> = ({
       userInput = createUserInput();
     }
 
-    // 디버그용: 생성된 userInput을 콘솔에 표시
-    console.log('📤 Generated userInput:', JSON.stringify(userInput, null, 2));
-
     try {
-      // 새로운 API 요청 형식으로 Backend API 호출
-      const requestData: ProcessInputRequest = {
+      let response;
+      
+      // 챗봇 포맷으로 Backend API 호출 (기본값)
+      const newRequestId = 'chatbot-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+      setRequestId(newRequestId);
+      
+      const chatbotRequestData: ChatbotProcessRequest = {
+        // 기본 챗봇 요청 필드들
+        userId,
+        botId,
+        botVersion,
+        botName,
+        botResourcePath: `${botId}-${botVersion}.json`,
         sessionId,
-        userInput,
+        requestId: newRequestId,
+        userInput: userInput, // NLU 결과가 포함된 userInput 사용
+        context: {},
+        headers: {},
+        
+        // 추가 처리 필드들
         currentState,
-        scenario: scenario,
+        scenario: scenario!
       };
 
-      const response = await axios.post('http://localhost:8000/api/process-input', requestData);
+      console.log('📤 Generated chatbot request:', JSON.stringify(chatbotRequestData, null, 2));
+      response = await axios.post('http://localhost:8000/api/process-chatbot-input', chatbotRequestData);
 
       // API Call 실행 결과 표시
       if (response.data.intent === 'API_CALL') {
@@ -1063,9 +1180,21 @@ const TestPanel: React.FC<TestPanelProps> = ({
 
   // Enter 키 처리 개선
   const handleKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault();
-      handleSendMessage();
+    if (event.key === 'Enter') {
+      if (useJsonInputMode) {
+        // JSON 입력 모드에서는 Ctrl+Enter로 전송
+        if (event.ctrlKey || event.metaKey) {
+          event.preventDefault();
+          handleSendMessage();
+        }
+        // 일반 Enter는 줄바꿈 허용
+      } else {
+        // 일반 모드에서는 Enter로 전송 (Shift+Enter는 줄바꿈)
+        if (!event.shiftKey) {
+          event.preventDefault();
+          handleSendMessage();
+        }
+      }
     }
   };
 
@@ -1872,6 +2001,30 @@ const TestPanel: React.FC<TestPanelProps> = ({
                         👁️
                       </IconButton>
                     </Tooltip>
+
+                    {/* JSON 입력 모드 토글 */}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 2 }}>
+                      <Typography variant="body2" sx={{ fontSize: '0.875rem', fontWeight: 500 }}>
+                        📝 JSON 입력 모드
+                      </Typography>
+                      <Switch
+                        checked={useJsonInputMode}
+                        onChange={(e) => setUseJsonInputMode(e.target.checked)}
+                        size="small"
+                        color="primary"
+                      />
+                    </Box>
+
+                    {useJsonInputMode && (
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, minWidth: 200 }}>
+                        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem' }}>
+                          JSON 형태의 전체 요청을 입력하세요
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem' }}>
+                          NLU 결과가 포함된 요청을 직접 전송합니다
+                        </Typography>
+                      </Box>
+                    )}
                   </Box>
                 </Paper>
 
@@ -2045,12 +2198,16 @@ const TestPanel: React.FC<TestPanelProps> = ({
                 }}>
                   <TextField
                     fullWidth
+                    multiline={useJsonInputMode}
+                    rows={useJsonInputMode ? 8 : undefined}
                     placeholder={
-                      inputType === 'customEvent' 
-                        ? `Event가 전송됩니다: ${eventType}`
-                        : isWebhookState() 
-                          ? "Webhook 응답을 입력하세요 (예: ACT_01_0212)" 
-                          : "메시지를 입력하세요..."
+                      useJsonInputMode 
+                        ? "JSON 형태의 전체 요청을 입력하세요...\n\n예시:\n{\n  \"userId\": \"user-123\",\n  \"botId\": \"1370\",\n  \"userInput\": {\n    \"type\": \"text\",\n    \"content\": {\n      \"text\": \"안녕하세요\"\n    }\n  }\n}"
+                        : inputType === 'customEvent' 
+                          ? `Event가 전송됩니다: ${eventType}`
+                          : isWebhookState() 
+                            ? "Webhook 응답을 입력하세요 (예: ACT_01_0212)" 
+                            : "메시지를 입력하세요..."
                     }
                     value={inputText}
                     onChange={(e) => setInputText(e.target.value)}
@@ -2059,8 +2216,13 @@ const TestPanel: React.FC<TestPanelProps> = ({
                     variant="outlined"
                     sx={{
                       '& .MuiOutlinedInput-root': {
-                        height: '44px',
+                        height: useJsonInputMode ? 'auto' : '44px',
+                        minHeight: useJsonInputMode ? '200px' : '44px',
+                        alignItems: useJsonInputMode ? 'flex-start' : 'center',
                         bgcolor: inputType === 'customEvent' ? 'action.disabledBackground' : 'background.paper'
+                      },
+                      '& .MuiOutlinedInput-input': {
+                        padding: useJsonInputMode ? '12px 14px' : '10px 14px'
                       }
                     }}
                   />
@@ -2080,9 +2242,18 @@ const TestPanel: React.FC<TestPanelProps> = ({
                       fontWeight: 'bold'
                     }}
                   >
-                    {inputType === 'customEvent' ? 'Event 전송' : '전송'}
+                    {useJsonInputMode ? 'JSON 전송' : inputType === 'customEvent' ? 'Event 전송' : '전송'}
                   </Button>
                 </Box>
+                
+                {/* JSON 입력 모드 도움말 */}
+                {useJsonInputMode && (
+                  <Box sx={{ mt: 1, p: 1, bgcolor: 'info.main', color: 'info.contrastText', borderRadius: 1 }}>
+                    <Typography variant="caption" sx={{ fontSize: '0.75rem' }}>
+                      💡 <strong>JSON 입력 모드:</strong> Ctrl+Enter로 전송 | 일반 Enter는 줄바꿈
+                    </Typography>
+                  </Box>
+                )}
               </Box>
             )}
           </Box>

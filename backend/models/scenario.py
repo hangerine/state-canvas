@@ -132,10 +132,43 @@ class Scenario(BaseModel):
     webhooks: List[Webhook]
     dialogResult: str
 
+# 새로운 챗봇 입력 포맷 모델들 - 사용자가 원하는 정확한 포맷
+class ChatbotInputRequest(BaseModel):
+    userId: str
+    botId: str
+    botVersion: str
+    botName: str
+    botResourcePath: Optional[str] = None
+    sessionId: str
+    requestId: str
+    userInput: UserInput
+    context: Dict[str, Any] = {}
+    headers: Dict[str, Any] = {}
+
 # API 요청/응답 모델
 class ProcessInputRequest(BaseModel):
     sessionId: str
     userInput: UserInput
+    currentState: str
+    scenario: Dict[str, Any]
+    eventType: Optional[str] = None  # 이벤트 수동 트리거용
+
+# 새로운 챗봇 포맷을 위한 요청 모델 - 시나리오와 currentState 추가 필드
+class ChatbotProcessRequest(BaseModel):
+    """챗봇 요청에 시나리오와 현재 상태 정보를 추가한 모델"""
+    # 기본 챗봇 요청 필드들
+    userId: str
+    botId: str
+    botVersion: str
+    botName: str
+    botResourcePath: Optional[str] = None
+    sessionId: str
+    requestId: str
+    userInput: UserInput
+    context: Dict[str, Any] = {}
+    headers: Dict[str, Any] = {}
+    
+    # 추가 처리 필드들
     currentState: str
     scenario: Dict[str, Any]
     eventType: Optional[str] = None  # 이벤트 수동 트리거용

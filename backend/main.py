@@ -7,7 +7,7 @@ from typing import Dict, Any, List, Optional
 from pydantic import BaseModel
 import logging
 
-from models.scenario import Scenario, ProcessInputRequest, LegacyProcessInputRequest, StateTransition, UserInput, TextContent, CustomEventContent
+from models.scenario import Scenario, ProcessInputRequest, LegacyProcessInputRequest, StateTransition, UserInput, TextContent, CustomEventContent, ChatbotInputRequest, ChatbotProcessRequest
 from services.state_engine import StateEngine
 from services.websocket_manager import WebSocketManager
 
@@ -215,6 +215,80 @@ async def process_input(request: ProcessInputRequest):
     
     # 세션 메모리 가져오기 또는 생성
     memory = get_or_create_session_memory(request.sessionId)
+    
+    # userInput에서 텍스트 추출 및 메모리 저장
+    user_text = ""
+    if request.userInput.type == "text":
+        if isinstance(request.userInput.content, dict) and "text" in request.userInput.content:
+            user_text = request.userInput.content["text"]
+            
+            # NLU 결과가 있는 경우 메모리에 저장 (딕셔너리 형태)
+            if "nluResult" in request.userInput.content and request.userInput.content["nluResult"]:
+                memory["NLU_RESULT"] = request.userInput.content["nluResult"]
+        else:
+            # TextContent 객체인 경우
+            user_text = request.userInput.content.text if hasattr(request.userInput.content, 'text') else ""
+            
+            # NLU 결과가 있는 경우 메모리에 저장 (객체 형태)
+            if hasattr(request.userInput.content, 'nluResult') and request.userInput.content.nluResult:
+                memory["NLU_RESULT"] = request.userInput.content.nluResult.dict()
+        
+        if user_text.strip():
+            memory["USER_TEXT_INPUT"] = [user_text.strip()]
+    
+    elif request.userInput.type == "customEvent":
+        if isinstance(request.userInput.content, dict) and "type" in request.userInput.content:
+            event_type = request.userInput.content["type"]
+        else:
+            # CustomEventContent 객체인 경우
+            event_type = request.userInput.content.type if hasattr(request.userInput.content, 'type') else ""
+        
+        memory["CUSTOM_EVENT"] = {
+            "type": event_type,
+            "content": request.userInput.content.dict() if hasattr(request.userInput.content, 'dict') else request.userInput.content
+        }
+    
+    # State Engine에 시나리오 로드
+    state_engine.load_scenario(request.sessionId, request.scenario)
+    
+    # 입력 처리 (기존 state_engine은 텍스트를 기대하므로 변환)
+    result = await state_engine.process_input(
+        session_id=request.sessionId,
+        user_input=user_text,
+        current_state=request.currentState,
+        scenario=request.scenario,
+        memory=memory,
+        event_type=request.eventType
+    )
+    
+    # 세션 메모리 업데이트
+    update_session_memory(request.sessionId, result.get("memory", memory))
+    
+    logger.info(f"📤 Processing result: {result}")
+    return result
+
+# 새로운 챗봇 입력 포맷을 지원하는 엔드포인트
+@app.post("/api/process-chatbot-input")
+async def process_chatbot_input(request: ChatbotProcessRequest):
+    """
+    새로운 챗봇 입력 포맷으로 사용자 입력을 처리하고 State 전이를 수행합니다.
+    """
+    logger.info(f"📥 Processing chatbot input: userId={request.userId}, sessionId={request.sessionId}, requestId={request.requestId}, botId={request.botId}, state={request.currentState}")
+    
+    # 세션 메모리 가져오기 또는 생성
+    memory = get_or_create_session_memory(request.sessionId)
+    
+    # 챗봇 메타데이터를 메모리에 저장
+    memory["CHATBOT_METADATA"] = {
+        "userId": request.userId,
+        "botId": request.botId,
+        "botVersion": request.botVersion,
+        "botName": request.botName,
+        "botResourcePath": request.botResourcePath,
+        "requestId": request.requestId,
+        "context": request.context,
+        "headers": request.headers
+    }
     
     # userInput에서 텍스트 추출 및 메모리 저장
     user_text = ""
