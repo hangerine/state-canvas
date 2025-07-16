@@ -89,28 +89,46 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
   const [undoStack, setUndoStack] = useState<{nodes: Node[]; edges: Edge[]}[]>([]);
   const [redoStack, setRedoStack] = useState<{nodes: Node[]; edges: Edge[]}[]>([]);
 
+  // 이전 propNodes/propEdges를 기억하기 위한 ref
+  const prevNodesRef = useRef<FlowNode[]>(propNodes);
+  const prevEdgesRef = useRef<FlowEdge[]>(propEdges);
+
   // 최초 마운트 시 초기 상태 push
   useEffect(() => {
     setUndoStack([{ nodes: propNodes, edges: propEdges }]);
     setRedoStack([]);
+    prevNodesRef.current = propNodes;
+    prevEdgesRef.current = propEdges;
     // eslint-disable-next-line
   }, []);
 
+  // propNodes/propEdges가 완전히 바뀔 때(시나리오 업로드 등)만 undo/redo 스택 초기화
+  useEffect(() => {
+    const nodesChanged = JSON.stringify(prevNodesRef.current.map(n => n.id)) !== JSON.stringify(propNodes.map(n => n.id));
+    const edgesChanged = JSON.stringify(prevEdgesRef.current.map(e => e.id)) !== JSON.stringify(propEdges.map(e => e.id));
+    if (nodesChanged || edgesChanged) {
+      setUndoStack([{ nodes: propNodes, edges: propEdges }]);
+      setRedoStack([]);
+      prevNodesRef.current = propNodes;
+      prevEdgesRef.current = propEdges;
+    }
+  }, [propNodes, propEdges]);
+
   // 노드/에지 변경 래퍼 (NodeChange[], EdgeChange[])
-  // 1. onNodesChange에서는 상태만 업데이트 (Undo push X)
+  // 1. onNodesChange에서는 상태만 업데이트 (Undo push X, App의 onNodesChange도 호출 X)
   const handleNodesChangeWithUndo = useCallback((changes: NodeChange[]) => {
     setNodes((nds) => {
       const updated = applyNodeChanges(changes, nds);
-      onNodesChange(updated as any);
       return updated;
     });
-  }, [onNodesChange]);
+  }, []);
 
-  // 2. onNodeDragStop에서만 Undo 스택에 push
+  // 2. onNodeDragStop에서만 Undo 스택에 push + App의 onNodesChange 호출
   const handleNodeDragStop = useCallback(() => {
     setUndoStack((stack) => [...stack, { nodes, edges }]);
     setRedoStack([]);
-  }, [nodes, edges]);
+    onNodesChange(nodes as any);
+  }, [nodes, edges, onNodesChange]);
 
   const handleEdgesChangeWithUndo = useCallback((changes: EdgeChange[]) => {
     setEdges((eds) => {
