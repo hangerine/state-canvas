@@ -32,9 +32,9 @@ import {
   Close as CloseIcon,
   Delete as DeleteIcon,
   Add as AddIcon,
-  Edit as EditIcon,
+  // Edit as EditIcon, // 사용하지 않음
 } from '@mui/icons-material';
-import { Scenario, UserInput, ProcessInputRequest, EntityInput, NLUEntity, ChatbotInputRequest, ChatbotProcessRequest, ChatbotResponse, ChatbotDirective } from '../types/scenario';
+import { Scenario, UserInput, ProcessInputRequest, EntityInput, NLUEntity, ChatbotProcessRequest, ChatbotResponse, ChatbotDirective } from '../types/scenario';
 import axios from 'axios';
 import WebhookManager from './WebhookManager';
 
@@ -96,7 +96,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
   const [botId] = useState('1370');
   const [botVersion] = useState('5916');
   const [botName] = useState('나단도움봇_테스트');
-  const [requestId, setRequestId] = useState(() => 'chatbot-' + Date.now());
+  // const [requestId, setRequestId] = useState(() => 'chatbot-' + Date.now()); // 삭제
 
   // 탭 관련 상태
   const [currentTab, setCurrentTab] = useState(0);
@@ -126,7 +126,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
   const [nluEntityModalOpen, setNluEntityModalOpen] = useState(false);
   const [nluNewEntityType, setNluNewEntityType] = useState('');
   const [nluNewEntityRole, setNluNewEntityRole] = useState('');
-  const [nluSelectedUtterance, setNluSelectedUtterance] = useState<TrainingUtterance | null>(null);
+  const [nluSelectedUtterance] = useState<TrainingUtterance | null>(null);
   const [nluIntents, setNluIntents] = useState<string[]>([]);
   const [nluEntityTypes, setNluEntityTypes] = useState<string[]>([]);
   const [nluConnected, setNluConnected] = useState(false);
@@ -140,7 +140,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
     conditionStatement: '',
     dmIntent: ''
   });
-  const [editingIntentMapping, setEditingIntentMapping] = useState<IntentMapping | null>(null);
+  const [editingIntentMapping] = useState<IntentMapping | null>(null);
 
   // 메시지 스크롤을 위한 ref
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -165,10 +165,17 @@ const TestPanel: React.FC<TestPanelProps> = ({
     }
   }, [currentTab, nluConnected]);
 
+  // Intent Mapping 관련 함수들
+  const loadIntentMappingsFromScenario = useCallback(() => {
+    if (scenario && scenario.intentMapping) {
+      setIntentMappings(scenario.intentMapping);
+    }
+  }, [scenario]);
+
   // 시나리오가 변경될 때 IntentMapping 로드
   useEffect(() => {
     loadIntentMappingsFromScenario();
-  }, [scenario]);
+  }, [loadIntentMappingsFromScenario]);
 
   // 메시지 추가 (useCallback으로 메모이제이션)
   const addMessage = useCallback((type: TestMessage['type'], content: string) => {
@@ -231,17 +238,18 @@ const TestPanel: React.FC<TestPanelProps> = ({
     }
   };
 
-  const updateNluUtterance = async (id: number, utterance: TrainingUtterance) => {
-    try {
-      const response = await axios.put(`http://localhost:8001/api/training/utterances/${id}`, utterance);
-      await fetchNluUtterances();
-      await fetchNluIntents();
-      return response.data;
-    } catch (error) {
-      console.error('NLU 발화 수정 실패:', error);
-      throw error;
-    }
-  };
+  // const updateNluUtterance = async (id: number, utterance: TrainingUtterance) => {
+  //   try {
+  //     const response = await axios.put(`http://localhost:8001/api/training/utterances/${id}`, utterance);
+  //     await fetchNluUtterances();
+  //     await fetchNluIntents();
+  //     return response.data;
+  //   } catch (error) {
+  //     console.error('NLU 발화 수정 실패:', error);
+  //     throw error;
+  //     }
+  //   }
+  // };
 
   const deleteNluUtterance = async (id: number) => {
     try {
@@ -251,15 +259,6 @@ const TestPanel: React.FC<TestPanelProps> = ({
     } catch (error) {
       console.error('NLU 발화 삭제 실패:', error);
       throw error;
-    }
-  };
-
-
-
-  // Intent Mapping 관련 함수들
-  const loadIntentMappingsFromScenario = () => {
-    if (scenario && scenario.intentMapping) {
-      setIntentMappings(scenario.intentMapping);
     }
   };
 
@@ -544,30 +543,30 @@ const TestPanel: React.FC<TestPanelProps> = ({
     }
   }, [inputType, inputText, eventType, intentValue, confidenceScore, entities, convertEntitiesToNLUFormat]);
 
-  // 새로운 챗봇 입력 포맷 생성 함수
-  const createChatbotProcessRequest = useCallback((): ChatbotProcessRequest => {
-    // 매 요청마다 새로운 requestId 생성
-    const newRequestId = 'chatbot-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-    setRequestId(newRequestId);
-    
-    return {
-      // 기본 챗봇 요청 필드들
-      userId,
-      botId,
-      botVersion,
-      botName,
-      botResourcePath: `${botId}-${botVersion}.json`,
-      sessionId,
-      requestId: newRequestId,
-      userInput: createUserInput(),
-      context: {},
-      headers: {},
-      
-      // 추가 처리 필드들
-      currentState,
-      scenario: scenario!
-    };
-  }, [userId, botId, botVersion, botName, sessionId, createUserInput, currentState, scenario]);
+  // 새로운 챗봇 입력 포맷 생성 함수 (사용하지 않음)
+  // const createChatbotProcessRequest = useCallback((): ChatbotProcessRequest => {
+  //   // 매 요청마다 새로운 requestId 생성
+  //   const newRequestId = 'chatbot-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+  //   setRequestId(newRequestId);
+  //   
+  //   return {
+  //     // 기본 챗봇 요청 필드들
+  //     userId,
+  //     botId,
+  //     botVersion,
+  //     botName,
+  //     botResourcePath: `${botId}-${botVersion}.json`,
+  //     sessionId,
+  //     requestId: newRequestId,
+  //     userInput: createUserInput(),
+  //     context: {},
+  //     headers: {},
+  //     
+  //     // 추가 처리 필드들
+  //     currentState,
+  //     scenario: scenario!
+  //   };
+  // }, [userId, botId, botVersion, botName, sessionId, createUserInput, currentState, scenario]);
 
   // 시나리오 변경 감지를 위한 해시 생성
   const generateScenarioHash = useCallback((scenario: Scenario | null): string => {
@@ -824,7 +823,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
     } catch (error) {
       console.warn('Auto transition check failed:', error);
     }
-  }, [scenario, currentState, sessionId, isEventState, isIntentState, isApiCallState, addMessage, onStateChange, useJsonInputMode]);
+  }, [scenario, currentState, sessionId, isEventState, isIntentState, isApiCallState, addMessage, onStateChange, useJsonInputMode, userId, botId, botVersion, botName]);
 
   // 메시지 추가
   // const addMessage = (type: TestMessage['type'], content: string) => {
@@ -1006,7 +1005,6 @@ const TestPanel: React.FC<TestPanelProps> = ({
       
       // 챗봇 포맷으로 Backend API 호출 (기본값)
       const newRequestId = 'chatbot-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-      setRequestId(newRequestId);
       
       const chatbotRequestData: ChatbotProcessRequest = {
         // 기본 챗봇 요청 필드들
@@ -1578,25 +1576,25 @@ const TestPanel: React.FC<TestPanelProps> = ({
     }
   };
 
-  // 기존 응답 처리 함수 (레거시)
-  const handleLegacyResponse = (responseData: any) => {
-    // 응답 처리
-    if (responseData.transitions) {
-      responseData.transitions.forEach((transition: any) => {
-        addMessage('transition', 
-          `${transition.fromState} → ${transition.toState} (${transition.reason})`
-        );
-      });
-    }
+  // 기존 응답 처리 함수 (레거시) - 사용하지 않음
+  // const handleLegacyResponse = (responseData: any) => {
+  //   // 응답 처리
+  //   if (responseData.transitions) {
+  //     responseData.transitions.forEach((transition: any) => {
+  //       addMessage('transition', 
+  //         `${transition.fromState} → ${transition.toState} (${transition.reason})`
+  //       );
+  //     });
+  //   }
 
-    if (responseData.new_state) {
-      onStateChange(responseData.new_state);
-    }
+  //   if (responseData.new_state) {
+  //     onStateChange(responseData.new_state);
+  //   }
 
-    if (responseData.response) {
-      addMessage('system', responseData.response);
-    }
-  };
+  //   if (responseData.response) {
+  //     addMessage('system', responseData.response);
+  //   }
+  // };
 
   return (
     <Box

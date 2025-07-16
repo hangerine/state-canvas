@@ -6,7 +6,7 @@ import Sidebar from './components/Sidebar';
 import FlowCanvas from './components/FlowCanvas';
 import TestPanel from './components/TestPanel';
 import ScenarioSaveModal from './components/ScenarioSaveModal';
-import WebhookManager from './components/WebhookManager';
+// WebhookManager import 제거 (사용하지 않음)
 import { Scenario, FlowNode, FlowEdge } from './types/scenario';
 import { 
   convertNodesToScenario, 
@@ -190,7 +190,6 @@ function App() {
     
     dialogStates.forEach((state) => {
       // Condition handlers에서 전이 관계 추출
-      const conditionStartTime = performance.now();
       state.conditionHandlers?.forEach((handler, idx) => {
         if (handler.transitionTarget.dialogState && 
             handler.transitionTarget.dialogState !== '__END_SESSION__') {
