@@ -27,6 +27,11 @@ import { Menu, MenuItem, Typography, Button, Stack, IconButton } from '@mui/mate
 import UndoIcon from '@mui/icons-material/Undo';
 import RedoIcon from '@mui/icons-material/Redo';
 import dagre from 'dagre';
+import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
+import EditOffIcon from '@mui/icons-material/EditOff';
+import EditIcon from '@mui/icons-material/Edit';
+import { Switch, FormControlLabel } from '@mui/material';
+import ReplayIcon from '@mui/icons-material/Replay';
 
 // 커스텀 노드 타입 정의
 const nodeTypes: NodeTypes = {
@@ -81,6 +86,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
   const [selectedNodes, setSelectedNodes] = useState<string[]>([]);
   const [selectedEdges, setSelectedEdges] = useState<string[]>([]);
   const [edgeButtonAnchor, setEdgeButtonAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [isEditable, setIsEditable] = useState(true);
   
   const { project, fitView } = useReactFlow();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -93,6 +99,10 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
   const prevNodesRef = useRef<FlowNode[]>(propNodes);
   const prevEdgesRef = useRef<FlowEdge[]>(propEdges);
 
+  // 최초 시나리오 업로드 시의 노드/에지 상태 저장
+  const initialNodesRef = useRef<Node[]>(propNodes);
+  const initialEdgesRef = useRef<Edge[]>(propEdges);
+
   // 최초 마운트 시 초기 상태 push
   useEffect(() => {
     setUndoStack([{ nodes: propNodes, edges: propEdges }]);
@@ -102,7 +112,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
     // eslint-disable-next-line
   }, []);
 
-  // propNodes/propEdges가 완전히 바뀔 때(시나리오 업로드 등)만 undo/redo 스택 초기화
+  // propNodes/propEdges가 완전히 바뀔 때(시나리오 업로드 등) 최초 상태도 갱신
   useEffect(() => {
     const nodesChanged = JSON.stringify(prevNodesRef.current.map(n => n.id)) !== JSON.stringify(propNodes.map(n => n.id));
     const edgesChanged = JSON.stringify(prevEdgesRef.current.map(e => e.id)) !== JSON.stringify(propEdges.map(e => e.id));
@@ -111,6 +121,8 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       setRedoStack([]);
       prevNodesRef.current = propNodes;
       prevEdgesRef.current = propEdges;
+      initialNodesRef.current = propNodes;
+      initialEdgesRef.current = propEdges;
     }
   }, [propNodes, propEdges]);
 
@@ -635,6 +647,14 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
     onNodesChange(newNodes as any);
   }, [nodes, edges, setNodes, setUndoStack, setRedoStack, onNodesChange]);
 
+  // 레이아웃 리셋 핸들러
+  const handleLayoutReset = useCallback(() => {
+    onNodesChange(initialNodesRef.current as any);
+    onEdgesChange(initialEdgesRef.current as any);
+    setUndoStack([{ nodes: initialNodesRef.current, edges: initialEdgesRef.current }]);
+    setRedoStack([]);
+  }, [onNodesChange, onEdgesChange]);
+
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }} onContextMenu={handleContextMenu}>
       {/* React Flow 메인 뷰 */}
@@ -642,20 +662,29 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
-        onNodesChange={handleNodesChangeWithUndo}
-        onNodeDragStop={handleNodeDragStop}
-        onEdgesChange={handleEdgesChangeWithUndo}
-        onConnect={onConnect}
-        onNodeClick={onNodeClick}
-        onEdgeClick={handleEdgeClick}
-        onPaneClick={handlePaneClick}
-        onEdgeDoubleClick={onEdgeDoubleClick}
+        onNodesChange={isEditable ? handleNodesChangeWithUndo : undefined}
+        onNodeDragStop={isEditable ? handleNodeDragStop : undefined}
+        onEdgesChange={isEditable ? handleEdgesChangeWithUndo : undefined}
+        onConnect={isEditable ? onConnect : undefined}
+        onNodeClick={isEditable ? onNodeClick : undefined}
+        onEdgeClick={isEditable ? handleEdgeClick : undefined}
+        onPaneClick={isEditable ? handlePaneClick : undefined}
+        onEdgeDoubleClick={isEditable ? onEdgeDoubleClick : undefined}
         fitView
         minZoom={0.2}
         maxZoom={2}
-        selectionOnDrag
+        selectionOnDrag={isEditable}
         multiSelectionKeyCode={['Shift', 'Meta']}
         style={{ width: '100%', height: '100%' }}
+        panOnDrag={true}
+        panOnScroll={true}
+        zoomOnScroll={true}
+        zoomOnPinch={true}
+        elementsSelectable={isEditable}
+        nodesDraggable={isEditable}
+        nodesConnectable={isEditable}
+        edgesFocusable={isEditable}
+        edgesUpdatable={isEditable}
       >
         <Controls />
         <MiniMap nodeColor={getNodeColor} nodeStrokeWidth={3} zoomable pannable />
@@ -683,21 +712,101 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       </Stack>
 
       {/* 자동정렬/레이아웃/편집기능 버튼 (상단 우측) */}
-      <Stack direction="row" spacing={1} sx={{
+      <Stack direction="row" spacing={2} sx={{
         position: 'absolute',
         top: 16,
         right: 16,
         zIndex: 2000,
         background: 'rgba(255,255,255,0.97)',
-        borderRadius: 2,
-        boxShadow: 2,
-        p: 1,
-        pointerEvents: 'auto',
+        borderRadius: 3,
+        boxShadow: 3,
+        p: 1.2,
+        alignItems: 'center',
+        minHeight: 48,
       }}>
-        <Button size="small" variant="contained" onClick={applyAutoLayout}>
+        <Button
+          size="medium"
+          variant="contained"
+          startIcon={<AutoFixHighIcon />}
+          sx={{
+            background: 'linear-gradient(90deg, #1976d2 0%, #42a5f5 100%)',
+            color: 'white',
+            fontWeight: 700,
+            letterSpacing: 1,
+            borderRadius: 2,
+            boxShadow: 2,
+            height: 40,
+            px: 2.5,
+            fontSize: '1rem',
+            textTransform: 'none',
+            transition: 'all 0.18s',
+            '&:hover': {
+              background: 'linear-gradient(90deg, #1565c0 0%, #64b5f6 100%)',
+              boxShadow: 4,
+              transform: 'scale(1.04)',
+            },
+          }}
+          onClick={applyAutoLayout}
+        >
           자동정렬
         </Button>
-        {/* 앞으로 layout reset, 편집기능 on/off 버튼 추가 예정 */}
+        <Button
+          size="medium"
+          variant="outlined"
+          startIcon={<ReplayIcon />}
+          sx={{
+            background: 'white',
+            color: '#1976d2',
+            fontWeight: 700,
+            borderRadius: 2,
+            boxShadow: 1,
+            height: 40,
+            px: 2.2,
+            fontSize: '1rem',
+            textTransform: 'none',
+            border: '2px solid #1976d2',
+            transition: 'all 0.18s',
+            '&:hover': {
+              background: '#e3f2fd',
+              color: '#1565c0',
+              border: '2px solid #1565c0',
+              boxShadow: 2,
+              transform: 'scale(1.04)',
+            },
+          }}
+          onClick={handleLayoutReset}
+        >
+          레이아웃 리셋
+        </Button>
+        <FormControlLabel
+          control={
+            <Switch
+              checked={isEditable}
+              onChange={() => setIsEditable(v => !v)}
+              color="primary"
+              icon={<EditOffIcon sx={{ fontSize: 22 }} />}
+              checkedIcon={<EditIcon sx={{ fontSize: 22 }} />}
+              sx={{
+                mx: 1,
+                '& .MuiSwitch-thumb': {
+                  boxShadow: '0 2px 6px rgba(25, 118, 210, 0.15)',
+                },
+              }}
+            />
+          }
+          label={<span style={{fontWeight:600, fontSize:'1rem', color:isEditable?'#1976d2':'#888'}}>편집모드</span>}
+          sx={{
+            ml: 0,
+            mr: 0,
+            color: isEditable ? '#1976d2' : '#888',
+            fontWeight: 'bold',
+            userSelect: 'none',
+            '.MuiSwitch-root': { verticalAlign: 'middle' },
+            height: 40,
+            pl: 1.5,
+          }}
+          labelPlacement="end"
+        />
       </Stack>
 
       {/* Edge z-index 조정 버튼 (에지 1개 선택 시만 표시, 클릭 위치 기준) */}
