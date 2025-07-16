@@ -29,13 +29,20 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
     <Box
       onDoubleClick={handleDoubleClick}
       sx={{
-        padding: 2,
+        width: 220,
+        height: 120,
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 1.5,
         border: selected ? '2px solid #1976d2' : '1px solid #ccc',
         borderRadius: 2,
         backgroundColor: 'white',
-        minWidth: 180,
         boxShadow: selected ? 3 : 1,
         cursor: 'pointer',
+        position: 'relative',
+        overflow: 'hidden',
         '&:hover': {
           boxShadow: 2,
         },
@@ -47,8 +54,11 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
         position={Position.Top}
         style={{
           background: '#1976d2',
-          width: 8,
-          height: 8,
+          width: 10,
+          height: 10,
+          left: '50%',
+          top: -5,
+          transform: 'translateX(-50%)',
         }}
       />
 
@@ -58,8 +68,13 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
         sx={{ 
           fontWeight: 'bold',
           textAlign: 'center',
-          mb: 1,
-          color: selected ? '#1976d2' : 'inherit'
+          mb: 0.5,
+          color: selected ? '#1976d2' : 'inherit',
+          fontSize: '1.1rem',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          width: '100%',
         }}
       >
         {data.label}
@@ -72,19 +87,19 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
           size="small"
           color="success"
           variant="outlined"
-          sx={{ mb: 1, fontSize: '0.7rem', height: 20 }}
+          sx={{ mb: 0.5, fontSize: '0.7rem', height: 20, maxWidth: '90%', overflow: 'hidden', textOverflow: 'ellipsis' }}
         />
       )}
 
       {/* 핸들러 정보 */}
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: 1 }}>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: 0.5, justifyContent: 'center', width: '100%' }}>
         {conditionCount > 0 && (
           <Chip
             label={`조건 ${conditionCount}`}
             size="small"
             color="primary"
             variant="outlined"
-            sx={{ fontSize: '0.6rem', height: 18 }}
+            sx={{ fontSize: '0.6rem', height: 18, maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis' }}
           />
         )}
         {intentCount > 0 && (
@@ -93,7 +108,7 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
             size="small"
             color="secondary"
             variant="outlined"
-            sx={{ fontSize: '0.6rem', height: 18 }}
+            sx={{ fontSize: '0.6rem', height: 18, maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis' }}
           />
         )}
         {eventCount > 0 && (
@@ -102,7 +117,7 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
             size="small"
             color="warning"
             variant="outlined"
-            sx={{ fontSize: '0.6rem', height: 18 }}
+            sx={{ fontSize: '0.6rem', height: 18, maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis' }}
           />
         )}
       </Box>
@@ -114,19 +129,19 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
           size="small"
           color="info"
           variant="filled"
-          sx={{ fontSize: '0.6rem', height: 18 }}
+          sx={{ fontSize: '0.6rem', height: 18, maxWidth: '90%', overflow: 'hidden', textOverflow: 'ellipsis' }}
         />
       )}
 
       {/* Actions 표시 */}
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5, justifyContent: 'center', width: '100%' }}>
         {dialogState.webhookActions && dialogState.webhookActions.length > 0 && (
           <Chip
             label="Webhook"
             size="small"
             color="error"
             variant="outlined"
-            sx={{ fontSize: '0.6rem', height: 18 }}
+            sx={{ fontSize: '0.6rem', height: 18, maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis' }}
           />
         )}
         {apicallCount > 0 && (
@@ -135,7 +150,7 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
             size="small"
             color="success"
             variant="outlined"
-            sx={{ fontSize: '0.6rem', height: 18 }}
+            sx={{ fontSize: '0.6rem', height: 18, maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis' }}
           />
         )}
       </Box>
@@ -146,8 +161,11 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
         position={Position.Bottom}
         style={{
           background: '#1976d2',
-          width: 8,
-          height: 8,
+          width: 10,
+          height: 10,
+          left: '50%',
+          bottom: -5,
+          transform: 'translateX(-50%)',
         }}
       />
     </Box>

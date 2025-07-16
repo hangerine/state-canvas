@@ -651,17 +651,16 @@ function App() {
           <Box 
             sx={{ 
               position: 'fixed', 
-              top: isTestMode ? undefined : 16,
-              bottom: isTestMode ? 80 : undefined,
-              left: isTestMode ? 16 : undefined,
-              right: isTestMode ? undefined : 16,
-              zIndex: 1000,
+              left: 16,
+              bottom: 80,
+              zIndex: 1001,
               backgroundColor: '#1976d2',
               color: 'white',
               padding: '8px 16px',
               borderRadius: '20px',
               fontSize: '14px',
-              fontWeight: 'bold'
+              fontWeight: 'bold',
+              boxShadow: 2,
             }}
           >
             현재 상태: {currentState}
