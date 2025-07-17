@@ -786,36 +786,29 @@ class StateEngine:
         if not current_dialog_state:
             return None
         
-        # Webhook이 있는 상태에서는 webhook을 먼저 실행
         webhook_actions = current_dialog_state.get("webhookActions", [])
+        apicall_handlers = current_dialog_state.get("apicallHandlers", [])
+        
+        # 1. webhook이 있으면 webhook만 실행 (성공 시 apicall은 실행하지 않음)
         if webhook_actions:
-            logger.info(f"State {current_state} has webhook actions - executing webhook first")
-            # webhook을 먼저 실행
+            logger.info(f"State {current_state} has webhook actions - executing webhook first (apicall will be skipped if webhook succeeds)")
             webhook_result = await self._handle_webhook_actions(
                 current_state, current_dialog_state, scenario, memory
             )
-            
             if webhook_result:
                 new_state = webhook_result.get("new_state", current_state)
                 webhook_messages = webhook_result.get("response", "").split("\n")
                 response_messages.extend(webhook_messages)
-                
-                # webhook 실행 후 새로운 상태에서 자동 전이 확인
                 if new_state != current_state:
                     new_dialog_state = self._find_dialog_state(scenario, new_state)
                     if new_dialog_state:
-                        # 새로운 상태의 Entry Action 실행
                         entry_response = self._execute_entry_action(scenario, new_state)
                         if entry_response:
                             response_messages.append(entry_response)
-                        
-                        # 재귀적으로 다음 자동 전이 확인 (무한 루프 방지를 위해 깊이 제한)
                         max_depth = 10
                         current_depth = memory.get("_AUTO_TRANSITION_DEPTH", 0)
                         if current_depth < max_depth:
                             memory["_AUTO_TRANSITION_DEPTH"] = current_depth + 1
-                            
-                            # 재귀적으로 다음 자동 전이 확인
                             next_auto_result = await self._check_and_execute_auto_transitions(
                                 scenario, new_state, memory, response_messages
                             )
@@ -824,54 +817,65 @@ class StateEngine:
                                 response_messages.extend(next_auto_result["messages"])
                                 if next_auto_result.get("transitions"):
                                     webhook_result["transitions"].extend(next_auto_result["transitions"])
-                            
                             memory["_AUTO_TRANSITION_DEPTH"] = current_depth
                         else:
                             logger.warning(f"Auto transition depth limit reached ({max_depth})")
-                
                 return {
                     "new_state": new_state,
                     "messages": [f"🚀 웹훅 실행 후 자동 전이: {current_state} → {new_state}"],
                     "transitions": webhook_result.get("transitions", [])
                 }
-            
             return None
         
-        # Event Handler가 있는 상태에서는 자동 전이하지 않음
-        event_handlers = current_dialog_state.get("eventHandlers", [])
-        if event_handlers:
-            logger.info(f"State {current_state} has event handlers - NO auto transitions")
+        # 2. webhook이 없고 apicall만 있으면 apicall 실행
+        if apicall_handlers:
+            logger.info(f"State {current_state} has apicall handlers - executing apicall (no webhook present)")
+            apicall_result = await self._handle_apicall_handlers(
+                current_state, current_dialog_state, scenario, memory
+            )
+            if apicall_result:
+                new_state = apicall_result.get("new_state", current_state)
+                apicall_messages = apicall_result.get("response", "").split("\n")
+                response_messages.extend(apicall_messages)
+                if new_state != current_state:
+                    new_dialog_state = self._find_dialog_state(scenario, new_state)
+                    if new_dialog_state:
+                        entry_response = self._execute_entry_action(scenario, new_state)
+                        if entry_response:
+                            response_messages.append(entry_response)
+                        max_depth = 10
+                        current_depth = memory.get("_AUTO_TRANSITION_DEPTH", 0)
+                        if current_depth < max_depth:
+                            memory["_AUTO_TRANSITION_DEPTH"] = current_depth + 1
+                            next_auto_result = await self._check_and_execute_auto_transitions(
+                                scenario, new_state, memory, response_messages
+                            )
+                            if next_auto_result:
+                                new_state = next_auto_result["new_state"]
+                                response_messages.extend(next_auto_result["messages"])
+                                if next_auto_result.get("transitions"):
+                                    apicall_result["transitions"].extend(next_auto_result["transitions"])
+                            memory["_AUTO_TRANSITION_DEPTH"] = current_depth
+                        else:
+                            logger.warning(f"Auto transition depth limit reached ({max_depth})")
+                return {
+                    "new_state": new_state,
+                    "messages": [f"🚀 API콜 실행 후 자동 전이: {current_state} → {new_state}"],
+                    "transitions": apicall_result.get("transitions", [])
+                }
             return None
         
-        # Intent Handler가 있는 상태에서는 자동 전이하지 않음
-        intent_handlers = current_dialog_state.get("intentHandlers", [])
-        if intent_handlers:
-            logger.info(f"State {current_state} has intent handlers - NO auto transitions")
-            return None
-        
-        # ApiCall Handler가 있는 상태에서는 자동 전이하지 않음 (webhook action이 있는 경우 제외)
-        apicall_handlers = current_dialog_state.get("apicallHandlers", [])
-        if apicall_handlers and not webhook_actions:
-            logger.info(f"State {current_state} has apicall handlers - NO auto transitions")
-            return None
-        
-        # Condition Handler 확인 (자동 전이 가능한 조건들)
+        # 3. 둘 다 없으면 conditionHandlers만 체크
         condition_handlers = current_dialog_state.get("conditionHandlers", [])
         auto_transitions = []
-        
         for handler in condition_handlers:
             if not isinstance(handler, dict):
                 logger.warning(f"Handler is not a dict: {handler}")
                 continue
-                
             condition = handler.get("conditionStatement", "")
-            
-            # True 조건 또는 메모리 변수 기반 조건 확인
             if condition.strip() == "True" or condition.strip() == '"True"':
-                # True 조건은 항상 실행
                 target = handler.get("transitionTarget", {})
                 new_state = target.get("dialogState", current_state)
-                
                 transition = StateTransition(
                     fromState=current_state,
                     toState=new_state,
@@ -883,11 +887,9 @@ class StateEngine:
                 logger.info(f"Auto condition transition found: {current_state} -> {new_state}")
                 break
             else:
-                # 메모리 변수 기반 조건 평가
                 if self._evaluate_condition(condition, memory):
                     target = handler.get("transitionTarget", {})
                     new_state = target.get("dialogState", current_state)
-                    
                     transition = StateTransition(
                         fromState=current_state,
                         toState=new_state,
@@ -898,24 +900,16 @@ class StateEngine:
                     auto_transitions.append(transition)
                     logger.info(f"Auto condition transition found: {current_state} -> {new_state} (condition: {condition})")
                     break
-        
         if auto_transitions:
-            # 첫 번째 자동 전이 실행
             first_transition = auto_transitions[0]
             new_state = first_transition.toState
-            
-            # 새로운 상태의 Entry Action 실행
             entry_response = self._execute_entry_action(scenario, new_state)
             if entry_response:
                 response_messages.append(entry_response)
-            
-            # 재귀적으로 다음 자동 전이 확인 (무한 루프 방지를 위해 깊이 제한)
             max_depth = 10
             current_depth = memory.get("_AUTO_TRANSITION_DEPTH", 0)
             if current_depth < max_depth:
                 memory["_AUTO_TRANSITION_DEPTH"] = current_depth + 1
-                
-                # 재귀적으로 다음 자동 전이 확인
                 next_auto_result = await self._check_and_execute_auto_transitions(
                     scenario, new_state, memory, response_messages
                 )
@@ -924,12 +918,9 @@ class StateEngine:
                     response_messages.extend(next_auto_result["messages"])
                     if next_auto_result.get("transitions"):
                         auto_transitions.extend(next_auto_result["transitions"])
-                
                 memory["_AUTO_TRANSITION_DEPTH"] = current_depth
             else:
                 logger.warning(f"Auto transition depth limit reached ({max_depth})")
-            
-            # transitions 리스트 처리
             transition_dicts = []
             for t in auto_transitions:
                 if hasattr(t, 'dict'):
@@ -938,13 +929,11 @@ class StateEngine:
                     transition_dicts.append(t.model_dump())
                 else:
                     transition_dicts.append(str(t))
-            
             return {
                 "new_state": new_state,
                 "messages": [f"🚀 자동 전이: {current_state} → {new_state}"],
                 "transitions": transition_dicts
             }
-        
         return None
     
     def _store_entities_to_memory(self, entities: Dict[str, Any], memory: Dict[str, Any]) -> None:
