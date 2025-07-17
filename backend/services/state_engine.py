@@ -22,6 +22,33 @@ class StateEngine:
     def load_scenario(self, session_id: str, scenario_data: Dict[str, Any]):
         """시나리오를 로드합니다."""
         self.scenarios[session_id] = scenario_data
+        
+        # Webhook 정보 로딩 확인
+        webhooks = scenario_data.get("webhooks", [])
+        logger.info(f"📋 Loaded {len(webhooks)} webhooks for session: {session_id}")
+        for webhook in webhooks:
+            logger.info(f"🔗 Webhook: {webhook.get('name', 'Unknown')} -> {webhook.get('url', 'Unknown URL')}")
+        
+        # Webhook Actions 확인
+        plan = scenario_data.get("plan", [])
+        if plan and len(plan) > 0:
+            dialog_states = plan[0].get("dialogState", [])
+            webhook_states = []
+            for state in dialog_states:
+                webhook_actions = state.get("webhookActions", [])
+                if webhook_actions:
+                    webhook_states.append({
+                        "state": state.get("name", "Unknown"),
+                        "actions": [action.get("name", "Unknown") for action in webhook_actions]
+                    })
+            
+            if webhook_states:
+                logger.info(f"🔗 Found {len(webhook_states)} states with webhook actions:")
+                for ws in webhook_states:
+                    logger.info(f"   - {ws['state']}: {ws['actions']}")
+            else:
+                logger.info("🔗 No states with webhook actions found")
+        
         logger.info(f"Scenario loaded for session: {session_id}")
         
     def get_scenario(self, session_id: str) -> Optional[Dict[str, Any]]:
@@ -61,10 +88,30 @@ class StateEngine:
         if not current_dialog_state:
             return auto_transitions
         
-        # Webhook이 있는 상태에서는 모든 자동 전이하지 않음 (사용자 입력 대기)
+        # Webhook이 있는 상태에서는 webhook 실행 후 조건 핸들러 확인
         webhook_actions = current_dialog_state.get("webhookActions", [])
         if webhook_actions:
-            logger.info(f"State {current_state} has webhook actions - NO auto transitions, waiting for user input")
+            logger.info(f"State {current_state} has webhook actions - checking condition handlers (webhook execution handled separately in process_input)")
+            # webhook 상태에서는 조건 핸들러만 확인 (실제 webhook 실행은 process_input에서 _handle_webhook_actions로 처리)
+            condition_handlers = current_dialog_state.get("conditionHandlers", [])
+            for handler in condition_handlers:
+                if not isinstance(handler, dict):
+                    logger.warning(f"Handler is not a dict: {handler}")
+                    continue
+                    
+                condition = handler.get("conditionStatement", "")
+                if condition.strip() == "True" or condition.strip() == '"True"':
+                    target = handler.get("transitionTarget", {})
+                    transition = StateTransition(
+                        fromState=current_state,
+                        toState=target.get("dialogState", ""),
+                        reason="웹훅 후 자동 조건: True",
+                        conditionMet=True,
+                        handlerType="condition"
+                    )
+                    auto_transitions.append(transition)
+                    logger.info(f"Webhook state auto condition transition found: {current_state} -> {transition.toState}")
+                    break
             return auto_transitions
         
         # Event Handler가 있는 상태에서는 모든 자동 전이하지 않음 (사용자 이벤트 트리거 대기)
@@ -163,15 +210,10 @@ class StateEngine:
                         }
                 
                 if is_webhook_state:
-                    logger.info(f"State {current_state} has webhooks - no auto transition on empty input")
-                    return {
-                        "new_state": current_state,
-                        "response": "🔗 Webhook 상태입니다. 응답 값을 입력해주세요.",
-                        "transitions": [],
-                        "intent": "WEBHOOK_WAITING",
-                        "entities": {},
-                        "memory": memory
-                    }
+                    logger.info(f"State {current_state} has webhooks - executing webhook actions automatically")
+                    return await self._handle_webhook_actions(
+                        current_state, current_dialog_state, scenario, memory
+                    )
                 else:
                     # ApiCall Handler 확인 (webhook action이 있는 경우 제외)
                     webhook_actions = current_dialog_state.get("webhookActions", [])
@@ -202,9 +244,9 @@ class StateEngine:
             
             # Webhook 처리 확인
             if is_webhook_state:
-                logger.info(f"Processing webhook simulation for state: {current_state}")
-                return await self._handle_webhook_simulation(
-                    user_input, current_state, current_dialog_state, scenario, memory
+                logger.info(f"Processing webhook actions for state: {current_state}")
+                return await self._handle_webhook_actions(
+                    current_state, current_dialog_state, scenario, memory
                 )
             
             # 일반 입력 처리
@@ -221,76 +263,116 @@ class StateEngine:
                 "transitions": []
             }
     
-    async def _handle_webhook_simulation(
+    async def _handle_webhook_actions(
         self,
-        user_input: str,
         current_state: str,
         current_dialog_state: Dict[str, Any],
         scenario: Dict[str, Any],
         memory: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """실제 Webhook 호출을 처리합니다."""
+        """웹훅 액션을 자동으로 처리합니다."""
         
-        # 시나리오에서 webhook 정보 가져오기
-        webhooks = scenario.get("webhooks", [])
-        if not webhooks:
-            logger.warning("No webhooks found in scenario")
+        webhook_actions = current_dialog_state.get("webhookActions", [])
+        if not webhook_actions:
             return {
-                "error": "No webhooks configured in scenario",
                 "new_state": current_state,
-                "response": "❌ 시나리오에 webhook 설정이 없습니다.",
-                "transitions": []
+                "response": "🔗 웹훅 액션이 없습니다.",
+                "transitions": [],
+                "intent": "NO_WEBHOOK",
+                "entities": {},
+                "memory": memory
             }
-        
-        # 첫 번째 webhook 사용 (향후 확장 가능)
-        webhook_config = webhooks[0]
-        
-        # Webhook 요청 실행
-        webhook_response = await self._execute_webhook_call(
-            webhook_config, user_input, current_state, scenario, memory
-        )
-        
-        if webhook_response is None:
-            logger.error("Webhook call failed")
-            return {
-                "error": "Webhook call failed",
-                "new_state": current_state,
-                "response": "❌ Webhook 호출 실패",
-                "transitions": []
-            }
-        
-        # Webhook 응답에서 memory 업데이트
-        response_memory = webhook_response.get("memorySlots", {})
-        if response_memory:
-            memory.update(response_memory)
-            logger.info(f"Memory updated from webhook response: {response_memory}")
-        
-        # NLU_INTENT 추출 및 memory에 문자열로 저장
-        nlu_intent = ""
-        if "NLU_INTENT" in response_memory:
-            nlu_intent_data = response_memory["NLU_INTENT"]
-            if isinstance(nlu_intent_data, dict) and "value" in nlu_intent_data:
-                nlu_intent = nlu_intent_data["value"][0] if nlu_intent_data["value"] else ""
-            else:
-                nlu_intent = str(nlu_intent_data)
-            
-            # memory에 문자열로 저장 (조건 평가에서 사용하기 위해)
-            memory["NLU_INTENT"] = nlu_intent
-        
-        logger.info(f"Extracted NLU_INTENT from webhook: {nlu_intent}")
-        logger.info(f"Updated memory with NLU_INTENT: {memory.get('NLU_INTENT')}")
         
         transitions = []
         new_state = current_state
-        response_messages = [f"🔗 Webhook 호출 완료: NLU_INTENT = '{nlu_intent}'"]
+        response_messages = []
         
-        # Condition Handler 확인
+        # 각 웹훅 액션 처리
+        for webhook_action in webhook_actions:
+            if not isinstance(webhook_action, dict):
+                logger.warning(f"Webhook action is not a dict: {webhook_action}")
+                continue
+            
+            webhook_name = webhook_action.get("name", "Unknown")
+            logger.info(f"🔗 Processing webhook action: {webhook_name} (type: {type(webhook_name)})")
+            logger.info(f"🔗 Raw webhook action data: {webhook_action}")
+            
+            # 시나리오에서 해당 이름의 웹훅 설정 찾기
+            webhook_config = None
+            webhooks = scenario.get("webhooks", [])
+            logger.info(f"📋 Searching for webhook '{webhook_name}' among {len(webhooks)} registered webhooks")
+            
+            # 먼저 정확한 이름으로 찾기
+            for webhook in webhooks:
+                registered_name = webhook.get("name", "")
+                logger.info(f"   - Checking: '{registered_name}' vs '{webhook_name}'")
+                if registered_name == webhook_name:
+                    webhook_config = webhook
+                    logger.info(f"✅ Found matching webhook config: {webhook_name}")
+                    break
+            
+            # 정확한 이름으로 찾지 못한 경우, 쉼표로 구분된 이름 중에서 찾기
+            if not webhook_config and "," in webhook_name:
+                webhook_names = [name.strip() for name in webhook_name.split(",")]
+                logger.info(f"🔍 Webhook name contains multiple values: {webhook_names}")
+                
+                for name in webhook_names:
+                    for webhook in webhooks:
+                        registered_name = webhook.get("name", "")
+                        if registered_name == name:
+                            webhook_config = webhook
+                            logger.info(f"✅ Found matching webhook config from list: {name}")
+                            break
+                    if webhook_config:
+                        break
+            
+            # 여전히 찾지 못한 경우, 첫 번째 webhook 사용
+            if not webhook_config and webhooks:
+                webhook_config = webhooks[0]
+                logger.warning(f"⚠️ Webhook config not found for name: '{webhook_name}', using first available webhook: {webhook_config.get('name', 'Unknown')}")
+                response_messages.append(f"⚠️ 웹훅 '{webhook_name}' 설정을 찾을 수 없어 첫 번째 webhook 사용: {webhook_config.get('name', 'Unknown')}")
+            elif not webhook_config:
+                logger.error(f"❌ No webhook configs available at all")
+                response_messages.append(f"❌ 웹훅 설정을 찾을 수 없음: {webhook_name}")
+                continue
+            
+            # 웹훅 호출 실행
+            webhook_response = await self._execute_webhook_call(
+                webhook_config, "", current_state, scenario, memory
+            )
+            
+            if webhook_response is None:
+                logger.error(f"Webhook call failed for: {webhook_name}")
+                response_messages.append(f"❌ 웹훅 호출 실패: {webhook_name}")
+                continue
+            
+            # 웹훅 응답에서 memory 업데이트
+            response_memory = webhook_response.get("memorySlots", {})
+            if response_memory:
+                memory.update(response_memory)
+                logger.info(f"Memory updated from webhook response: {response_memory}")
+            
+            # NLU_INTENT 추출 및 memory에 문자열로 저장
+            nlu_intent = ""
+            if "NLU_INTENT" in response_memory:
+                nlu_intent_data = response_memory["NLU_INTENT"]
+                if isinstance(nlu_intent_data, dict) and "value" in nlu_intent_data:
+                    nlu_intent = nlu_intent_data["value"][0] if nlu_intent_data["value"] else ""
+                else:
+                    nlu_intent = str(nlu_intent_data)
+                
+                # memory에 문자열로 저장 (조건 평가에서 사용하기 위해)
+                memory["NLU_INTENT"] = nlu_intent
+            
+            logger.info(f"Extracted NLU_INTENT from webhook: {nlu_intent}")
+            response_messages.append(f"🔗 웹훅 호출 완료: {webhook_name} (NLU_INTENT = '{nlu_intent}')")
+        
+        # 웹훅 실행 후 조건 핸들러 확인
         condition_handlers = current_dialog_state.get("conditionHandlers", [])
         matched_condition = False
         
         # 먼저 True가 아닌 조건들을 확인
         for handler in condition_handlers:
-            # handler가 딕셔너리인지 확인
             if not isinstance(handler, dict):
                 logger.warning(f"Handler is not a dict: {handler}")
                 continue
@@ -309,7 +391,7 @@ class StateEngine:
                 transition = StateTransition(
                     fromState=current_state,
                     toState=new_state,
-                    reason=f"Webhook 조건 매칭: {condition}",
+                    reason=f"웹훅 조건 매칭: {condition}",
                     conditionMet=True,
                     handlerType="condition"
                 )
@@ -321,7 +403,6 @@ class StateEngine:
         # 조건에 매칭되지 않으면 fallback (True 조건) 실행
         if not matched_condition:
             for handler in condition_handlers:
-                # handler가 딕셔너리인지 확인
                 if not isinstance(handler, dict):
                     logger.warning(f"Handler is not a dict: {handler}")
                     continue
@@ -334,7 +415,7 @@ class StateEngine:
                     transition = StateTransition(
                         fromState=current_state,
                         toState=new_state,
-                        reason="Webhook 조건 불일치 - fallback 실행",
+                        reason="웹훅 조건 불일치 - fallback 실행",
                         conditionMet=True,
                         handlerType="condition"
                     )
@@ -342,7 +423,7 @@ class StateEngine:
                     response_messages.append(f"❌ 조건 불일치 - fallback으로 {new_state}로 이동")
                     break
         
-        # Entry Action 실행 (새로운 상태로 전이된 경우)
+        # Entry Action 실행 및 자동 전이 확인 (새로운 상태로 전이된 경우)
         if new_state != current_state:
             try:
                 logger.info(f"Executing entry action for transition: {current_state} -> {new_state}")
@@ -350,9 +431,55 @@ class StateEngine:
                 logger.info(f"Entry action completed: {entry_response}")
                 if entry_response:
                     response_messages.append(entry_response)
+                
+                # Entry Action 실행 후 자동 전이 확인
+                auto_transition_result = await self._check_and_execute_auto_transitions(
+                    scenario, new_state, memory, response_messages
+                )
+                if auto_transition_result:
+                    new_state = auto_transition_result["new_state"]
+                    response_messages.extend(auto_transition_result["messages"])
+                    if auto_transition_result.get("transitions"):
+                        transitions.extend(auto_transition_result["transitions"])
             except Exception as e:
                 logger.error(f"Error executing entry action: {e}")
                 response_messages.append(f"⚠️ Entry action 실행 중 에러: {str(e)}")
+        
+        # 상태 전이 후 자동으로 webhook 실행 (최종 전이까지 반복)
+        while True:
+            new_dialog_state = self._find_dialog_state(scenario, new_state)
+            if new_dialog_state:
+                webhook_actions = new_dialog_state.get("webhookActions", [])
+                if webhook_actions:
+                    logger.info(f"🔗 New state {new_state} has webhook actions - executing automatically")
+                    webhook_result = await self._handle_webhook_actions(
+                        new_state, new_dialog_state, scenario, memory
+                    )
+                    if webhook_result:
+                        final_new_state = webhook_result.get("new_state", new_state)
+                        webhook_messages = webhook_result.get("response", "").split("\n")
+                        response_messages.extend(webhook_messages)
+                        if final_new_state != new_state:
+                            try:
+                                final_entry_response = self._execute_entry_action(scenario, final_new_state)
+                                if final_entry_response:
+                                    response_messages.append(final_entry_response)
+                                final_auto_result = await self._check_and_execute_auto_transitions(
+                                    scenario, final_new_state, memory, response_messages
+                                )
+                                if final_auto_result:
+                                    final_new_state = final_auto_result["new_state"]
+                                    response_messages.extend(final_auto_result["messages"])
+                                    if final_auto_result.get("transitions"):
+                                        transitions.extend(final_auto_result["transitions"])
+                            except Exception as e:
+                                logger.error(f"Error executing final entry action: {e}")
+                                response_messages.append(f"⚠️ 최종 Entry action 실행 중 에러: {str(e)}")
+                        if final_new_state == new_state:
+                            break
+                        new_state = final_new_state
+                        continue
+            break
         
         # transitions 리스트 처리
         try:
@@ -366,7 +493,7 @@ class StateEngine:
                     logger.warning(f"Transition object has no dict method: {t}")
                     transition_dicts.append(str(t))
         except Exception as e:
-            logger.error(f"Error processing transitions in _handle_webhook_simulation: {e}")
+            logger.error(f"Error processing transitions in _handle_webhook_actions: {e}")
             transition_dicts = []
         
         return {
@@ -387,6 +514,56 @@ class StateEngine:
         memory: Dict[str, Any]
     ) -> Dict[str, Any]:
         """일반 사용자 입력을 처리합니다."""
+        
+        # 웹훅 액션이 있는 상태에서는 웹훅을 먼저 실행
+        webhook_actions = current_dialog_state.get("webhookActions", [])
+        if webhook_actions:
+            logger.info(f"🔗 State {current_state} has webhook actions - executing webhook first")
+            webhook_result = await self._handle_webhook_actions(
+                current_state, current_dialog_state, scenario, memory
+            )
+            
+            # 웹훅 실행 후 새로운 상태에서 intent/condition/event handler 처리
+            new_state_after_webhook = webhook_result.get("new_state", current_state)
+            new_dialog_state = self._find_dialog_state(scenario, new_state_after_webhook)
+            
+            if new_dialog_state:
+                # 새로운 상태에서 일반 입력 처리 (intent/condition/event handler)
+                logger.info(f"🔗 Processing intent/condition/event handlers after webhook execution")
+                normal_result = await self._handle_normal_input_after_webhook(
+                    user_input, new_state_after_webhook, new_dialog_state, scenario, memory
+                )
+                
+                # 웹훅 결과와 일반 처리 결과를 합침
+                combined_response = webhook_result.get("response", "") + "\n" + normal_result.get("response", "")
+                combined_transitions = webhook_result.get("transitions", []) + normal_result.get("transitions", [])
+                
+                return {
+                    "new_state": normal_result.get("new_state", new_state_after_webhook),
+                    "response": combined_response,
+                    "transitions": combined_transitions,
+                    "intent": normal_result.get("intent", "WEBHOOK_AND_NORMAL_PROCESSING"),
+                    "entities": normal_result.get("entities", {}),
+                    "memory": memory
+                }
+            else:
+                # 새로운 상태를 찾을 수 없는 경우 웹훅 결과만 반환
+                return webhook_result
+        
+        # 웹훅 액션이 없는 경우 일반 처리
+        return await self._handle_normal_input_after_webhook(
+            user_input, current_state, current_dialog_state, scenario, memory
+        )
+    
+    async def _handle_normal_input_after_webhook(
+        self,
+        user_input: str,
+        current_state: str,
+        current_dialog_state: Dict[str, Any],
+        scenario: Dict[str, Any],
+        memory: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """웹훅 실행 후 일반 사용자 입력을 처리합니다."""
         
         # 실제 NLU 결과 사용 (프론트엔드에서 받은 결과 우선)
         intent, entities = self._get_nlu_results(user_input, memory, scenario, current_state)
@@ -531,14 +708,25 @@ class StateEngine:
                                 response_messages.extend(no_match_result.get("messages", []))
                                 logger.info("🔄 NO_MATCH_EVENT processed")
         
-        # 3. Entry Action 실행 (새로운 상태로 전이된 경우)
+        # 3. Entry Action 실행 및 자동 전이 확인 (새로운 상태로 전이된 경우)
         if new_state != current_state:
             # 상태가 변경되면 reprompt handler 해제
             self._clear_reprompt_handlers(memory, current_state)
             
+            # Entry Action 실행
             entry_response = self._execute_entry_action(scenario, new_state)
             if entry_response:
                 response_messages.append(entry_response)
+            
+            # Entry Action 실행 후 자동 전이 확인
+            auto_transition_result = await self._check_and_execute_auto_transitions(
+                scenario, new_state, memory, response_messages
+            )
+            if auto_transition_result:
+                new_state = auto_transition_result["new_state"]
+                response_messages.extend(auto_transition_result["messages"])
+                if auto_transition_result.get("transitions"):
+                    transitions.extend(auto_transition_result["transitions"])
         
         # 기본 응답 생성
         if not response_messages:
@@ -556,7 +744,7 @@ class StateEngine:
                     logger.warning(f"Transition object has no dict method: {t}")
                     transition_dicts.append(str(t))
         except Exception as e:
-            logger.error(f"Error processing transitions in _handle_normal_input: {e}")
+            logger.error(f"Error processing transitions in _handle_normal_input_after_webhook: {e}")
             transition_dicts = []
         
         return {
@@ -583,6 +771,181 @@ class StateEngine:
             memory.pop("_WAITING_FOR_SLOT", None)
             memory.pop("_REPROMPT_HANDLERS", None)
             memory.pop("_REPROMPT_JUST_REGISTERED", None)
+    
+    async def _check_and_execute_auto_transitions(
+        self,
+        scenario: Dict[str, Any],
+        current_state: str,
+        memory: Dict[str, Any],
+        response_messages: List[str]
+    ) -> Optional[Dict[str, Any]]:
+        """Entry Action 실행 후 자동 전이가 가능한지 확인하고 실행합니다."""
+        
+        # 현재 상태 정보 가져오기
+        current_dialog_state = self._find_dialog_state(scenario, current_state)
+        if not current_dialog_state:
+            return None
+        
+        # Webhook이 있는 상태에서는 webhook을 먼저 실행
+        webhook_actions = current_dialog_state.get("webhookActions", [])
+        if webhook_actions:
+            logger.info(f"State {current_state} has webhook actions - executing webhook first")
+            # webhook을 먼저 실행
+            webhook_result = await self._handle_webhook_actions(
+                current_state, current_dialog_state, scenario, memory
+            )
+            
+            if webhook_result:
+                new_state = webhook_result.get("new_state", current_state)
+                webhook_messages = webhook_result.get("response", "").split("\n")
+                response_messages.extend(webhook_messages)
+                
+                # webhook 실행 후 새로운 상태에서 자동 전이 확인
+                if new_state != current_state:
+                    new_dialog_state = self._find_dialog_state(scenario, new_state)
+                    if new_dialog_state:
+                        # 새로운 상태의 Entry Action 실행
+                        entry_response = self._execute_entry_action(scenario, new_state)
+                        if entry_response:
+                            response_messages.append(entry_response)
+                        
+                        # 재귀적으로 다음 자동 전이 확인 (무한 루프 방지를 위해 깊이 제한)
+                        max_depth = 10
+                        current_depth = memory.get("_AUTO_TRANSITION_DEPTH", 0)
+                        if current_depth < max_depth:
+                            memory["_AUTO_TRANSITION_DEPTH"] = current_depth + 1
+                            
+                            # 재귀적으로 다음 자동 전이 확인
+                            next_auto_result = await self._check_and_execute_auto_transitions(
+                                scenario, new_state, memory, response_messages
+                            )
+                            if next_auto_result:
+                                new_state = next_auto_result["new_state"]
+                                response_messages.extend(next_auto_result["messages"])
+                                if next_auto_result.get("transitions"):
+                                    webhook_result["transitions"].extend(next_auto_result["transitions"])
+                            
+                            memory["_AUTO_TRANSITION_DEPTH"] = current_depth
+                        else:
+                            logger.warning(f"Auto transition depth limit reached ({max_depth})")
+                
+                return {
+                    "new_state": new_state,
+                    "messages": [f"🚀 웹훅 실행 후 자동 전이: {current_state} → {new_state}"],
+                    "transitions": webhook_result.get("transitions", [])
+                }
+            
+            return None
+        
+        # Event Handler가 있는 상태에서는 자동 전이하지 않음
+        event_handlers = current_dialog_state.get("eventHandlers", [])
+        if event_handlers:
+            logger.info(f"State {current_state} has event handlers - NO auto transitions")
+            return None
+        
+        # Intent Handler가 있는 상태에서는 자동 전이하지 않음
+        intent_handlers = current_dialog_state.get("intentHandlers", [])
+        if intent_handlers:
+            logger.info(f"State {current_state} has intent handlers - NO auto transitions")
+            return None
+        
+        # ApiCall Handler가 있는 상태에서는 자동 전이하지 않음 (webhook action이 있는 경우 제외)
+        apicall_handlers = current_dialog_state.get("apicallHandlers", [])
+        if apicall_handlers and not webhook_actions:
+            logger.info(f"State {current_state} has apicall handlers - NO auto transitions")
+            return None
+        
+        # Condition Handler 확인 (자동 전이 가능한 조건들)
+        condition_handlers = current_dialog_state.get("conditionHandlers", [])
+        auto_transitions = []
+        
+        for handler in condition_handlers:
+            if not isinstance(handler, dict):
+                logger.warning(f"Handler is not a dict: {handler}")
+                continue
+                
+            condition = handler.get("conditionStatement", "")
+            
+            # True 조건 또는 메모리 변수 기반 조건 확인
+            if condition.strip() == "True" or condition.strip() == '"True"':
+                # True 조건은 항상 실행
+                target = handler.get("transitionTarget", {})
+                new_state = target.get("dialogState", current_state)
+                
+                transition = StateTransition(
+                    fromState=current_state,
+                    toState=new_state,
+                    reason="자동 조건: True",
+                    conditionMet=True,
+                    handlerType="condition"
+                )
+                auto_transitions.append(transition)
+                logger.info(f"Auto condition transition found: {current_state} -> {new_state}")
+                break
+            else:
+                # 메모리 변수 기반 조건 평가
+                if self._evaluate_condition(condition, memory):
+                    target = handler.get("transitionTarget", {})
+                    new_state = target.get("dialogState", current_state)
+                    
+                    transition = StateTransition(
+                        fromState=current_state,
+                        toState=new_state,
+                        reason=f"자동 조건: {condition}",
+                        conditionMet=True,
+                        handlerType="condition"
+                    )
+                    auto_transitions.append(transition)
+                    logger.info(f"Auto condition transition found: {current_state} -> {new_state} (condition: {condition})")
+                    break
+        
+        if auto_transitions:
+            # 첫 번째 자동 전이 실행
+            first_transition = auto_transitions[0]
+            new_state = first_transition.toState
+            
+            # 새로운 상태의 Entry Action 실행
+            entry_response = self._execute_entry_action(scenario, new_state)
+            if entry_response:
+                response_messages.append(entry_response)
+            
+            # 재귀적으로 다음 자동 전이 확인 (무한 루프 방지를 위해 깊이 제한)
+            max_depth = 10
+            current_depth = memory.get("_AUTO_TRANSITION_DEPTH", 0)
+            if current_depth < max_depth:
+                memory["_AUTO_TRANSITION_DEPTH"] = current_depth + 1
+                
+                # 재귀적으로 다음 자동 전이 확인
+                next_auto_result = await self._check_and_execute_auto_transitions(
+                    scenario, new_state, memory, response_messages
+                )
+                if next_auto_result:
+                    new_state = next_auto_result["new_state"]
+                    response_messages.extend(next_auto_result["messages"])
+                    if next_auto_result.get("transitions"):
+                        auto_transitions.extend(next_auto_result["transitions"])
+                
+                memory["_AUTO_TRANSITION_DEPTH"] = current_depth
+            else:
+                logger.warning(f"Auto transition depth limit reached ({max_depth})")
+            
+            # transitions 리스트 처리
+            transition_dicts = []
+            for t in auto_transitions:
+                if hasattr(t, 'dict'):
+                    transition_dicts.append(t.dict())
+                elif hasattr(t, 'model_dump'):
+                    transition_dicts.append(t.model_dump())
+                else:
+                    transition_dicts.append(str(t))
+            
+            return {
+                "new_state": new_state,
+                "messages": [f"🚀 자동 전이: {current_state} → {new_state}"],
+                "transitions": transition_dicts
+            }
+        
+        return None
     
     def _store_entities_to_memory(self, entities: Dict[str, Any], memory: Dict[str, Any]) -> None:
         """Entity를 메모리에 type:role 형태의 키로 저장합니다."""
@@ -1343,7 +1706,7 @@ class StateEngine:
         if not event_matched:
             response_messages.append(f"❌ 이벤트 '{event_type}'에 대한 핸들러가 없습니다.")
         
-        # Entry Action 실행 (새로운 상태로 전이된 경우)
+        # Entry Action 실행 및 자동 전이 확인 (새로운 상태로 전이된 경우)
         if new_state != current_state:
             try:
                 logger.info(f"Executing entry action for transition: {current_state} -> {new_state}")
@@ -1351,6 +1714,16 @@ class StateEngine:
                 logger.info(f"Entry action completed: {entry_response}")
                 if entry_response:
                     response_messages.append(entry_response)
+                
+                # Entry Action 실행 후 자동 전이 확인
+                auto_transition_result = await self._check_and_execute_auto_transitions(
+                    scenario, new_state, memory, response_messages
+                )
+                if auto_transition_result:
+                    new_state = auto_transition_result["new_state"]
+                    response_messages.extend(auto_transition_result["messages"])
+                    if auto_transition_result.get("transitions"):
+                        transitions.extend(auto_transition_result["transitions"])
             except Exception as e:
                 logger.error(f"Error executing entry action: {e}")
                 response_messages.append(f"⚠️ Entry action 실행 중 에러: {str(e)}")
@@ -1592,167 +1965,13 @@ class StateEngine:
             
             request_id = f"req-{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
             
-            # Webhook 요청 데이터 구성
+            # Webhook 요청 데이터 구성 (간단한 형식으로 수정)
             webhook_request = {
-                "version": "1.0",
-                "request": {
-                    "userId": session_id,
-                    "botId": "1370",
-                    "botVersion": "5916",
-                    "botName": "나단도움봇_테스트",
-                    "botResourcePath": "/home/svcapp/application/dm-server/resource/1370-5916.json",
-                    "sessionId": session_id,
-                    "requestId": request_id,
-                    "userInput": {
-                        "type": "text",
-                        "content": {
-                            "text": user_input,
-                            "nluResult": {
-                                "type": "skt.opennlu",
-                                "results": [
-                                    {
-                                        "nluNbest": [],
-                                        "text": user_input,
-                                        "extra": {}
-                                    }
-                                ]
-                            },
-                            "value": {
-                                "scope": None,
-                                "type": "text",
-                                "value": {},
-                                "version": "1.0"
-                            }
-                        }
-                    },
-                    "context": {
-                        "context": {
-                            "client": {
-                                "os": None,
-                                "playStack": [],
-                                "wakeupWord": " "
-                            },
-                            "supportedInterfaces": {
-                                "ACP": None
-                            },
-                            "system": {
-                                "accessToken": " ",
-                                "device": {
-                                    "age": None,
-                                    "ageGroup": None,
-                                    "attributes": None,
-                                    "authToken": " ",
-                                    "birthdate": None,
-                                    "ci": None,
-                                    "defaultVoiceCode": None,
-                                    "deviceTtsOption": True,
-                                    "deviceUniqueId": None,
-                                    "gender": None,
-                                    "id": " ",
-                                    "iwfTypeCode": " ",
-                                    "latitude": None,
-                                    "longitude": None,
-                                    "phoneNumber": None,
-                                    "pocGroup": {},
-                                    "pocId": " ",
-                                    "pocName": None,
-                                    "pocServiceName": None,
-                                    "pocStatus": None,
-                                    "typeCode": None,
-                                    "typeId": None,
-                                    "useWakeupTts": None,
-                                    "userCharacterName": None,
-                                    "userCharacterTone": None,
-                                    "userCharacterVoice": None,
-                                    "userName": None,
-                                    "userType": None
-                                },
-                                "play": {
-                                    "alias": [],
-                                    "ambiguityHint": {},
-                                    "apiKey": " ",
-                                    "capabilityInterfaces": [" "],
-                                    "charge": " ",
-                                    "extendedAlias": [],
-                                    "interlockType": " ",
-                                    "invocationName": None,
-                                    "invocationType": " ",
-                                    "isSpecializedRoute": None,
-                                    "isTest": False,
-                                    "nluType": " ",
-                                    "permission": {
-                                        "available": [" "],
-                                        "required": [" "]
-                                    },
-                                    "playName": " ",
-                                    "playNo": 0,
-                                    "playRevisionId": " ",
-                                    "playServiceId": " ",
-                                    "playServiceName": " ",
-                                    "routingType": " ",
-                                    "specializedRouteOrder": None,
-                                    "status": " ",
-                                    "supportedPocList": [],
-                                    "systemCodes": None,
-                                    "type": " ",
-                                    "url": " ",
-                                    "useOAuth": False,
-                                    "voices": None
-                                },
-                                "serviceId": " ",
-                                "serviceType": " ",
-                                "userId": session_id
-                            }
-                        },
-                        "request": {
-                            "event": {
-                                "scope": None,
-                                "type": "text",
-                                "value": {},
-                                "version": "1.0"
-                            },
-                            "nlu": None,
-                            "requestId": request_id,
-                            "text": user_input,
-                            "transactionId": request_id,
-                            "type": "ACP.RecognizeResult"
-                        },
-                        "session": {
-                            "id": session_id,
-                            "isNew": False,
-                            "playId": 5021,
-                            "playType": "BOT_GROUP"
-                        },
-                        "version": {
-                            "client": "1.0",
-                            "npk": "2.2",
-                            "sdk": "1.0"
-                        }
-                    },
-                    "headers": {
-                        "Accept": ["*/*"],
-                        "Accept-Encoding": ["gzip"],
-                        "Content-Type": ["application/json"],
-                        "User-Agent": ["ReactorNetty/1.2.4"],
-                        "X-Trace-Id": [f"trace-{uuid.uuid4().hex[:8]}"],
-                        "X-Trace-Requestid": [request_id],
-                        "X-Trace-Sessionid": [session_id],
-                        "X-Transaction-Id": [request_id]
-                    }
-                },
-                "webhook": {
-                    "url": url,
-                    "headers": webhook_headers,
-                    "timeoutInMilliSecond": webhook_config.get("timeoutInMilliSecond", 5000),
-                    "retry": retry_count,
-                    "requestId": request_id,
-                    "sessionId": session_id,
-                    "botId": "1370",
-                    "scenario": "Main",
-                    "dialogState": current_state,
-                    "tag": "",
-                    "memorySlots": memory
-                }
+                "text": user_input,
+                "sessionId": session_id,
+                "requestId": request_id,
+                "currentState": current_state,
+                "memory": memory
             }
             
             # Headers 준비

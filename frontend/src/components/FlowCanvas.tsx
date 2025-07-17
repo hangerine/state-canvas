@@ -19,7 +19,7 @@ import ReactFlow, {
   EdgeChange,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { FlowNode, FlowEdge, DialogState } from '../types/scenario';
+import { FlowNode, FlowEdge, DialogState, Scenario } from '../types/scenario';
 import CustomNode from './CustomNode';
 import NodeEditModal from './NodeEditModal';
 import EdgeEditModal from './EdgeEditModal';
@@ -45,6 +45,7 @@ interface FlowCanvasProps {
   currentState: string;
   onNodesChange: (nodes: FlowNode[]) => void;
   onEdgesChange: (edges: FlowEdge[]) => void;
+  scenario?: Scenario;
 }
 
 // 새로운 DialogState 생성 함수
@@ -72,6 +73,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
   currentState,
   onNodesChange,
   onEdgesChange,
+  scenario,
 }) => {
   const [nodes, setNodes, onNodesStateChange] = useNodesState([]);
   const [edges, setEdges, onEdgesStateChange] = useEdgesState([]);
@@ -286,8 +288,14 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
     const nodeToEdit = propNodes.find(node => node.id === nodeId);
     if (nodeToEdit) {
       setEditingNode(nodeToEdit);
+      
+      // Webhook 디버깅 로그 추가
+      console.log('🔍 [DEBUG] FlowCanvas - scenario:', scenario);
+      console.log('🔍 [DEBUG] FlowCanvas - scenario.webhooks:', scenario?.webhooks);
+      console.log('🔍 [DEBUG] FlowCanvas - nodeToEdit.data.dialogState:', nodeToEdit.data.dialogState);
+      console.log('🔍 [DEBUG] FlowCanvas - webhookActions:', nodeToEdit.data.dialogState.webhookActions);
     }
-  }, [propNodes]);
+  }, [propNodes, scenario]);
 
   // 노드들로부터 엣지 자동 생성
   const generateEdgesFromNodes = useCallback((nodes: FlowNode[]) => {
@@ -875,6 +883,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
         dialogState={editingNode?.data.dialogState || null}
         onClose={() => setEditingNode(null)}
         onSave={handleNodeEditSave}
+        availableWebhooks={scenario?.webhooks || []}
       />
 
       {/* 연결 편집 모달 */}

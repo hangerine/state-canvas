@@ -623,13 +623,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
     };
   }, [sessionId, onStateChange]);
 
-  // 컴포넌트가 마운트되고 시나리오가 있을 때 자동 전이 확인
-  useEffect(() => {
-    if (scenario && currentState && isConnected) {
-      checkAutoTransition();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scenario, currentState, isConnected]);
+  // 백엔드에서 자동으로 상태 전이를 처리하므로 불필요한 자동전이 확인 제거
 
   // 현재 상태가 webhook 상태인지 확인
   const isWebhookState = useCallback(() => {
@@ -669,6 +663,17 @@ const TestPanel: React.FC<TestPanelProps> = ({
     return dialogState?.apicallHandlers || [];
   }, [scenario, currentState]);
 
+  // 현재 상태가 Webhook 액션을 가지고 있는지 확인
+  const getWebhookActions = useCallback(() => {
+    if (!scenario || !currentState) return [];
+    
+    const dialogState = scenario.plan[0]?.dialogState.find(
+      state => state.name === currentState
+    );
+    
+    return dialogState?.webhookActions || [];
+  }, [scenario, currentState]);
+
   // API Call 핸들러가 있는 상태인지 확인
   const isApiCallState = useCallback(() => {
     return getApiCallHandlers().length > 0;
@@ -697,9 +702,8 @@ const TestPanel: React.FC<TestPanelProps> = ({
     const apiCallState = isApiCallState();
     const intentState = isIntentState();
     
-    if (webhookState) {
-      addMessage('info', '🔗 Webhook 상태입니다. 다음 중 하나를 입력해보세요:\n- ACT_01_0212\n- ACT_01_0213\n- ACT_01_0235\n- 기타 (fallback으로 sts_router로 이동)');
-    } else if (eventState) {
+    // webhookState 안내 메시지 제거
+    if (eventState) {
       const eventHandlers = getEventHandlers();
       const eventTypes = eventHandlers.map(handler => {
         // event 필드 안전하게 처리
@@ -754,76 +758,11 @@ const TestPanel: React.FC<TestPanelProps> = ({
     return dialogStates[0].name;
   }, [scenario]);
 
-  // 자동 전이 확인
+  // 자동 전이 확인 (백엔드에서 자동 처리되므로 불필요 - 제거 예정)
   const checkAutoTransition = useCallback(async () => {
-    if (!scenario || !currentState) return;
-
-    // 현재 상태에 이벤트 핸들러가 있으면 자동 전이하지 않음
-    if (isEventState()) {
-      console.log(`🎯 상태 ${currentState}에 이벤트 핸들러가 있습니다. 수동 트리거 대기 중...`);
-      return;
-    }
-
-    // 현재 상태에 Intent 핸들러가 있으면 자동 전이하지 않음 (사용자 입력 대기)
-    if (isIntentState()) {
-      console.log(`💬 상태 ${currentState}에 Intent 핸들러가 있습니다. 사용자 입력 대기 중...`);
-      return;
-    }
-
-    // 현재 상태에 API Call 핸들러가 있으면 우선 처리
-    if (isApiCallState()) {
-      console.log(`🔄 상태 ${currentState}에 API Call 핸들러가 있습니다. API 호출 실행 중...`);
-      addMessage('info', '🔄 API Call 핸들러를 감지했습니다. 자동으로 API 호출을 실행합니다...');
-    }
-
-    try {
-      // 챗봇 포맷으로 자동 전이 확인 (기본값)
-      const chatbotRequestData: ChatbotProcessRequest = {
-        // 기본 챗봇 요청 필드들
-        userId,
-        botId,
-        botVersion,
-        botName,
-        botResourcePath: `${botId}-${botVersion}.json`,
-        sessionId,
-        requestId: 'chatbot-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
-        userInput: {
-          type: 'text',
-          content: {
-            text: '',
-            value: {
-              scope: null,
-              type: 'text',
-              value: {},
-              version: '1.0'
-            }
-          }
-        },
-        context: {},
-        headers: {},
-        
-        // 추가 처리 필드들
-        currentState,
-        scenario: scenario!
-      };
-
-      const response = await axios.post('http://localhost:8000/api/process-chatbot-input', chatbotRequestData);
-
-      // 새로운 챗봇 응답 포맷 처리
-      if (response.data.meta && response.data.meta.dialogState !== currentState) {
-        addMessage('transition', `🚀 자동 전이: ${currentState} → ${response.data.meta.dialogState}`);
-        onStateChange(response.data.meta.dialogState);
-        
-        // 응답 메시지가 있으면 표시
-        if (response.data.directives && response.data.directives.length > 0) {
-          handleChatbotResponse(response.data);
-        }
-      }
-
-    } catch (error) {
-      console.warn('Auto transition check failed:', error);
-    }
-  }, [scenario, currentState, sessionId, isEventState, isIntentState, isApiCallState, addMessage, onStateChange, useJsonInputMode, userId, botId, botVersion, botName]);
+    console.log('⚠️ 자동전이 확인 기능은 백엔드에서 자동 처리되므로 불필요합니다.');
+    addMessage('info', 'ℹ️ 백엔드에서 자동으로 상태 전이를 처리합니다. 수동 확인이 필요하지 않습니다.');
+  }, [addMessage, currentState, onStateChange]);
 
   // 메시지 추가
   // const addMessage = (type: TestMessage['type'], content: string) => {
@@ -853,6 +792,47 @@ const TestPanel: React.FC<TestPanelProps> = ({
   // 사용자 입력 전송
   const handleSendMessage = async () => {
     if (!scenario) return;
+    
+    // 웹훅 상태일 때 자동으로 빈 입력 전송
+    if (isWebhookState()) {
+      addMessage('system', '🔗 웹훅 상태 - 자동으로 처리합니다...');
+      
+      try {
+        const chatbotRequestData: ChatbotProcessRequest = {
+          userId,
+          botId,
+          botVersion,
+          botName,
+          botResourcePath: `${botId}-${botVersion}.json`,
+          sessionId,
+          requestId: 'chatbot-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+          userInput: {
+            type: 'text',
+            content: {
+              text: '',
+              value: {
+                scope: null,
+                type: 'text',
+                value: {},
+                version: '1.0'
+              }
+            }
+          },
+          context: {},
+          headers: {},
+          currentState,
+          scenario: scenario!
+        };
+
+        const response = await axios.post('http://localhost:8000/api/process-chatbot-input', chatbotRequestData);
+        handleChatbotResponse(response.data);
+        return;
+      } catch (error) {
+        addMessage('system', '❌ 웹훅 처리 오류: ' + (error as Error).message);
+        console.error('Webhook processing error:', error);
+        return;
+      }
+    }
     
     // JSON 입력 모드일 때
     if (useJsonInputMode) {
@@ -1061,64 +1041,8 @@ const TestPanel: React.FC<TestPanelProps> = ({
         
         addMessage('system', `✅ 테스트 세션이 초기화되었습니다. 초기 상태: ${initialState}`);
         
-        // 초기화 후 초기 상태에서 자동 전이 확인 (직접 API 호출)
-        setTimeout(async () => {
-          if (!scenario) return;
-          
-          console.log(`🚀 ${initialState} 상태에서 자동 전이 확인 중...`);
-          
-          // 해당 상태에 이벤트 핸들러가 있는지 확인
-          const dialogState = scenario.plan[0]?.dialogState.find(s => s.name === initialState);
-          if (dialogState?.eventHandlers && dialogState.eventHandlers.length > 0) {
-            console.log(`🎯 상태 ${initialState}에 이벤트 핸들러가 있습니다. 수동 트리거 대기 중...`);
-            return;
-          }
-
-          // 해당 상태에 Intent 핸들러가 있는지 확인
-          if (dialogState?.intentHandlers && dialogState.intentHandlers.length > 0) {
-            console.log(`💬 상태 ${initialState}에 Intent 핸들러가 있습니다. 사용자 입력 대기 중...`);
-            return;
-          }
-
-          try {
-            // 빈 userInput 생성 - 새로운 형식 사용
-            const emptyUserInput: UserInput = {
-              type: 'text',
-              content: {
-                text: '',
-                value: {
-                  scope: null,
-                  type: 'text',
-                  value: {},
-                  version: '1.0'
-                }
-              }
-            };
-
-            const requestData: ProcessInputRequest = {
-              sessionId,
-              userInput: emptyUserInput,
-              currentState: initialState,
-              scenario: scenario,
-            };
-
-            const response = await axios.post('http://localhost:8000/api/process-input', requestData);
-
-            if (response.data.new_state && response.data.new_state !== initialState) {
-              console.log(`🎯 자동 전이 발견: ${initialState} → ${response.data.new_state}`);
-              addMessage('transition', `🚀 자동 전이: ${initialState} → ${response.data.new_state}`);
-              onStateChange(response.data.new_state);
-              
-              if (response.data.response) {
-                addMessage('system', response.data.response);
-              }
-            } else {
-              console.log(`ℹ️ ${initialState} 상태에서 자동 전이 없음`);
-            }
-          } catch (error) {
-            console.warn('Auto transition check failed for state', initialState, error);
-          }
-        }, 200);
+        // 백엔드에서 자동으로 상태 전이를 처리하므로 추가 확인 불필요
+        console.log(`✅ 초기화 완료 - 백엔드에서 자동 전이 처리됨`);
         
       } else {
         throw new Error('Backend 초기화 실패');
@@ -1529,8 +1453,9 @@ const TestPanel: React.FC<TestPanelProps> = ({
       return;
     }
     
-    // 상태 전이 처리
-    if (response.meta.dialogState) {
+    // 상태 전이 처리 - 백엔드 응답의 meta.dialogState를 확인하여 전이 표시
+    if (response.meta.dialogState && response.meta.dialogState !== currentState) {
+      addMessage('transition', `🚀 상태 전이: ${currentState} → ${response.meta.dialogState}`);
       onStateChange(response.meta.dialogState);
     }
     
@@ -1677,8 +1602,10 @@ const TestPanel: React.FC<TestPanelProps> = ({
             size="small" 
             variant="outlined"
             color="secondary"
+            disabled
+            title="백엔드에서 자동 처리됨"
           >
-            자동전이 확인
+            자동전이 확인 (불필요)
           </Button>
         </Box>
       </Box>
@@ -1728,7 +1655,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
                 height: '100%',
                 overflow: 'visible'
               }}>
-                {/* Webhook 상태일 때 빠른 입력 버튼들 */}
+                {/* Webhook 상태일 때 정보 표시 */}
                 {isWebhookState() && (
                   <Box sx={{ 
                     mb: 1, 
@@ -1738,19 +1665,28 @@ const TestPanel: React.FC<TestPanelProps> = ({
                     flexShrink: 0
                   }}>
                     <Typography variant="caption" sx={{ mb: 1, display: 'block' }}>
-                      빠른 입력:
+                      🔗 Webhook 상태 (자동 처리):
                     </Typography>
-                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
-                      {['ACT_01_0212', 'ACT_01_0213', 'ACT_01_0235', 'OTHER'].map((value) => (
-                        <Button
-                          key={value}
-                          size="small"
-                          variant="outlined"
-                          onClick={() => handleQuickInput(value)}
-                          sx={{ fontSize: '0.75rem' }}
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 1 }}>
+                      {getWebhookActions().map((action, index) => (
+                        <Box 
+                          key={`${currentState}-${action.name}-${index}`}
+                          sx={{ 
+                            p: 1, 
+                            border: '1px solid', 
+                            borderColor: 'warning.light',
+                            borderRadius: 1,
+                            bgcolor: 'warning.lighter',
+                            fontSize: '0.75rem'
+                          }}
                         >
-                          {value}
-                        </Button>
+                          <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'warning.dark' }}>
+                            {action.name}
+                          </Typography>
+                          <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
+                            자동으로 실행됩니다
+                          </Typography>
+                        </Box>
                       ))}
                     </Box>
                     <Divider />
@@ -1966,331 +1902,322 @@ const TestPanel: React.FC<TestPanelProps> = ({
                     </List>
                   </Paper>
 
-                {/* Input Type Selector */}
-                <Paper sx={{ 
-                  p: 2, 
-                  mt: 1,
-                  flexShrink: 0,
-                  bgcolor: 'background.default',
-                  borderRadius: '8px',
-                  border: '1px solid',
-                  borderColor: 'divider'
-                }}>
-                  <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600 }}>
-                    📨 Input Format 설정
-                  </Typography>
-                  
-                  <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <FormControl sx={{ minWidth: 120 }}>
-                      <InputLabel size="small">Input Type</InputLabel>
-                      <Select
-                        size="small"
-                        value={inputType}
-                        label="Input Type"
-                        onChange={(e) => setInputType(e.target.value as 'text' | 'customEvent')}
-                      >
-                        <MenuItem value="text">Text</MenuItem>
-                        <MenuItem value="customEvent">Custom Event</MenuItem>
-                      </Select>
-                    </FormControl>
+                {!isWebhookState() ? (
+                  <>
+                    {/* Input Type Selector */}
+                    <Paper sx={{ p: 2, mt: 1, flexShrink: 0, bgcolor: 'background.default', borderRadius: '8px', border: '1px solid', borderColor: 'divider' }}>
+                      <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600 }}>
+                        📨 Input Format 설정
+                      </Typography>
+                      
+                      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <FormControl sx={{ minWidth: 120 }}>
+                          <InputLabel size="small">Input Type</InputLabel>
+                          <Select
+                            size="small"
+                            value={inputType}
+                            label="Input Type"
+                            onChange={(e) => setInputType(e.target.value as 'text' | 'customEvent')}
+                          >
+                            <MenuItem value="text">Text</MenuItem>
+                            <MenuItem value="customEvent">Custom Event</MenuItem>
+                          </Select>
+                        </FormControl>
 
-                    {inputType === 'customEvent' && (
-                      <TextField
-                        size="small"
-                        label="Event Type"
-                        value={eventType}
-                        onChange={(e) => setEventType(e.target.value)}
-                        placeholder="USER_DIALOG_START"
-                        sx={{ minWidth: 180 }}
-                      />
-                    )}
+                        {inputType === 'customEvent' && (
+                          <TextField
+                            size="small"
+                            label="Event Type"
+                            value={eventType}
+                            onChange={(e) => setEventType(e.target.value)}
+                            placeholder="USER_DIALOG_START"
+                            sx={{ minWidth: 180 }}
+                          />
+                        )}
 
+                        {inputType === 'text' && (
+                          <>
+                            <TextField
+                              size="small"
+                              label="Intent (선택사항)"
+                              value={intentValue}
+                              onChange={(e) => setIntentValue(e.target.value)}
+                              placeholder="Weather.Inform"
+                              sx={{ minWidth: 150 }}
+                            />
+                            <TextField
+                              size="small"
+                              label="Confidence"
+                              type="number"
+                              value={confidenceScore}
+                              onChange={(e) => setConfidenceScore(parseFloat(e.target.value) || 0)}
+                              inputProps={{ min: 0, max: 1, step: 0.01 }}
+                              sx={{ width: 100 }}
+                            />
+                          </>
+                        )}
+
+                        <Tooltip title="생성될 JSON format 미리보기">
+                          <IconButton 
+                            size="small" 
+                            onClick={() => {
+                              const preview = createUserInput();
+                              console.log('📄 UserInput Preview:', JSON.stringify(preview, null, 2));
+                              alert('콘솔에서 생성될 JSON format을 확인하세요!');
+                            }}
+                          >
+                            👁️
+                          </IconButton>
+                        </Tooltip>
+
+                        {/* JSON 입력 모드 토글 */}
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 2 }}>
+                          <Typography variant="body2" sx={{ fontSize: '0.875rem', fontWeight: 500 }}>
+                            📝 JSON 입력 모드
+                          </Typography>
+                          <Switch
+                            checked={useJsonInputMode}
+                            onChange={(e) => setUseJsonInputMode(e.target.checked)}
+                            size="small"
+                            color="primary"
+                          />
+                        </Box>
+
+                        {useJsonInputMode && (
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, minWidth: 200 }}>
+                            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem' }}>
+                              JSON 형태의 전체 요청을 입력하세요
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem' }}>
+                              NLU 결과가 포함된 요청을 직접 전송합니다
+                            </Typography>
+                          </Box>
+                        )}
+                      </Box>
+                    </Paper>
+                    {/* Entities 관리 (Text 타입일 때만 표시) */}
                     {inputType === 'text' && (
-                      <>
-                        <TextField
-                          size="small"
-                          label="Intent (선택사항)"
-                          value={intentValue}
-                          onChange={(e) => setIntentValue(e.target.value)}
-                          placeholder="Weather.Inform"
-                          sx={{ minWidth: 150 }}
-                        />
-                        <TextField
-                          size="small"
-                          label="Confidence"
-                          type="number"
-                          value={confidenceScore}
-                          onChange={(e) => setConfidenceScore(parseFloat(e.target.value) || 0)}
-                          inputProps={{ min: 0, max: 1, step: 0.01 }}
-                          sx={{ width: 100 }}
-                        />
-                      </>
+                      <Paper sx={{ p: 2, mt: 1, flexShrink: 0, bgcolor: 'background.default', borderRadius: '8px', border: '1px solid', borderColor: 'divider' }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+                          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                            🏷️ Entities 설정 ({entities.length}개)
+                          </Typography>
+                          <Button
+                            size="small"
+                            startIcon={<AddIcon />}
+                            onClick={addEntity}
+                            variant="outlined"
+                            sx={{ fontSize: '0.75rem' }}
+                          >
+                            Entity 추가
+                          </Button>
+                        </Box>
+                        
+                        {entities.length === 0 ? (
+                          <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', textAlign: 'center', py: 2 }}>
+                            Entities가 없습니다. "Entity 추가" 버튼을 클릭하여 추가하세요.
+                          </Typography>
+                        ) : (
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, maxHeight: 200, overflow: 'auto' }}>
+                            {entities.map((entity) => (
+                              <Paper key={entity.id} sx={{ p: 2, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                                <Grid container spacing={1} alignItems="center">
+                                  <Grid item xs={2}>
+                                    <TextField
+                                      size="small"
+                                      label="Role"
+                                      value={entity.role}
+                                      onChange={(e) => updateEntity(entity.id, 'role', e.target.value)}
+                                      placeholder="CITY"
+                                      fullWidth
+                                    />
+                                  </Grid>
+                                  <Grid item xs={2}>
+                                    <TextField
+                                      size="small"
+                                      label="Type"
+                                      value={entity.type}
+                                      onChange={(e) => updateEntity(entity.id, 'type', e.target.value)}
+                                      placeholder="CITY"
+                                      fullWidth
+                                    />
+                                  </Grid>
+                                  <Grid item xs={2}>
+                                    <TextField
+                                      size="small"
+                                      label="Text"
+                                      value={entity.text}
+                                      onChange={(e) => updateEntity(entity.id, 'text', e.target.value)}
+                                      placeholder="서울"
+                                      fullWidth
+                                    />
+                                  </Grid>
+                                  <Grid item xs={2}>
+                                    <TextField
+                                      size="small"
+                                      label="Normalization"
+                                      value={entity.normalization || ''}
+                                      onChange={(e) => updateEntity(entity.id, 'normalization', e.target.value)}
+                                      placeholder="W.0"
+                                      fullWidth
+                                    />
+                                  </Grid>
+                                  <Grid item xs={3}>
+                                    <TextField
+                                      size="small"
+                                      label="Type KR"
+                                      value={entity.extraTypeKr || ''}
+                                      onChange={(e) => updateEntity(entity.id, 'extraTypeKr', e.target.value)}
+                                      placeholder="CITY"
+                                      fullWidth
+                                    />
+                                  </Grid>
+                                  <Grid item xs={1}>
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => removeEntity(entity.id)}
+                                      color="error"
+                                      sx={{ ml: 1 }}
+                                    >
+                                      <DeleteIcon fontSize="small" />
+                                    </IconButton>
+                                  </Grid>
+                                </Grid>
+                              </Paper>
+                            ))}
+                          </Box>
+                        )}
+                        
+                        {/* 샘플 Entity 추가 버튼들 */}
+                        <Box sx={{ mt: 2, pt: 1.5, borderTop: '1px dashed', borderColor: 'divider' }}>
+                          <Typography variant="caption" sx={{ display: 'block', mb: 1, color: 'text.secondary' }}>
+                            빠른 샘플 추가:
+                          </Typography>
+                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                            <Chip
+                              label="날씨 - 시간"
+                              variant="outlined"
+                              size="small"
+                              clickable
+                              onClick={() => {
+                                const newEntity: EntityInput = {
+                                  id: `entity-${Date.now()}-${Math.random()}`,
+                                  role: 'BID_DT_WEEK',
+                                  type: 'BID_DT_WEEK',
+                                  text: '이번 주',
+                                  normalization: 'W.0',
+                                  extraTypeKr: 'BID_DT_WEEK.W.0'
+                                };
+                                setEntities(prev => [...prev, newEntity]);
+                              }}
+                              sx={{ fontSize: '0.7rem' }}
+                            />
+                            <Chip
+                              label="날씨 - 도시"
+                              variant="outlined"
+                              size="small"
+                              clickable
+                              onClick={() => {
+                                const newEntity: EntityInput = {
+                                  id: `entity-${Date.now()}-${Math.random()}`,
+                                  role: 'CITY',
+                                  type: 'CITY',
+                                  text: '서울',
+                                  normalization: '',
+                                  extraTypeKr: 'CITY'
+                                };
+                                setEntities(prev => [...prev, newEntity]);
+                              }}
+                              sx={{ fontSize: '0.7rem' }}
+                            />
+                          </Box>
+                        </Box>
+                      </Paper>
                     )}
 
-                    <Tooltip title="생성될 JSON format 미리보기">
-                      <IconButton 
-                        size="small" 
-                        onClick={() => {
-                          const preview = createUserInput();
-                          console.log('📄 UserInput Preview:', JSON.stringify(preview, null, 2));
-                          alert('콘솔에서 생성될 JSON format을 확인하세요!');
+                    {/* 입력 영역 - 완전 고정 */}
+                    <Box sx={{ 
+                      display: 'flex', 
+                      gap: 2, 
+                      height: '60px',
+                      minHeight: '60px',
+                      maxHeight: '60px',
+                      flexShrink: 0,
+                      alignItems: 'center',
+                      mt: 2,
+                      p: 1,
+                      bgcolor: 'background.paper',
+                      borderTop: '2px solid',
+                      borderColor: 'primary.main',
+                      borderRadius: '8px 8px 0 0',
+                      boxShadow: '0 -2px 8px rgba(0,0,0,0.1)',
+                      position: 'relative',
+                      zIndex: 10, // 다른 요소들보다 위에 표시
+                      width: '100%' // 전체 너비 사용
+                    }}>
+                      <TextField
+                        fullWidth
+                        multiline={useJsonInputMode}
+                        rows={useJsonInputMode ? 8 : undefined}
+                        placeholder={
+                          useJsonInputMode 
+                            ? "JSON 형태의 전체 요청을 입력하세요...\n\n예시:\n{\n  \"userId\": \"user-123\",\n  \"botId\": \"1370\",\n  \"userInput\": {\n    \"type\": \"text\",\n    \"content\": {\n      \"text\": \"안녕하세요\"\n    }\n  }\n}"
+                            : inputType === 'customEvent' 
+                              ? `Event가 전송됩니다: ${eventType}`
+                              : isWebhookState() 
+                                ? "�� Webhook 상태 - 자동으로 처리됩니다" 
+                                : "메시지를 입력하세요..."
+                        }
+                        value={inputText}
+                        onChange={(e) => setInputText(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        disabled={!isConnected || inputType === 'customEvent'}
+                        variant="outlined"
+                        sx={{
+                          '& .MuiOutlinedInput-root': {
+                            height: useJsonInputMode ? 'auto' : '44px',
+                            minHeight: useJsonInputMode ? '200px' : '44px',
+                            alignItems: useJsonInputMode ? 'flex-start' : 'center',
+                            bgcolor: inputType === 'customEvent' ? 'action.disabledBackground' : 'background.paper'
+                          },
+                          '& .MuiOutlinedInput-input': {
+                            padding: useJsonInputMode ? '12px 14px' : '10px 14px'
+                          }
+                        }}
+                      />
+                      <Button
+                        variant="contained"
+                        onClick={handleSendMessage}
+                        disabled={
+                          !isConnected || 
+                          (inputType === 'text' && !inputText.trim()) ||
+                          (inputType === 'customEvent' && !eventType.trim())
+                        }
+                        sx={{ 
+                          flexShrink: 0,
+                          minWidth: '120px',
+                          height: '44px',
+                          fontSize: '0.9rem',
+                          fontWeight: 'bold'
                         }}
                       >
-                        👁️
-                      </IconButton>
-                    </Tooltip>
-
-                    {/* JSON 입력 모드 토글 */}
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 2 }}>
-                      <Typography variant="body2" sx={{ fontSize: '0.875rem', fontWeight: 500 }}>
-                        📝 JSON 입력 모드
-                      </Typography>
-                      <Switch
-                        checked={useJsonInputMode}
-                        onChange={(e) => setUseJsonInputMode(e.target.checked)}
-                        size="small"
-                        color="primary"
-                      />
-                    </Box>
-
-                    {useJsonInputMode && (
-                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, minWidth: 200 }}>
-                        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem' }}>
-                          JSON 형태의 전체 요청을 입력하세요
-                        </Typography>
-                        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem' }}>
-                          NLU 결과가 포함된 요청을 직접 전송합니다
-                        </Typography>
-                      </Box>
-                    )}
-                  </Box>
-                </Paper>
-
-                {/* Entities 관리 (Text 타입일 때만 표시) */}
-                {inputType === 'text' && (
-                  <Paper sx={{ 
-                    p: 2, 
-                    mt: 1,
-                    flexShrink: 0,
-                    bgcolor: 'background.default',
-                    borderRadius: '8px',
-                    border: '1px solid',
-                    borderColor: 'divider'
-                  }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-                        🏷️ Entities 설정 ({entities.length}개)
-                      </Typography>
-                      <Button
-                        size="small"
-                        startIcon={<AddIcon />}
-                        onClick={addEntity}
-                        variant="outlined"
-                        sx={{ fontSize: '0.75rem' }}
-                      >
-                        Entity 추가
+                        {useJsonInputMode ? 'JSON 전송' : inputType === 'customEvent' ? 'Event 전송' : isWebhookState() ? '웹훅 실행' : '전송'}
                       </Button>
                     </Box>
                     
-                    {entities.length === 0 ? (
-                      <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', textAlign: 'center', py: 2 }}>
-                        Entities가 없습니다. "Entity 추가" 버튼을 클릭하여 추가하세요.
-                      </Typography>
-                    ) : (
-                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, maxHeight: 200, overflow: 'auto' }}>
-                        {entities.map((entity) => (
-                          <Paper key={entity.id} sx={{ p: 2, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
-                            <Grid container spacing={1} alignItems="center">
-                              <Grid item xs={2}>
-                                <TextField
-                                  size="small"
-                                  label="Role"
-                                  value={entity.role}
-                                  onChange={(e) => updateEntity(entity.id, 'role', e.target.value)}
-                                  placeholder="CITY"
-                                  fullWidth
-                                />
-                              </Grid>
-                              <Grid item xs={2}>
-                                <TextField
-                                  size="small"
-                                  label="Type"
-                                  value={entity.type}
-                                  onChange={(e) => updateEntity(entity.id, 'type', e.target.value)}
-                                  placeholder="CITY"
-                                  fullWidth
-                                />
-                              </Grid>
-                              <Grid item xs={2}>
-                                <TextField
-                                  size="small"
-                                  label="Text"
-                                  value={entity.text}
-                                  onChange={(e) => updateEntity(entity.id, 'text', e.target.value)}
-                                  placeholder="서울"
-                                  fullWidth
-                                />
-                              </Grid>
-                              <Grid item xs={2}>
-                                <TextField
-                                  size="small"
-                                  label="Normalization"
-                                  value={entity.normalization || ''}
-                                  onChange={(e) => updateEntity(entity.id, 'normalization', e.target.value)}
-                                  placeholder="W.0"
-                                  fullWidth
-                                />
-                              </Grid>
-                              <Grid item xs={3}>
-                                <TextField
-                                  size="small"
-                                  label="Type KR"
-                                  value={entity.extraTypeKr || ''}
-                                  onChange={(e) => updateEntity(entity.id, 'extraTypeKr', e.target.value)}
-                                  placeholder="CITY"
-                                  fullWidth
-                                />
-                              </Grid>
-                              <Grid item xs={1}>
-                                <IconButton
-                                  size="small"
-                                  onClick={() => removeEntity(entity.id)}
-                                  color="error"
-                                  sx={{ ml: 1 }}
-                                >
-                                  <DeleteIcon fontSize="small" />
-                                </IconButton>
-                              </Grid>
-                            </Grid>
-                          </Paper>
-                        ))}
+                    {/* JSON 입력 모드 도움말 */}
+                    {useJsonInputMode && (
+                      <Box sx={{ mt: 1, p: 1, bgcolor: 'info.main', color: 'info.contrastText', borderRadius: 1 }}>
+                        <Typography variant="caption" sx={{ fontSize: '0.75rem' }}>
+                          💡 <strong>JSON 입력 모드:</strong> Ctrl+Enter로 전송 | 일반 Enter는 줄바꿈
+                        </Typography>
                       </Box>
                     )}
-                    
-                    {/* 샘플 Entity 추가 버튼들 */}
-                    <Box sx={{ mt: 2, pt: 1.5, borderTop: '1px dashed', borderColor: 'divider' }}>
-                      <Typography variant="caption" sx={{ display: 'block', mb: 1, color: 'text.secondary' }}>
-                        빠른 샘플 추가:
-                      </Typography>
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                        <Chip
-                          label="날씨 - 시간"
-                          variant="outlined"
-                          size="small"
-                          clickable
-                          onClick={() => {
-                            const newEntity: EntityInput = {
-                              id: `entity-${Date.now()}-${Math.random()}`,
-                              role: 'BID_DT_WEEK',
-                              type: 'BID_DT_WEEK',
-                              text: '이번 주',
-                              normalization: 'W.0',
-                              extraTypeKr: 'BID_DT_WEEK.W.0'
-                            };
-                            setEntities(prev => [...prev, newEntity]);
-                          }}
-                          sx={{ fontSize: '0.7rem' }}
-                        />
-                        <Chip
-                          label="날씨 - 도시"
-                          variant="outlined"
-                          size="small"
-                          clickable
-                          onClick={() => {
-                            const newEntity: EntityInput = {
-                              id: `entity-${Date.now()}-${Math.random()}`,
-                              role: 'CITY',
-                              type: 'CITY',
-                              text: '서울',
-                              normalization: '',
-                              extraTypeKr: 'CITY'
-                            };
-                            setEntities(prev => [...prev, newEntity]);
-                          }}
-                          sx={{ fontSize: '0.7rem' }}
-                        />
-                      </Box>
-                    </Box>
-                  </Paper>
-                )}
-
-                {/* 입력 영역 - 완전 고정 */}
-                <Box sx={{ 
-                  display: 'flex', 
-                  gap: 2, 
-                  height: '60px',
-                  minHeight: '60px',
-                  maxHeight: '60px',
-                  flexShrink: 0,
-                  alignItems: 'center',
-                  mt: 2,
-                  p: 1,
-                  bgcolor: 'background.paper',
-                  borderTop: '2px solid',
-                  borderColor: 'primary.main',
-                  borderRadius: '8px 8px 0 0',
-                  boxShadow: '0 -2px 8px rgba(0,0,0,0.1)',
-                  position: 'relative',
-                  zIndex: 10, // 다른 요소들보다 위에 표시
-                  width: '100%' // 전체 너비 사용
-                }}>
-                  <TextField
-                    fullWidth
-                    multiline={useJsonInputMode}
-                    rows={useJsonInputMode ? 8 : undefined}
-                    placeholder={
-                      useJsonInputMode 
-                        ? "JSON 형태의 전체 요청을 입력하세요...\n\n예시:\n{\n  \"userId\": \"user-123\",\n  \"botId\": \"1370\",\n  \"userInput\": {\n    \"type\": \"text\",\n    \"content\": {\n      \"text\": \"안녕하세요\"\n    }\n  }\n}"
-                        : inputType === 'customEvent' 
-                          ? `Event가 전송됩니다: ${eventType}`
-                          : isWebhookState() 
-                            ? "Webhook 응답을 입력하세요 (예: ACT_01_0212)" 
-                            : "메시지를 입력하세요..."
-                    }
-                    value={inputText}
-                    onChange={(e) => setInputText(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    disabled={!isConnected || inputType === 'customEvent'}
-                    variant="outlined"
-                    sx={{
-                      '& .MuiOutlinedInput-root': {
-                        height: useJsonInputMode ? 'auto' : '44px',
-                        minHeight: useJsonInputMode ? '200px' : '44px',
-                        alignItems: useJsonInputMode ? 'flex-start' : 'center',
-                        bgcolor: inputType === 'customEvent' ? 'action.disabledBackground' : 'background.paper'
-                      },
-                      '& .MuiOutlinedInput-input': {
-                        padding: useJsonInputMode ? '12px 14px' : '10px 14px'
-                      }
-                    }}
-                  />
-                  <Button
-                    variant="contained"
-                    onClick={handleSendMessage}
-                    disabled={
-                      !isConnected || 
-                      (inputType === 'text' && !inputText.trim()) ||
-                      (inputType === 'customEvent' && !eventType.trim())
-                    }
-                    sx={{ 
-                      flexShrink: 0,
-                      minWidth: '120px',
-                      height: '44px',
-                      fontSize: '0.9rem',
-                      fontWeight: 'bold'
-                    }}
-                  >
-                    {useJsonInputMode ? 'JSON 전송' : inputType === 'customEvent' ? 'Event 전송' : '전송'}
-                  </Button>
-                </Box>
-                
-                {/* JSON 입력 모드 도움말 */}
-                {useJsonInputMode && (
-                  <Box sx={{ mt: 1, p: 1, bgcolor: 'info.main', color: 'info.contrastText', borderRadius: 1 }}>
-                    <Typography variant="caption" sx={{ fontSize: '0.75rem' }}>
-                      💡 <strong>JSON 입력 모드:</strong> Ctrl+Enter로 전송 | 일반 Enter는 줄바꿈
-                    </Typography>
-                  </Box>
+                  </>
+                ) : (
+                  <Alert severity="info" sx={{ mt: 2 }}>
+                    Webhook 상태입니다. 입력 없이 자동으로 처리됩니다.
+                  </Alert>
                 )}
               </Box>
             )}

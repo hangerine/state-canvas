@@ -557,6 +557,7 @@ function App() {
               currentState={currentState}
               onNodesChange={handleNodesChange}
               onEdgesChange={handleEdgesChange}
+              scenario={scenario || undefined}
             />
           </Box>
 

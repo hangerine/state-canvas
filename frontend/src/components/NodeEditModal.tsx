@@ -25,13 +25,14 @@ import {
   Delete as DeleteIcon,
   ExpandMore as ExpandMoreIcon,
 } from '@mui/icons-material';
-import { DialogState, ConditionHandler, IntentHandler, EventHandler, ApiCallHandler } from '../types/scenario';
+import { DialogState, ConditionHandler, IntentHandler, EventHandler, ApiCallHandler, Webhook } from '../types/scenario';
 
 interface NodeEditModalProps {
   open: boolean;
   dialogState: DialogState | null;
   onClose: () => void;
   onSave: (updatedDialogState: DialogState) => void;
+  availableWebhooks?: Webhook[];
 }
 
 const NodeEditModal: React.FC<NodeEditModalProps> = ({
@@ -39,6 +40,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
   dialogState,
   onClose,
   onSave,
+  availableWebhooks = [],
 }) => {
   const [editedState, setEditedState] = useState<DialogState | null>(null);
 
@@ -65,8 +67,39 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
         JSON.stringify(handler.apicall?.formats?.responseMappings || {}, null, 2)
       ) || [];
       setResponseMappingsStrings(mappingsStrings);
+      
+      // Webhook 디버깅 로그 추가
+      console.log('🔍 [DEBUG] NodeEditModal - availableWebhooks:', availableWebhooks);
+      console.log('🔍 [DEBUG] NodeEditModal - webhookActions:', clonedState.webhookActions);
+      if (clonedState.webhookActions && clonedState.webhookActions.length > 0) {
+        clonedState.webhookActions.forEach((action: any, index: number) => {
+          console.log(`🔍 [DEBUG] Webhook Action ${index}:`, action);
+          console.log(`🔍 [DEBUG] Webhook Action ${index} name:`, action.name);
+          console.log(`🔍 [DEBUG] Webhook Action ${index} name type:`, typeof action.name);
+        });
+      }
+      
+      // Webhook action name 자동 수정 로직 추가
+      if (clonedState.webhookActions && availableWebhooks.length > 0) {
+        const availableWebhookNames = availableWebhooks.map(w => w.name);
+        let hasInvalidWebhook = false;
+        
+        clonedState.webhookActions = clonedState.webhookActions.map((action: any) => {
+          const actionName = getWebhookActionName(action);
+          if (!availableWebhookNames.includes(actionName)) {
+            console.log(`🔧 [FIX] Invalid webhook name "${actionName}" found, fixing to "${availableWebhookNames[0]}"`);
+            hasInvalidWebhook = true;
+            return { ...action, name: availableWebhookNames[0] };
+          }
+          return action;
+        });
+        
+        if (hasInvalidWebhook) {
+          setEditedState(clonedState);
+        }
+      }
     }
-  }, [dialogState]);
+  }, [dialogState, availableWebhooks]);
 
   // Response Mappings 문자열 배열 길이를 API Call 핸들러 배열과 동기화
   const getSafeResponseMappingString = (index: number): string => {
@@ -633,7 +666,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
   // Webhook 액션 관리 함수들
   const addWebhookAction = () => {
     const newWebhookAction = {
-      name: "NEW_WEBHOOK"
+      name: availableWebhooks.length > 0 ? availableWebhooks[0].name : "NEW_WEBHOOK"
     };
     
     setEditedState({
@@ -662,6 +695,21 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
       ...editedState,
       webhookActions: updated
     });
+  };
+
+  // Webhook action name을 안전하게 가져오는 함수 추가
+  const getWebhookActionName = (action: any): string => {
+    if (typeof action.name === 'string') {
+      return action.name;
+    }
+    // name이 문자열이 아닌 경우 (배열, 객체 등) 문자열로 변환
+    if (Array.isArray(action.name)) {
+      return action.name.join(', ');
+    }
+    if (typeof action.name === 'object') {
+      return JSON.stringify(action.name);
+    }
+    return String(action.name || '');
   };
 
   // Slot Filling Form 관리 함수들
@@ -1571,14 +1619,58 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                       </IconButton>
                     </Box>
                     
-                    <TextField
-                      label="Webhook 이름"
-                      value={action.name}
-                      onChange={(e) => updateWebhookAction(index, e.target.value)}
-                      fullWidth
-                      placeholder="ACT_01_0212"
-                      helperText="표준 형태: ACT_01_0212, ACT_01_0213, ACT_01_0235 등 (TestPanel의 빠른 입력 버튼과 일치)"
-                    />
+                    <FormControl fullWidth>
+                      <InputLabel>Webhook 선택</InputLabel>
+                      <Select
+                        value={availableWebhooks.find(w => w.name === getWebhookActionName(action)) ? getWebhookActionName(action) : ''}
+                        label="Webhook 선택"
+                        onChange={(e) => updateWebhookAction(index, e.target.value)}
+                      >
+                        {availableWebhooks.map((webhook) => (
+                          <MenuItem key={webhook.name} value={webhook.name}>
+                            <Box>
+                              <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                                {webhook.name}
+                              </Typography>
+                              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                                {webhook.url}
+                              </Typography>
+                              {webhook.timeoutInMilliSecond && (
+                                <Typography variant="caption" sx={{ color: 'text.secondary', ml: 1 }}>
+                                  timeout: {webhook.timeoutInMilliSecond}ms
+                                </Typography>
+                              )}
+                              {webhook.retry !== undefined && (
+                                <Typography variant="caption" sx={{ color: 'text.secondary', ml: 1 }}>
+                                  retry: {webhook.retry}
+                                </Typography>
+                              )}
+                            </Box>
+                          </MenuItem>
+                        ))}
+                        {availableWebhooks.length === 0 && (
+                          <MenuItem value="NEW_WEBHOOK" disabled>
+                            -- 웹훅이 없습니다 (Webhook 관리 탭에서 등록) --
+                          </MenuItem>
+                        )}
+                      </Select>
+                    </FormControl>
+                    
+                    {availableWebhooks.length === 0 && (
+                      <Alert severity="warning" sx={{ mt: 1 }}>
+                        <Typography variant="body2">
+                          등록된 웹훅이 없습니다. "Webhook 관리" 탭에서 웹훅을 먼저 등록해주세요.
+                        </Typography>
+                      </Alert>
+                    )}
+                    
+                    {availableWebhooks.length > 0 && !availableWebhooks.find(w => w.name === getWebhookActionName(action)) && (
+                      <Alert severity="error" sx={{ mt: 1 }}>
+                        <Typography variant="body2">
+                          선택된 웹훅 "{getWebhookActionName(action)}"이 등록된 웹훅 목록에 없습니다. 올바른 웹훅을 선택해주세요.
+                        </Typography>
+                      </Alert>
+                    )}
                   </Box>
                 ))}
                 <Button
