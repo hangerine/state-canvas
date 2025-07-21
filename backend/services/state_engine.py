@@ -6,20 +6,19 @@ import asyncio
 import time
 import uuid
 from typing import Dict, Any, List, Optional, Tuple
-from jsonpath_ng import parse
 from models.scenario import StateTransition, ChatbotResponse, ErrorInfo, ChatbotDirective, DirectiveContent, ResponseMeta, UsedSlot
-from .scenario_manager import ScenarioManager
-from .webhook_handler import WebhookHandler
-from .apicall_handler import ApiCallHandler
-from .nlu_processor import NLUProcessor
-from .memory_manager import MemoryManager
-from .action_executor import ActionExecutor
-from .transition_manager import TransitionManager
-from .reprompt_manager import RepromptManager
-from .slot_filling_manager import SlotFillingManager
-from . import utils
-from .chatbot_response_factory import ChatbotResponseFactory
-from .event_trigger_manager import EventTriggerManager
+from services.scenario_manager import ScenarioManager
+from services.webhook_handler import WebhookHandler
+from services.apicall_handler import ApiCallHandler
+from services.nlu_processor import NLUProcessor
+from services.memory_manager import MemoryManager
+from services.action_executor import ActionExecutor
+from services.transition_manager import TransitionManager
+from services.reprompt_manager import RepromptManager
+from services.slot_filling_manager import SlotFillingManager
+from services import utils
+from services.chatbot_response_factory import ChatbotResponseFactory
+from services.event_trigger_manager import EventTriggerManager
 
 logger = logging.getLogger(__name__)
 

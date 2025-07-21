@@ -6,12 +6,16 @@ import time
 import uuid
 from typing import Dict, Any, Optional, List
 from models.scenario import StateTransition
+from services.base_handler import BaseHandler
 
 logger = logging.getLogger(__name__)
 
-class WebhookHandler:
+class WebhookHandler(BaseHandler):
     def __init__(self, scenario_manager):
         self.scenario_manager = scenario_manager
+
+    async def handle(self, current_state: str, current_dialog_state: Dict[str, Any], scenario: Dict[str, Any], memory: Dict[str, Any]) -> Dict[str, Any]:
+        return await self.handle_webhook_actions(current_state, current_dialog_state, scenario, memory)
 
     async def handle_webhook_actions(
         self,
