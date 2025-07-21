@@ -8,20 +8,42 @@ import uuid
 from typing import Dict, Any, List, Optional, Tuple
 from jsonpath_ng import parse
 from models.scenario import StateTransition, ChatbotResponse, ErrorInfo, ChatbotDirective, DirectiveContent, ResponseMeta, UsedSlot
+from .scenario_manager import ScenarioManager
+from .webhook_handler import WebhookHandler
+from .apicall_handler import ApiCallHandler
+from .nlu_processor import NLUProcessor
+from .memory_manager import MemoryManager
+from .action_executor import ActionExecutor
+from .transition_manager import TransitionManager
+from .reprompt_manager import RepromptManager
+from .slot_filling_manager import SlotFillingManager
+from . import utils
+from .chatbot_response_factory import ChatbotResponseFactory
+from .event_trigger_manager import EventTriggerManager
 
 logger = logging.getLogger(__name__)
 
 class StateEngine:
     """시나리오 기반 State 전이 엔진"""
     
-    def __init__(self):
-        self.scenarios: Dict[str, Dict[str, Any]] = {}
+    def __init__(self, scenario_manager: Optional[ScenarioManager] = None, webhook_handler: Optional[WebhookHandler] = None, apicall_handler: Optional[ApiCallHandler] = None, nlu_processor: Optional[NLUProcessor] = None, memory_manager: Optional[MemoryManager] = None, action_executor: Optional[ActionExecutor] = None, transition_manager: Optional[TransitionManager] = None, reprompt_manager: Optional[RepromptManager] = None, slot_filling_manager: Optional[SlotFillingManager] = None, chatbot_response_factory: Optional[ChatbotResponseFactory] = None, event_trigger_manager: Optional[EventTriggerManager] = None):
+        self.scenario_manager = scenario_manager or ScenarioManager()
+        self.webhook_handler = webhook_handler or WebhookHandler(self.scenario_manager)
+        self.apicall_handler = apicall_handler or ApiCallHandler(self.scenario_manager)
+        self.transition_manager = transition_manager or TransitionManager(self.scenario_manager)
+        self.nlu_processor = nlu_processor or NLUProcessor(self.scenario_manager, self.transition_manager)
+        self.memory_manager = memory_manager or MemoryManager(self.scenario_manager)
+        self.action_executor = action_executor or ActionExecutor(self.scenario_manager)
+        self.reprompt_manager = reprompt_manager or RepromptManager(self.scenario_manager, self.action_executor)
+        self.slot_filling_manager = slot_filling_manager or SlotFillingManager(self.scenario_manager, self.transition_manager, self.reprompt_manager)
+        self.chatbot_response_factory = chatbot_response_factory or ChatbotResponseFactory()
+        self.event_trigger_manager = event_trigger_manager or EventTriggerManager(self.action_executor, self.transition_manager)
         self.sessions: Dict[str, Dict[str, Any]] = {}
         self.global_intent_mapping: List[Dict[str, Any]] = []
     
     def load_scenario(self, session_id: str, scenario_data: Dict[str, Any]):
         """시나리오를 로드합니다."""
-        self.scenarios[session_id] = scenario_data
+        self.scenario_manager.load_scenario(session_id, scenario_data)
         
         # Webhook 정보 로딩 확인
         webhooks = scenario_data.get("webhooks", [])
@@ -53,7 +75,7 @@ class StateEngine:
         
     def get_scenario(self, session_id: str) -> Optional[Dict[str, Any]]:
         """세션의 시나리오를 반환합니다."""
-        return self.scenarios.get(session_id)
+        return self.scenario_manager.get_scenario(session_id)
     
     def update_intent_mapping(self, intent_mapping: List[Dict[str, Any]]):
         """글로벌 Intent Mapping을 업데이트합니다."""
@@ -83,7 +105,7 @@ class StateEngine:
             memory = {}
             
         auto_transitions = []
-        current_dialog_state = self._find_dialog_state(scenario, current_state)
+        current_dialog_state = self.scenario_manager.find_dialog_state(scenario, current_state)
         
         if not current_dialog_state:
             return auto_transitions
@@ -169,7 +191,7 @@ class StateEngine:
         
         try:
             # 현재 상태 정보 가져오기
-            current_dialog_state = self._find_dialog_state(scenario, current_state)
+            current_dialog_state = self.scenario_manager.find_dialog_state(scenario, current_state)
             if not current_dialog_state:
                 return {
                     "error": f"상태 '{current_state}'를 찾을 수 없습니다.",
@@ -192,248 +214,6 @@ class StateEngine:
                 "transitions": []
             }
     
-    async def _handle_webhook_actions(
-        self,
-        current_state: str,
-        current_dialog_state: Dict[str, Any],
-        scenario: Dict[str, Any],
-        memory: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """웹훅 액션을 자동으로 처리합니다."""
-        
-        webhook_actions = current_dialog_state.get("webhookActions", [])
-        if not webhook_actions:
-            return {
-                "new_state": current_state,
-                "response": "🔗 웹훅 액션이 없습니다.",
-                "transitions": [],
-                "intent": "NO_WEBHOOK",
-                "entities": {},
-                "memory": memory
-            }
-        
-        transitions = []
-        new_state = current_state
-        response_messages = []
-        
-        # 각 웹훅 액션 처리
-        for webhook_action in webhook_actions:
-            if not isinstance(webhook_action, dict):
-                logger.warning(f"Webhook action is not a dict: {webhook_action}")
-                continue
-            
-            webhook_name = webhook_action.get("name", "Unknown")
-            logger.info(f"🔗 Processing webhook action: {webhook_name} (type: {type(webhook_name)})")
-            logger.info(f"🔗 Raw webhook action data: {webhook_action}")
-            
-            # 시나리오에서 해당 이름의 웹훅 설정 찾기
-            webhook_config = None
-            webhooks = scenario.get("webhooks", [])
-            logger.info(f"📋 Searching for webhook '{webhook_name}' among {len(webhooks)} registered webhooks")
-            
-            # 먼저 정확한 이름으로 찾기
-            for webhook in webhooks:
-                registered_name = webhook.get("name", "")
-                logger.info(f"   - Checking: '{registered_name}' vs '{webhook_name}'")
-                if registered_name == webhook_name:
-                    webhook_config = webhook
-                    logger.info(f"✅ Found matching webhook config: {webhook_name}")
-                    break
-            
-            # 정확한 이름으로 찾지 못한 경우, 쉼표로 구분된 이름 중에서 찾기
-            if not webhook_config and "," in webhook_name:
-                webhook_names = [name.strip() for name in webhook_name.split(",")]
-                logger.info(f"🔍 Webhook name contains multiple values: {webhook_names}")
-                
-                for name in webhook_names:
-                    for webhook in webhooks:
-                        registered_name = webhook.get("name", "")
-                        if registered_name == name:
-                            webhook_config = webhook
-                            logger.info(f"✅ Found matching webhook config from list: {name}")
-                            break
-                    if webhook_config:
-                        break
-            
-            # 여전히 찾지 못한 경우, 첫 번째 webhook 사용
-            if not webhook_config and webhooks:
-                webhook_config = webhooks[0]
-                logger.warning(f"⚠️ Webhook config not found for name: '{webhook_name}', using first available webhook: {webhook_config.get('name', 'Unknown')}")
-                response_messages.append(f"⚠️ 웹훅 '{webhook_name}' 설정을 찾을 수 없어 첫 번째 webhook 사용: {webhook_config.get('name', 'Unknown')}")
-            elif not webhook_config:
-                logger.error(f"❌ No webhook configs available at all")
-                response_messages.append(f"❌ 웹훅 설정을 찾을 수 없음: {webhook_name}")
-                continue
-            
-            # 웹훅 호출 실행
-            webhook_response = await self._execute_webhook_call(
-                webhook_config, "", current_state, scenario, memory
-            )
-            
-            if webhook_response is None:
-                logger.error(f"Webhook call failed for: {webhook_name}")
-                response_messages.append(f"❌ 웹훅 호출 실패: {webhook_name}")
-                continue
-            
-            # 웹훅 응답에서 memory 업데이트
-            response_memory = webhook_response.get("memorySlots", {})
-            if response_memory:
-                memory.update(response_memory)
-                logger.info(f"Memory updated from webhook response: {response_memory}")
-            
-            # NLU_INTENT 추출 및 memory에 문자열로 저장
-            nlu_intent = ""
-            if "NLU_INTENT" in response_memory:
-                nlu_intent_data = response_memory["NLU_INTENT"]
-                if isinstance(nlu_intent_data, dict) and "value" in nlu_intent_data:
-                    nlu_intent = nlu_intent_data["value"][0] if nlu_intent_data["value"] else ""
-                else:
-                    nlu_intent = str(nlu_intent_data)
-                
-                # memory에 문자열로 저장 (조건 평가에서 사용하기 위해)
-                memory["NLU_INTENT"] = nlu_intent
-            
-            logger.info(f"Extracted NLU_INTENT from webhook: {nlu_intent}")
-            response_messages.append(f"🔗 웹훅 호출 완료: {webhook_name} (NLU_INTENT = '{nlu_intent}')")
-        
-        # 웹훅 실행 후 조건 핸들러 확인
-        condition_handlers = current_dialog_state.get("conditionHandlers", [])
-        matched_condition = False
-        
-        # 먼저 True가 아닌 조건들을 확인
-        for handler in condition_handlers:
-            if not isinstance(handler, dict):
-                logger.warning(f"Handler is not a dict: {handler}")
-                continue
-                
-            condition = handler.get("conditionStatement", "")
-            
-            # True 조건은 맨 마지막에 체크 (fallback)
-            if condition.strip() == "True" or condition.strip() == '"True"':
-                continue
-                
-            # 조건 평가
-            if self._evaluate_condition(condition, memory):
-                target = handler.get("transitionTarget", {})
-                new_state = target.get("dialogState", current_state)
-                
-                transition = StateTransition(
-                    fromState=current_state,
-                    toState=new_state,
-                    reason=f"웹훅 조건 매칭: {condition}",
-                    conditionMet=True,
-                    handlerType="condition"
-                )
-                transitions.append(transition)
-                response_messages.append(f"✅ 조건 '{condition}' 매칭됨 → {new_state}")
-                matched_condition = True
-                break
-        
-        # 조건에 매칭되지 않으면 fallback (True 조건) 실행
-        if not matched_condition:
-            for handler in condition_handlers:
-                if not isinstance(handler, dict):
-                    logger.warning(f"Handler is not a dict: {handler}")
-                    continue
-                    
-                condition = handler.get("conditionStatement", "")
-                if condition.strip() == "True" or condition.strip() == '"True"':
-                    target = handler.get("transitionTarget", {})
-                    new_state = target.get("dialogState", current_state)
-                    
-                    transition = StateTransition(
-                        fromState=current_state,
-                        toState=new_state,
-                        reason="웹훅 조건 불일치 - fallback 실행",
-                        conditionMet=True,
-                        handlerType="condition"
-                    )
-                    transitions.append(transition)
-                    response_messages.append(f"❌ 조건 불일치 - fallback으로 {new_state}로 이동")
-                    break
-        
-        # Entry Action 실행 및 자동 전이 확인 (새로운 상태로 전이된 경우)
-        if new_state != current_state:
-            try:
-                logger.info(f"Executing entry action for transition: {current_state} -> {new_state}")
-                entry_response = self._execute_entry_action(scenario, new_state)
-                logger.info(f"Entry action completed: {entry_response}")
-                if entry_response:
-                    response_messages.append(entry_response)
-                
-                # Entry Action 실행 후 자동 전이 확인
-                auto_transition_result = await self._check_and_execute_auto_transitions(
-                    scenario, new_state, memory, response_messages
-                )
-                if auto_transition_result:
-                    new_state = auto_transition_result["new_state"]
-                    response_messages.extend(auto_transition_result["messages"])
-                    if auto_transition_result.get("transitions"):
-                        transitions.extend(auto_transition_result["transitions"])
-            except Exception as e:
-                logger.error(f"Error executing entry action: {e}")
-                response_messages.append(f"⚠️ Entry action 실행 중 에러: {str(e)}")
-        
-        # 상태 전이 후 자동으로 webhook 실행 (최종 전이까지 반복)
-        while True:
-            new_dialog_state = self._find_dialog_state(scenario, new_state)
-            if new_dialog_state:
-                webhook_actions = new_dialog_state.get("webhookActions", [])
-                if webhook_actions:
-                    logger.info(f"🔗 New state {new_state} has webhook actions - executing automatically")
-                    webhook_result = await self._handle_webhook_actions(
-                        new_state, new_dialog_state, scenario, memory
-                    )
-                    if webhook_result:
-                        final_new_state = webhook_result.get("new_state", new_state)
-                        webhook_messages = webhook_result.get("response", "").split("\n")
-                        response_messages.extend(webhook_messages)
-                        if final_new_state != new_state:
-                            try:
-                                final_entry_response = self._execute_entry_action(scenario, final_new_state)
-                                if final_entry_response:
-                                    response_messages.append(final_entry_response)
-                                final_auto_result = await self._check_and_execute_auto_transitions(
-                                    scenario, final_new_state, memory, response_messages
-                                )
-                                if final_auto_result:
-                                    final_new_state = final_auto_result["new_state"]
-                                    response_messages.extend(final_auto_result["messages"])
-                                    if final_auto_result.get("transitions"):
-                                        transitions.extend(final_auto_result["transitions"])
-                            except Exception as e:
-                                logger.error(f"Error executing final entry action: {e}")
-                                response_messages.append(f"⚠️ 최종 Entry action 실행 중 에러: {str(e)}")
-                        if final_new_state == new_state:
-                            break
-                        new_state = final_new_state
-                        continue
-            break
-        
-        # transitions 리스트 처리
-        try:
-            transition_dicts = []
-            for t in transitions:
-                if hasattr(t, 'dict'):
-                    transition_dicts.append(t.dict())
-                elif hasattr(t, 'model_dump'):
-                    transition_dicts.append(t.model_dump())
-                else:
-                    logger.warning(f"Transition object has no dict method: {t}")
-                    transition_dicts.append(str(t))
-        except Exception as e:
-            logger.error(f"Error processing transitions in _handle_webhook_actions: {e}")
-            transition_dicts = []
-        
-        return {
-            "new_state": new_state,
-            "response": "\n".join(response_messages),
-            "transitions": transition_dicts,
-            "intent": "WEBHOOK_PROCESSING",
-            "entities": {},
-            "memory": memory
-        }
-    
     async def _handle_normal_input(
         self,
         user_input: str,
@@ -445,8 +225,9 @@ class StateEngine:
         """일반 사용자 입력을 처리합니다."""
         
         # 1. NLU 결과 파싱 및 entity 메모리 저장
-        intent, entities = self._get_nlu_results(user_input, memory, scenario, current_state)
-        self._store_entities_to_memory(entities, memory)
+        intent, entities = self.nlu_processor.get_nlu_results(user_input, memory, scenario, current_state)
+        logger.info(f"[NLU] intent 추출 결과: {intent}, entities: {entities}")
+        self.memory_manager.store_entities_to_memory(entities, memory)
 
         webhook_actions = current_dialog_state.get("webhookActions", [])
         apicall_handlers = current_dialog_state.get("apicallHandlers", [])
@@ -460,7 +241,7 @@ class StateEngine:
         # 2. webhookAction이 있다면 실행
         if webhook_actions:
             logger.info(f"🔗 State {current_state} has webhook actions - executing webhook")
-            webhook_result = await self._handle_webhook_actions(
+            webhook_result = await self.webhook_handler.handle_webhook_actions(
                 current_state, current_dialog_state, scenario, memory
             )
             # webhook 성공 여부 판단 (new_state가 바뀌었거나, 에러가 없는 경우 성공으로 간주)
@@ -530,10 +311,10 @@ class StateEngine:
         """웹훅 실행 후 일반 사용자 입력을 처리합니다."""
         
         # 실제 NLU 결과 사용 (프론트엔드에서 받은 결과 우선)
-        intent, entities = self._get_nlu_results(user_input, memory, scenario, current_state)
+        intent, entities = self.nlu_processor.get_nlu_results(user_input, memory, scenario, current_state)
         
         # Entity를 메모리에 저장 (type:role 형태의 키로)
-        self._store_entities_to_memory(entities, memory)
+        self.memory_manager.store_entities_to_memory(entities, memory)
         
         transitions = []
         new_state = current_state
@@ -567,7 +348,7 @@ class StateEngine:
             if slot_filled_by_current_input:
                 # 슬롯이 채워진 경우 정상적인 슬롯 필링 처리
                 logger.info(f"🎰 Slot {waiting_slot} filled, processing slot filling")
-                slot_filling_result = self._process_slot_filling(
+                slot_filling_result = self.slot_filling_manager.process_slot_filling(
                     current_dialog_state, memory, scenario, current_state
                 )
                 
@@ -580,7 +361,7 @@ class StateEngine:
                     # 슬롯 필링이 완료되었는지 확인
                     if memory.get("SLOT_FILLING_COMPLETED"):
                         logger.info("🎰 Slot filling completed, clearing reprompt handlers")
-                        self._clear_reprompt_handlers(memory, current_state)
+                        self.reprompt_manager.clear_reprompt_handlers(memory, current_state)
             else:
                 # 슬롯이 채워지지 않았을 때 처리
                 if reprompt_just_registered:
@@ -620,7 +401,7 @@ class StateEngine:
                             break
                     
                     # 2. reprompt handler의 directive 실행
-                    no_match_result = self._handle_no_match_event(
+                    no_match_result = self.reprompt_manager.handle_no_match_event(
                         current_dialog_state, memory, scenario, current_state
                     )
                     if no_match_result:
@@ -631,7 +412,7 @@ class StateEngine:
                 new_state = current_state
         else:
             # 일반 처리: Slot Filling 상태인지 확인
-            slot_filling_result = self._process_slot_filling(
+            slot_filling_result = self.slot_filling_manager.process_slot_filling(
                 current_dialog_state, memory, scenario, current_state
             )
             
@@ -644,27 +425,31 @@ class StateEngine:
             else:
                 # 일반 Intent/Condition 처리
                 # 1. Intent Handler 확인
-                intent_transition = self._check_intent_handlers(
+                intent_transition = self.transition_manager.check_intent_handlers(
                     current_dialog_state, intent, memory
                 )
+                logger.info(f"[INTENT HANDLER] intent_transition: {intent_transition}")
                 if intent_transition:
                     transitions.append(intent_transition)
                     new_state = intent_transition.toState
+                    logger.info(f"[STATE] intent 매칭으로 new_state 변경: {new_state}")
                     response_messages.append(f"🎯 인텐트 '{intent}' 처리됨")
                 
                 # 2. Condition Handler 확인 (전이가 없었을 경우)
                 if not intent_transition:
-                    condition_transition = self._check_condition_handlers(
+                    condition_transition = self.transition_manager.check_condition_handlers(
                         current_dialog_state, memory
                     )
+                    logger.info(f"[CONDITION HANDLER] condition_transition: {condition_transition}")
                     if condition_transition:
                         transitions.append(condition_transition)
                         new_state = condition_transition.toState
+                        logger.info(f"[STATE] condition 매칭으로 new_state 변경: {new_state}")
                         response_messages.append(f"⚡ 조건 만족으로 전이")
                     else:
                         # 3. 매치되지 않은 경우 NO_MATCH_EVENT 처리
                         if intent == "NO_INTENT_FOUND" or not intent_transition:
-                            no_match_result = self._handle_no_match_event(
+                            no_match_result = self.reprompt_manager.handle_no_match_event(
                                 current_dialog_state, memory, scenario, current_state
                             )
                             if no_match_result:
@@ -674,11 +459,12 @@ class StateEngine:
         
         # 3. Entry Action 실행 및 자동 전이 확인 (새로운 상태로 전이된 경우)
         if new_state != current_state:
+            logger.info(f"[STATE] 상태 변경 감지: {current_state} -> {new_state}")
             # 상태가 변경되면 reprompt handler 해제
-            self._clear_reprompt_handlers(memory, current_state)
+            self.reprompt_manager.clear_reprompt_handlers(memory, current_state)
             
             # Entry Action 실행
-            entry_response = self._execute_entry_action(scenario, new_state)
+            entry_response = self.action_executor.execute_entry_action(scenario, new_state)
             if entry_response:
                 response_messages.append(entry_response)
             
@@ -687,6 +473,7 @@ class StateEngine:
                 scenario, new_state, memory, response_messages
             )
             if auto_transition_result:
+                logger.info(f"[AUTO TRANSITION] auto_transition_result: {auto_transition_result}")
                 new_state = auto_transition_result["new_state"]
                 response_messages.extend(auto_transition_result["messages"])
                 if auto_transition_result.get("transitions"):
@@ -720,22 +507,6 @@ class StateEngine:
             "memory": memory
         }
     
-    def _find_dialog_state(self, scenario: Dict[str, Any], state_name: str) -> Optional[Dict[str, Any]]:
-        """시나리오에서 특정 상태를 찾습니다."""
-        for plan in scenario.get("plan", []):
-            for dialog_state in plan.get("dialogState", []):
-                if dialog_state.get("name") == state_name:
-                    return dialog_state
-        return None
-    
-    def _clear_reprompt_handlers(self, memory: Dict[str, Any], current_state: str) -> None:
-        """reprompt handler 등록을 해제합니다."""
-        if memory.get("_WAITING_FOR_SLOT") or memory.get("_REPROMPT_HANDLERS"):
-            logger.info(f"🧹 Clearing reprompt handlers when leaving state: {current_state}")
-            memory.pop("_WAITING_FOR_SLOT", None)
-            memory.pop("_REPROMPT_HANDLERS", None)
-            memory.pop("_REPROMPT_JUST_REGISTERED", None)
-    
     async def _check_and_execute_auto_transitions(
         self,
         scenario: Dict[str, Any],
@@ -746,7 +517,7 @@ class StateEngine:
         """Entry Action 실행 후 자동 전이가 가능한지 확인하고 실행합니다."""
         
         # 현재 상태 정보 가져오기
-        current_dialog_state = self._find_dialog_state(scenario, current_state)
+        current_dialog_state = self.scenario_manager.find_dialog_state(scenario, current_state)
         if not current_dialog_state:
             return None
         
@@ -756,7 +527,7 @@ class StateEngine:
         # 1. webhook이 있으면 webhook만 실행 (성공 시 apicall은 실행하지 않음)
         if webhook_actions:
             logger.info(f"State {current_state} has webhook actions - executing webhook first (apicall will be skipped if webhook succeeds)")
-            webhook_result = await self._handle_webhook_actions(
+            webhook_result = await self.webhook_handler.handle_webhook_actions(
                 current_state, current_dialog_state, scenario, memory
             )
             if webhook_result:
@@ -764,9 +535,9 @@ class StateEngine:
                 webhook_messages = webhook_result.get("response", "").split("\n")
                 response_messages.extend(webhook_messages)
                 if new_state != current_state:
-                    new_dialog_state = self._find_dialog_state(scenario, new_state)
+                    new_dialog_state = self.scenario_manager.find_dialog_state(scenario, new_state)
                     if new_dialog_state:
-                        entry_response = self._execute_entry_action(scenario, new_state)
+                        entry_response = self.action_executor.execute_entry_action(scenario, new_state)
                         if entry_response:
                             response_messages.append(entry_response)
                         max_depth = 10
@@ -802,9 +573,9 @@ class StateEngine:
                 apicall_messages = apicall_result.get("response", "").split("\n")
                 response_messages.extend(apicall_messages)
                 if new_state != current_state:
-                    new_dialog_state = self._find_dialog_state(scenario, new_state)
+                    new_dialog_state = self.scenario_manager.find_dialog_state(scenario, new_state)
                     if new_dialog_state:
-                        entry_response = self._execute_entry_action(scenario, new_state)
+                        entry_response = self.action_executor.execute_entry_action(scenario, new_state)
                         if entry_response:
                             response_messages.append(entry_response)
                         max_depth = 10
@@ -851,7 +622,7 @@ class StateEngine:
                 logger.info(f"Auto condition transition found: {current_state} -> {new_state}")
                 break
             else:
-                if self._evaluate_condition(condition, memory):
+                if self.transition_manager.evaluate_condition(condition, memory):
                     target = handler.get("transitionTarget", {})
                     new_state = target.get("dialogState", current_state)
                     transition = StateTransition(
@@ -867,7 +638,7 @@ class StateEngine:
         if auto_transitions:
             first_transition = auto_transitions[0]
             new_state = first_transition.toState
-            entry_response = self._execute_entry_action(scenario, new_state)
+            entry_response = self.action_executor.execute_entry_action(scenario, new_state)
             if entry_response:
                 response_messages.append(entry_response)
             max_depth = 10
@@ -900,150 +671,6 @@ class StateEngine:
             }
         return None
     
-    def _store_entities_to_memory(self, entities: Dict[str, Any], memory: Dict[str, Any]) -> None:
-        """Entity를 메모리에 type:role 형태의 키로 저장합니다."""
-        if not entities:
-            return
-        
-        logger.info(f"🏷️ Storing entities to memory: {entities}")
-        
-        # NLU 결과에서 받은 entities 처리
-        if "NLU_RESULT" in memory:
-            nlu_result = memory.get("NLU_RESULT", {})
-            results = nlu_result.get("results", [])
-            if results and len(results) > 0:
-                nlu_nbest = results[0].get("nluNbest", [])
-                if nlu_nbest and len(nlu_nbest) > 0:
-                    nlu_entities = nlu_nbest[0].get("entities", [])
-                    for entity in nlu_entities:
-                        if isinstance(entity, dict):
-                            entity_type = entity.get("type", "")
-                            entity_text = entity.get("text", "")
-                            entity_role = entity.get("role", "")
-                            
-                            if entity_type and entity_text:
-                                # role이 있으면 type:role, 없으면 type:type 형태로 저장
-                                if entity_role:
-                                    key = f"{entity_type}:{entity_role}"
-                                else:
-                                    key = f"{entity_type}:{entity_type}"
-                                
-                                memory[key] = entity_text
-                                memory[entity_type] = entity_text  # 기존 호환성을 위해 type만으로도 저장
-                                logger.info(f"🏷️ Entity stored: {key} = {entity_text}")
-        
-        # 기존 방식 entities도 처리
-        for entity_type, entity_value in entities.items():
-            if entity_type and entity_value:
-                key = f"{entity_type}:{entity_type}"
-                memory[key] = entity_value
-                memory[entity_type] = entity_value
-                logger.info(f"🏷️ Legacy entity stored: {key} = {entity_value}")
-    
-    def _process_slot_filling(
-        self, 
-        current_dialog_state: Dict[str, Any], 
-        memory: Dict[str, Any],
-        scenario: Dict[str, Any],
-        current_state: str
-    ) -> Optional[Dict[str, Any]]:
-        """복잡한 Slot Filling 로직을 처리합니다."""
-        
-        slot_filling_forms = current_dialog_state.get("slotFillingForm", [])
-        if not slot_filling_forms:
-            return None
-        
-        logger.info(f"🎰 Processing slot filling forms: {len(slot_filling_forms)} forms found")
-        
-        messages = []
-        all_required_filled = True
-        reprompt_just_registered = memory.get("_REPROMPT_JUST_REGISTERED", False)
-        
-        for form in slot_filling_forms:
-            slot_name = form.get("name", "")
-            required = form.get("required", "N") == "Y"
-            memory_slot_keys = form.get("memorySlotKey", [])
-            fill_behavior = form.get("fillBehavior", {})
-            
-            logger.info(f"🎰 Checking slot: {slot_name}, required: {required}, keys: {memory_slot_keys}")
-            
-            # 메모리에서 슬롯 값 확인
-            slot_filled = False
-            slot_value = None
-            for memory_key in memory_slot_keys:
-                if memory_key in memory and memory[memory_key]:
-                    slot_filled = True
-                    slot_value = memory[memory_key]
-                    logger.info(f"🎰 Slot {slot_name} filled with key {memory_key}: {slot_value}")
-                    break
-            
-            if required and not slot_filled:
-                all_required_filled = False
-                logger.info(f"🎰 Required slot {slot_name} not filled")
-                
-                # 이미 reprompt handler가 등록되어 있고 방금 등록된 상태가 아니라면 건너뛰기
-                if memory.get("_WAITING_FOR_SLOT") == slot_name and not reprompt_just_registered:
-                    logger.info(f"🎰 Already waiting for slot {slot_name}, skipping prompt")
-                    return None
-                
-                # fillBehavior의 promptAction 실행
-                prompt_action = fill_behavior.get("promptAction", {})
-                if prompt_action:
-                    prompt_message = self._execute_prompt_action(prompt_action, memory)
-                    if prompt_message:
-                        messages.append(prompt_message)
-                
-                # reprompt event handlers 등록 (현재 상태에서 대기)
-                reprompt_handlers = fill_behavior.get("repromptEventHandlers", [])
-                if reprompt_handlers:
-                    logger.info(f"🎰 Registering reprompt handlers for slot {slot_name}")
-                    # 여기서는 NO_MATCH_EVENT 처리를 위해 메모리에 상태 저장
-                    memory["_WAITING_FOR_SLOT"] = slot_name
-                    memory["_REPROMPT_HANDLERS"] = reprompt_handlers
-                    memory["_REPROMPT_JUST_REGISTERED"] = True
-                
-                return {
-                    "new_state": current_state,  # 현재 상태에서 대기
-                    "messages": messages,
-                    "transition": None
-                }
-            elif slot_filled and memory.get("_WAITING_FOR_SLOT") == slot_name:
-                # 슬롯이 방금 채워진 경우
-                logger.info(f"🎰 Slot {slot_name} just filled, clearing waiting state")
-                memory.pop("_WAITING_FOR_SLOT", None)
-                memory.pop("_REPROMPT_HANDLERS", None)
-                memory.pop("_REPROMPT_JUST_REGISTERED", None)
-        
-        # reprompt 방금 등록된 플래그 제거
-        if reprompt_just_registered:
-            memory.pop("_REPROMPT_JUST_REGISTERED", None)
-        
-        # 모든 필수 슬롯이 채워진 경우
-        if all_required_filled:
-            logger.info("🎰 All required slots filled, setting SLOT_FILLING_COMPLETED")
-            memory["SLOT_FILLING_COMPLETED"] = ""
-            
-            # 대기 상태 정리
-            memory.pop("_WAITING_FOR_SLOT", None)
-            memory.pop("_REPROMPT_HANDLERS", None)
-            memory.pop("_REPROMPT_JUST_REGISTERED", None)
-            
-            # 조건 핸들러 확인
-            condition_transition = self._check_condition_handlers(current_dialog_state, memory)
-            if condition_transition:
-                logger.info(f"🎰 Slot filling completed, transitioning to: {condition_transition.toState}")
-                return {
-                    "new_state": condition_transition.toState,
-                    "messages": messages,
-                    "transition": condition_transition
-                }
-        
-        return {
-            "new_state": current_state,
-            "messages": messages,
-            "transition": None
-        }
-    
     def _execute_prompt_action(self, action: Dict[str, Any], memory: Dict[str, Any]) -> Optional[str]:
         """Prompt action을 실행합니다."""
         directives = action.get("directives", [])
@@ -1070,98 +697,6 @@ class StateEngine:
         
         return None
 
-    def create_chatbot_response(
-        self,
-        new_state: str,
-        response_messages: List[str],
-        intent: str,
-        entities: Dict[str, Any],
-        memory: Dict[str, Any],
-        scenario: Dict[str, Any],
-        used_slots: Optional[List[Dict[str, str]]] = None,
-        event_type: Optional[str] = None
-    ) -> ChatbotResponse:
-        """새로운 챗봇 응답 포맷을 생성합니다."""
-        
-        # 세션 종료 여부 확인
-        end_session = "Y" if new_state == "__END_SESSION__" else "N"
-        
-        # Directives 생성
-        directives = []
-        for message in response_messages:
-            if message.strip():
-                directive_content = DirectiveContent(
-                    item=[
-                        {
-                            "section": {
-                                "class": "cb-section section_1",
-                                "item": [
-                                    {
-                                        "text": {
-                                            "class": "cb-text text",
-                                            "text": f"<p>{message}</p>"
-                                        }
-                                    }
-                                ]
-                            }
-                        }
-                    ]
-                )
-                directives.append(ChatbotDirective(content=directive_content))
-        
-        # Used slots 생성
-        used_slots_list = []
-        if used_slots:
-            for slot in used_slots:
-                used_slots_list.append(UsedSlot(
-                    key=slot.get("key", ""),
-                    value=slot.get("value", ""),
-                    turn=slot.get("turn", "")
-                ))
-        
-        # Intent 추가
-        if intent and intent != "NO_INTENT_FOUND":
-            used_slots_list.append(UsedSlot(
-                key="__NLU_INTENT__",
-                value=intent,
-                turn=""
-            ))
-        
-        # Event 추가
-        if event_type:
-            used_slots_list.append(UsedSlot(
-                key="EVENT_TYPE",
-                value=event_type,
-                turn=""
-            ))
-        
-        # 시나리오 이름 추출
-        scenario_name = ""
-        if scenario and "plan" in scenario:
-            plans = scenario["plan"]
-            if plans and len(plans) > 0:
-                scenario_name = plans[0].get("name", "")
-        
-        # Meta 정보 생성
-        meta = ResponseMeta(
-            intent=[intent] if intent and intent != "NO_INTENT_FOUND" else [""],
-            event={"type": event_type} if event_type else {},
-            scenario=scenario_name,
-            dialogState=new_state,
-            fallbackType="not_fallback",
-            usedSlots=used_slots_list,
-            allowFocusShift="Y"
-        )
-        
-        return ChatbotResponse(
-            endSession=end_session,
-            error=ErrorInfo(),
-            directives=directives,
-            dialogResult={},
-            meta=meta,
-            log={}
-        )
-    
     def _extract_text_from_custom_payload(self, content: Dict[str, Any]) -> Optional[str]:
         """customPayload에서 텍스트를 추출합니다."""
         try:
@@ -1185,409 +720,6 @@ class StateEngine:
             logger.warning(f"Error extracting text from custom payload: {e}")
             return None
     
-    def _get_nlu_results(self, user_input: str, memory: Dict[str, Any], scenario: Optional[Dict[str, Any]] = None, current_state: str = "") -> Tuple[str, Dict[str, Any]]:
-        """실제 NLU 결과를 가져오거나 시뮬레이션을 사용합니다."""
-        
-        # 메모리에서 NLU 결과 확인 (프론트엔드에서 받은 실제 결과)
-        nlu_result = memory.get("NLU_RESULT")
-        if nlu_result and isinstance(nlu_result, dict):
-            try:
-                # NLU 결과에서 intent와 entities 추출
-                results = nlu_result.get("results", [])
-                if results and len(results) > 0:
-                    nlu_nbest = results[0].get("nluNbest", [])
-                    if nlu_nbest and len(nlu_nbest) > 0:
-                        first_result = nlu_nbest[0]
-                        base_intent = first_result.get("intent", "Fallback.Unknown")
-                        
-                        # 엔티티 추출
-                        entities = {}
-                        nlu_entities = first_result.get("entities", [])
-                        for entity in nlu_entities:
-                            if isinstance(entity, dict):
-                                entity_type = entity.get("type", "")
-                                entity_text = entity.get("text", "")
-                                if entity_type and entity_text:
-                                    entities[entity_type] = entity_text
-                        
-                        # DM Intent 매핑 적용
-                        final_intent = self._apply_dm_intent_mapping(base_intent, current_state, memory, scenario)
-                        
-                        logger.info(f"🧠 NLU result: base_intent='{base_intent}', final_intent='{final_intent}', entities={entities}")
-                        return final_intent, entities
-            except Exception as e:
-                logger.warning(f"Error parsing NLU result: {e}")
-        
-        # NLU 결과가 없으면 기본값 반환 (시뮬레이션 제거)
-        logger.info("⚠️ No NLU result found, returning default values")
-        return "NO_INTENT_FOUND", {}
-
-
-
-    def _apply_dm_intent_mapping(self, base_intent: str, current_state: str, memory: Dict[str, Any], scenario: Optional[Dict[str, Any]] = None) -> str:
-        """시나리오의 intentMapping을 적용하여 DM Intent를 결정합니다."""
-        
-        logger.info(f"🔍 DM Intent mapping - base_intent: {base_intent}, current_state: {current_state}")
-        logger.info(f"🔍 Current memory: {memory}")
-        
-        # 시나리오의 intentMapping과 글로벌 intentMapping을 결합
-        intent_mappings = []
-        
-        # 먼저 글로벌 Intent Mapping 추가
-        intent_mappings.extend(self.global_intent_mapping)
-        
-        # 그 다음 시나리오의 Intent Mapping 추가 (우선순위 높음)
-        if scenario:
-            intent_mappings.extend(scenario.get("intentMapping", []))
-        
-        logger.info(f"🔍 Found {len(intent_mappings)} total intent mappings (global: {len(self.global_intent_mapping)}, scenario: {len(scenario.get('intentMapping', []) if scenario else [])})")
-        
-        for i, mapping in enumerate(intent_mappings):
-            try:
-                logger.info(f"🔍 Checking mapping {i+1}: {mapping}")
-                
-                # 시나리오와 상태 매칭 확인
-                mapping_scenario = mapping.get("scenario", "")
-                mapping_state = mapping.get("dialogState", "")
-                
-                logger.info(f"🔍 State check - mapping_state: {mapping_state}, current_state: {current_state}")
-                
-                if mapping_state and mapping_state != current_state:
-                    logger.info(f"🔍 State mismatch - skipping mapping {i+1}")
-                    continue
-                
-                # Intent 매칭 확인
-                mapped_intents = mapping.get("intents", [])
-                logger.info(f"🔍 Intent check - mapped_intents: {mapped_intents}, base_intent: {base_intent}")
-                
-                if base_intent not in mapped_intents:
-                    logger.info(f"🔍 Intent not in mapped list - skipping mapping {i+1}")
-                    continue
-                
-                # 조건 확인
-                condition_statement = mapping.get("conditionStatement", "")
-                logger.info(f"🔍 Condition check - condition: {condition_statement}")
-                
-                if condition_statement:
-                    condition_result = self._evaluate_condition(condition_statement, memory)
-                    logger.info(f"🔍 Condition result: {condition_result}")
-                    if not condition_result:
-                        logger.info(f"🔍 Condition not met - skipping mapping {i+1}")
-                        continue
-                
-                # 모든 조건이 만족되면 DM Intent 반환
-                dm_intent = mapping.get("dmIntent", "")
-                if dm_intent:
-                    logger.info(f"🎯 DM Intent mapping applied: {base_intent} -> {dm_intent} (state: {current_state})")
-                    return dm_intent
-                    
-            except Exception as e:
-                logger.warning(f"Error applying DM intent mapping: {e}")
-        
-        # 매핑이 없으면 원래 intent 반환
-        logger.info(f"🔍 No mapping found - returning original intent: {base_intent}")
-        return base_intent
-    
-    def _check_intent_handlers(
-        self, 
-        dialog_state: Dict[str, Any], 
-        intent: str, 
-        memory: Dict[str, Any]
-    ) -> Optional[StateTransition]:
-        """Intent Handler를 확인하고 전이를 처리합니다."""
-        
-        intent_handlers = dialog_state.get("intentHandlers", [])
-        
-        for handler in intent_handlers:
-            # handler가 딕셔너리인지 확인
-            if not isinstance(handler, dict):
-                logger.warning(f"Handler is not a dict: {handler}")
-                continue
-                
-            handler_intent = handler.get("intent")
-            
-            # 정확한 인텐트 매칭 또는 __ANY_INTENT__
-            if handler_intent == intent or handler_intent == "__ANY_INTENT__":
-                # Action 처리 (memoryActions 포함)
-                action = handler.get("action", {})
-                if action:
-                    self._execute_action(action, memory)
-                
-                target = handler.get("transitionTarget", {})
-                
-                return StateTransition(
-                    fromState=dialog_state.get("name", ""),
-                    toState=target.get("dialogState", ""),
-                    reason=f"인텐트 '{intent}' 매칭",
-                    conditionMet=True,
-                    handlerType="intent"
-                )
-        
-                return None
-
-    def _execute_action(self, action: Dict[str, Any], memory: Dict[str, Any]) -> None:
-        """Action을 실행합니다 (memoryActions 포함)."""
-        try:
-            # Memory Actions 처리
-            memory_actions = action.get("memoryActions", [])
-            for memory_action in memory_actions:
-                if not isinstance(memory_action, dict):
-                    continue
-                
-                action_type = memory_action.get("actionType", "")
-                memory_slot_key = memory_action.get("memorySlotKey", "")
-                memory_slot_value = memory_action.get("memorySlotValue", "")
-                action_scope = memory_action.get("actionScope", "SESSION")
-                
-                if action_type == "ADD" and memory_slot_key:
-                    memory[memory_slot_key] = memory_slot_value
-                    logger.info(f"💾 Memory action executed: {memory_slot_key} = {memory_slot_value}")
-                elif action_type == "REMOVE" and memory_slot_key:
-                    if memory_slot_key in memory:
-                        del memory[memory_slot_key]
-                        logger.info(f"🗑️ Memory action executed: removed {memory_slot_key}")
-                
-            # 다른 Action 타입들도 여기에 추가 가능 (directives 등)
-            
-        except Exception as e:
-            logger.error(f"Error executing action: {e}")
-
-    def _check_condition_handlers(
-        self, 
-        dialog_state: Dict[str, Any], 
-        memory: Dict[str, Any]
-    ) -> Optional[StateTransition]:
-        """Condition Handler를 확인하고 전이를 처리합니다."""
-        
-        condition_handlers = dialog_state.get("conditionHandlers", [])
-        
-        for handler in condition_handlers:
-            # handler가 딕셔너리인지 확인
-            if not isinstance(handler, dict):
-                logger.warning(f"Handler is not a dict: {handler}")
-                continue
-                
-            condition = handler.get("conditionStatement", "")
-            
-            # 조건 평가
-            if self._evaluate_condition(condition, memory):
-                target = handler.get("transitionTarget", {})
-                
-                return StateTransition(
-                    fromState=dialog_state.get("name", ""),
-                    toState=target.get("dialogState", ""),
-                    reason=f"조건 '{condition}' 만족",
-                    conditionMet=True,
-                    handlerType="condition"
-                )
-        
-        return None
-    
-    def _evaluate_condition(self, condition: str, memory: Dict[str, Any]) -> bool:
-        """조건식을 평가합니다."""
-        try:
-            logger.info(f"🔍 Evaluating condition: '{condition}'")
-            logger.info(f"🔍 Available memory keys: {list(memory.keys())}")
-            logger.info(f"🔍 NLU_INTENT value in memory: {memory.get('NLU_INTENT', 'NOT_FOUND')} (type: {type(memory.get('NLU_INTENT', 'NOT_FOUND'))})")
-            
-            # 간단한 조건 평가
-            if condition.strip() == "True" or condition.strip() == '"True"':
-                logger.info(f"🔍 Condition is literal True")
-                return True
-            elif condition.strip() == "False" or condition.strip() == '"False"':
-                logger.info(f"🔍 Condition is literal False")
-                return False
-            elif condition == "SLOT_FILLING_COMPLETED":
-                # Slot filling 완료 조건 (예시)
-                result = memory.get("CITY") is not None
-                logger.info(f"🔍 SLOT_FILLING_COMPLETED check: {result}")
-                return result
-            
-            original_condition = condition
-            
-            # 메모리 변수 치환
-            for key, value in memory.items():
-                old_condition = condition
-                # {key} 형태 치환
-                pattern1 = "{" + key + "}"
-                condition = condition.replace(pattern1, f'"{value}"')
-                # {$key} 형태 치환 
-                pattern2 = "{$" + key + "}"
-                condition = condition.replace(pattern2, f'"{value}"')
-                # ${key} 형태 치환 (기존 형태도 지원)
-                pattern3 = "${" + key + "}"
-                condition = condition.replace(pattern3, f'"{value}"')
-                if old_condition != condition:
-                    logger.info(f"🔍 Replaced variable {key} (type: {type(value)}) with '{value}': '{old_condition}' -> '{condition}'")
-            
-            # NLU_INTENT 치환 (다양한 형태 지원) - 메모리 변수 치환에서 처리되지 않은 경우만
-            if "{$NLU_INTENT}" in condition or "{NLU_INTENT}" in condition:
-                nlu_intent_data = memory.get("NLU_INTENT", "")
-                
-                # NLU_INTENT가 배열 형태인 경우 첫 번째 값 사용
-                if isinstance(nlu_intent_data, dict) and "value" in nlu_intent_data:
-                    nlu_intent = nlu_intent_data["value"][0] if nlu_intent_data["value"] else ""
-                elif isinstance(nlu_intent_data, list) and nlu_intent_data:
-                    nlu_intent = nlu_intent_data[0]
-                else:
-                    nlu_intent = str(nlu_intent_data)
-                
-                old_condition = condition
-                condition = condition.replace("{$NLU_INTENT}", f'"{nlu_intent}"')
-                condition = condition.replace("{NLU_INTENT}", f'"{nlu_intent}"')
-                logger.info(f"🔍 Replaced NLU_INTENT with '{nlu_intent}': '{old_condition}' -> '{condition}'")
-            
-            logger.info(f"🔍 Final condition after substitution: '{condition}'")
-            
-            # 간단한 비교 연산 처리
-            if "==" in condition:
-                left, right = condition.split("==", 1)
-                left = left.strip().strip('"')
-                right = right.strip().strip('"')
-                result = left == right
-                logger.info(f"🔍 Condition evaluation: '{left}' == '{right}' -> {result}")
-                return result
-            
-            logger.warning(f"🔍 Unsupported condition format: '{condition}'")
-            return False
-            
-        except Exception as e:
-            logger.error(f"🔍 Condition evaluation error: {e}")
-            return False
-    
-    def _execute_entry_action(self, scenario: Dict[str, Any], state_name: str) -> Optional[str]:
-        """새로운 상태의 Entry Action을 실행합니다."""
-        logger.info(f"Executing entry action for state: {state_name}")
-        
-        dialog_state = self._find_dialog_state(scenario, state_name)
-        if not dialog_state:
-            logger.info(f"Dialog state not found: {state_name}")
-            return None
-        
-        logger.info(f"Found dialog state: {dialog_state}")
-        
-        entry_action = dialog_state.get("entryAction")
-        if not entry_action:
-            logger.info(f"No entry action for state: {state_name}")
-            return None
-        
-        logger.info(f"Entry action: {entry_action}, type: {type(entry_action)}")
-        
-        # entry_action이 딕셔너리인지 확인
-        if not isinstance(entry_action, dict):
-            logger.warning(f"Entry action is not a dict: {entry_action}")
-            return None
-        
-        # Directive 처리 (메시지 추출)
-        directives = entry_action.get("directives", [])
-        logger.info(f"Directives: {directives}")
-        messages = []
-        
-        for directive in directives:
-            logger.info(f"Processing directive: {directive}, type: {type(directive)}")
-            
-            if not isinstance(directive, dict):
-                logger.warning(f"Directive is not a dict: {directive}")
-                continue
-            
-            content = directive.get("content", {})
-            logger.info(f"Content: {content}, type: {type(content)}")
-            
-            if not isinstance(content, dict):
-                logger.warning(f"Content is not a dict: {content}")
-                continue
-            
-            items = content.get("item", [])
-            logger.info(f"Items: {items}")
-            
-            for item in items:
-                logger.info(f"Processing item: {item}, type: {type(item)}")
-                
-                if not isinstance(item, dict):
-                    logger.warning(f"Item is not a dict: {item}")
-                    continue
-                
-                section = item.get("section", {})
-                logger.info(f"Section: {section}, type: {type(section)}")
-                
-                if not isinstance(section, dict):
-                    logger.warning(f"Section is not a dict: {section}")
-                    continue
-                
-                section_items = section.get("item", [])
-                logger.info(f"Section items: {section_items}")
-                
-                for section_item in section_items:
-                    logger.info(f"Processing section item: {section_item}, type: {type(section_item)}")
-                    
-                    if not isinstance(section_item, dict):
-                        logger.warning(f"Section item is not a dict: {section_item}")
-                        continue
-                    
-                    text_data = section_item.get("text", {})
-                    logger.info(f"Text data: {text_data}, type: {type(text_data)}")
-                    
-                    if not isinstance(text_data, dict):
-                        logger.warning(f"Text data is not a dict: {text_data}")
-                        continue
-                    
-                    text_content = text_data.get("text", "")
-                    logger.info(f"Text content: {text_content}")
-                    
-                    if text_content:
-                        # HTML 태그 제거
-                        import re
-                        clean_text = re.sub(r'<[^>]+>', '', text_content)
-                        messages.append(clean_text)
-        
-        result = f"🤖 {'; '.join(messages)}" if messages else None
-        logger.info(f"Entry action result: {result}")
-        return result
-    
-    def _handle_no_match_event(
-        self, 
-        current_dialog_state: Dict[str, Any],
-        memory: Dict[str, Any],
-        scenario: Dict[str, Any],
-        current_state: str
-    ) -> Optional[Dict[str, Any]]:
-        """NO_MATCH_EVENT를 처리합니다 (reprompt handler)."""
-        
-        # 슬롯 대기 중인지 확인
-        waiting_slot = memory.get("_WAITING_FOR_SLOT")
-        reprompt_handlers = memory.get("_REPROMPT_HANDLERS", [])
-        
-        if not waiting_slot or not reprompt_handlers:
-            return None
-        
-        logger.info(f"🔄 Handling NO_MATCH_EVENT for slot: {waiting_slot}")
-        
-        # reprompt event handler 찾기
-        for handler in reprompt_handlers:
-            event = handler.get("event", {})
-            if event.get("type") == "NO_MATCH_EVENT":
-                action = handler.get("action", {})
-                
-                # action의 directive 실행
-                action_message = None
-                if action.get("directives"):
-                    action_message = self._execute_prompt_action(action, memory)
-                
-                # transition target 확인
-                transition_target = handler.get("transitionTarget", {})
-                target_state = transition_target.get("dialogState", "__CURRENT_DIALOG_STATE__")
-                
-                if target_state == "__CURRENT_DIALOG_STATE__":
-                    target_state = current_state
-                
-                return {
-                    "new_state": target_state,
-                    "messages": [action_message] if action_message else [],
-                    "transition": None
-                }
-        
-        return None
-
     async def _handle_event_trigger(
         self,
         event_type: str,
@@ -1663,7 +795,7 @@ class StateEngine:
         if new_state != current_state:
             try:
                 logger.info(f"Executing entry action for transition: {current_state} -> {new_state}")
-                entry_response = self._execute_entry_action(scenario, new_state)
+                entry_response = self.action_executor.execute_entry_action(scenario, new_state)
                 logger.info(f"Entry action completed: {entry_response}")
                 if entry_response:
                     response_messages.append(entry_response)
@@ -1753,7 +885,7 @@ class StateEngine:
                 logger.info(f"📋 Memory before API call: {memory}")
                 
                 # API 응답 가져오기
-                response_data = await self._execute_api_call(apicall_config, memory)
+                response_data = await self.apicall_handler.execute_api_call(apicall_config, memory)
                 if response_data is None:
                     logger.warning(f"API call failed for handler: {handler}")
                     continue
@@ -1794,16 +926,16 @@ class StateEngine:
                         logger.warning(f"Condition handler is not a dict: {cond_handler}")
                         continue
                         
-                    condition = cond_handler.get("conditionStatement", "")
+                    condition_statement = cond_handler.get("conditionStatement", "")
                     
                     # True 조건은 맨 마지막에 체크 (fallback)
-                    if condition.strip() == "True" or condition.strip() == '"True"':
+                    if condition_statement.strip() == "True" or condition_statement.strip() == '"True"':
                         continue
                         
                     # 조건 평가
-                    logger.info(f"🔍 Evaluating condition: '{condition}' with memory: {memory}")
+                    logger.info(f"🔍 Evaluating condition: '{condition_statement}' with memory: {memory}")
                     logger.info(f"🔍 NLU_INTENT in memory: {memory.get('NLU_INTENT', 'NOT_FOUND')}")
-                    condition_result = self._evaluate_condition(condition, memory)
+                    condition_result = self.transition_manager.evaluate_condition(condition_statement, memory)
                     logger.info(f"🔍 Condition result: {condition_result}")
                     
                     if condition_result:
@@ -1813,12 +945,12 @@ class StateEngine:
                         transition = StateTransition(
                             fromState=current_state,
                             toState=new_state,
-                            reason=f"API Call + 조건 매칭: {condition}",
+                            reason=f"API Call + 조건 매칭: {condition_statement}",
                             conditionMet=True,
                             handlerType="apicall_condition"
                         )
                         transitions.append(transition)
-                        response_messages.append(f"✅ 조건 '{condition}' 매칭됨 → {new_state}")
+                        response_messages.append(f"✅ 조건 '{condition_statement}' 매칭됨 → {new_state}")
                         matched_condition = True
                         break
                 
@@ -1829,8 +961,8 @@ class StateEngine:
                             logger.warning(f"Condition handler is not a dict: {cond_handler}")
                             continue
                             
-                        condition = cond_handler.get("conditionStatement", "")
-                        if condition.strip() == "True" or condition.strip() == '"True"':
+                        condition_statement = cond_handler.get("conditionStatement", "")
+                        if condition_statement.strip() == "True" or condition_statement.strip() == '"True"':
                             cond_target = cond_handler.get("transitionTarget", {})
                             new_state = cond_target.get("dialogState", current_state)
                             
@@ -1855,7 +987,7 @@ class StateEngine:
                 if new_state != current_state:
                     try:
                         logger.info(f"Executing entry action for transition: {current_state} -> {new_state}")
-                        entry_response = self._execute_entry_action(scenario, new_state)
+                        entry_response = self.action_executor.execute_entry_action(scenario, new_state)
                         logger.info(f"Entry action completed: {entry_response}")
                         if entry_response:
                             response_messages.append(entry_response)
@@ -2159,13 +1291,13 @@ class StateEngine:
                     raw_value = matches[0].value
                     
                     # 값 정규화 및 변환
-                    processed_value = self._normalize_response_value(raw_value)
+                    processed_value = utils.normalize_response_value(raw_value)
                     
                     memory[memory_key] = processed_value
                     logger.info(f"✅ Mapped {memory_key} <- {jsonpath_expr}: {processed_value} (raw: {raw_value})")
                 else:
                     logger.warning(f"❌ No matches found for JSONPath: {jsonpath_expr}")
-                    logger.info(f"🔍 Available paths in response: {self._get_all_paths(response_data)}")
+                    logger.info(f"🔍 Available paths in response: {utils.get_all_paths(response_data)}")
                     
             except Exception as e:
                 logger.error(f"❌ Error processing JSONPath {jsonpath_expr}: {e}")
@@ -2232,3 +1364,6 @@ class StateEngine:
             paths.append(path)
         
         return paths 
+
+    def create_chatbot_response(self, *args, **kwargs):
+        return self.chatbot_response_factory.create_chatbot_response(*args, **kwargs) 
