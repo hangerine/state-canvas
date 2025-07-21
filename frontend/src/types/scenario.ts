@@ -137,6 +137,11 @@ export interface ApiCall {
   formats: ApiCallFormats;
 }
 
+// [추가] 이름이 포함된 글로벌 ApiCall 타입
+export interface ApiCallWithName extends ApiCall {
+  name: string;
+}
+
 export interface ApiCallHandler {
   name: string;
   apicall: ApiCall;
@@ -214,6 +219,8 @@ export interface Scenario {
   multiIntentMapping: any[];
   handlerGroups: any[];
   webhooks: Webhook[];
+  // [추가] 글로벌 apicall 목록
+  apicalls?: ApiCallWithName[];
   dialogResult: string;
 }
 

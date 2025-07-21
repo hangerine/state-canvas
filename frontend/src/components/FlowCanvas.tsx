@@ -884,6 +884,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
         onClose={() => setEditingNode(null)}
         onSave={handleNodeEditSave}
         availableWebhooks={scenario?.webhooks || []}
+        availableApiCalls={scenario?.apicalls || []}
       />
 
       {/* 연결 편집 모달 */}

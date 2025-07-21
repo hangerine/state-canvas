@@ -25,7 +25,7 @@ import {
   Delete as DeleteIcon,
   ExpandMore as ExpandMoreIcon,
 } from '@mui/icons-material';
-import { DialogState, ConditionHandler, IntentHandler, EventHandler, ApiCallHandler, Webhook } from '../types/scenario';
+import { DialogState, ConditionHandler, IntentHandler, EventHandler, ApiCallHandler, Webhook, ApiCallWithName } from '../types/scenario';
 
 interface NodeEditModalProps {
   open: boolean;
@@ -33,6 +33,7 @@ interface NodeEditModalProps {
   onClose: () => void;
   onSave: (updatedDialogState: DialogState) => void;
   availableWebhooks?: Webhook[];
+  availableApiCalls?: ApiCallWithName[];
 }
 
 const NodeEditModal: React.FC<NodeEditModalProps> = ({
@@ -41,6 +42,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
   onClose,
   onSave,
   availableWebhooks = [],
+  availableApiCalls = [],
 }) => {
   const [editedState, setEditedState] = useState<DialogState | null>(null);
 
@@ -649,6 +651,28 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
               ...handler.apicall, 
               formats: { ...handler.apicall.formats, headers: value } 
             } 
+          };
+        } else if (field === 'responseMappings') {
+          return {
+            ...handler,
+            apicall: {
+              ...handler.apicall,
+              formats: {
+                ...handler.apicall.formats,
+                responseMappings: value
+              }
+            }
+          };
+        } else if (field === 'responseSchema') {
+          return {
+            ...handler,
+            apicall: {
+              ...handler.apicall,
+              formats: {
+                ...handler.apicall.formats,
+                responseSchema: value
+              }
+            }
           };
         } else if (field === 'transitionTarget') {
           return { ...handler, transitionTarget: { ...handler.transitionTarget, dialogState: value } };
@@ -1352,23 +1376,91 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                       </IconButton>
                     </Box>
                     
-                    <TextField
-                      label="핸들러 이름"
-                      value={handler.name}
-                      onChange={(e) => updateApiCallHandler(index, 'name', e.target.value)}
-                      fullWidth
-                      sx={{ mb: 1 }}
-                    />
-                    
+                    {/* 글로벌 API Call 선택 드롭다운 */}
+                    <FormControl fullWidth sx={{ mb: 1 }}>
+                      <InputLabel>API Call 선택</InputLabel>
+                      <Select
+                        value={(() => {
+                          // handler.name이 apicall 목록에 없으면 ''로 처리
+                          if (!handler.name) return '';
+                          const found = availableApiCalls.find(a => a.name === handler.name);
+                          return found ? found.name : '';
+                        })()}
+                        label="API Call 선택"
+                        onChange={e => {
+                          const selected = availableApiCalls.find(a => a.name === e.target.value);
+                          setEditedState(prev => {
+                            if (!prev) return prev;
+                            const updatedHandlers = (prev.apicallHandlers || []).map((h, i) => {
+                              if (i !== index) return h;
+                              if (selected) {
+                                return {
+                                  ...h,
+                                  name: selected.name,
+                                  apicall: {
+                                    ...h.apicall,
+                                    url: selected.url,
+                                    timeout: selected.timeout,
+                                    retry: selected.retry,
+                                    formats: {
+                                      ...h.apicall.formats,
+                                      method: selected.formats.method,
+                                      requestTemplate: selected.formats.requestTemplate || '',
+                                      headers: selected.formats.headers || {},
+                                    }
+                                  }
+                                };
+                              } else {
+                                // 선택 해제 시 빈 값으로 초기화
+                                return {
+                                  ...h,
+                                  name: '',
+                                  apicall: {
+                                    ...h.apicall,
+                                    url: '',
+                                  }
+                                };
+                              }
+                            });
+                            return { ...prev, apicallHandlers: updatedHandlers };
+                          });
+                        }}
+                        displayEmpty
+                        renderValue={selected => {
+                          if (!selected) return <span style={{ color: '#aaa' }}>API Call을 선택하세요</span>;
+                          return selected;
+                        }}
+                      >
+                        <MenuItem value="">
+                          <em>API Call을 선택하세요</em>
+                        </MenuItem>
+                        {availableApiCalls.map((apicall) => (
+                          <MenuItem key={apicall.name} value={apicall.name}>
+                            <Box>
+                              <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{apicall.name}</Typography>
+                              <Typography variant="caption" sx={{ color: 'text.secondary' }}>{apicall.url}</Typography>
+                              <Typography variant="caption" sx={{ color: 'text.secondary', ml: 1 }}>method: {apicall.formats.method}</Typography>
+                            </Box>
+                          </MenuItem>
+                        ))}
+                        {availableApiCalls.length === 0 && (
+                          <MenuItem value="NEW_APICALL" disabled>
+                            -- API Call이 없습니다 (외부 연동 관리 탭에서 등록) --
+                          </MenuItem>
+                        )}
+                      </Select>
+                    </FormControl>
+
+                    {/* url만 readonly, 나머지는 기존 편집 UI 복원 */}
                     <TextField
                       label="URL"
                       value={handler.apicall.url}
-                      onChange={(e) => updateApiCallHandler(index, 'url', e.target.value)}
                       fullWidth
                       sx={{ mb: 1 }}
+                      InputProps={{ readOnly: true }}
                       placeholder="http://example.com/api/endpoint"
                     />
-                    
+
                     <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
                       <FormControl sx={{ minWidth: 120 }}>
                         <InputLabel>Method</InputLabel>
@@ -1384,7 +1476,6 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                           <MenuItem value="PATCH">PATCH</MenuItem>
                         </Select>
                       </FormControl>
-                      
                       <TextField
                         label="Timeout (ms)"
                         type="number"
@@ -1392,7 +1483,6 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                         onChange={(e) => updateApiCallHandler(index, 'timeout', e.target.value)}
                         sx={{ flex: 1 }}
                       />
-                      
                       <TextField
                         label="Retry"
                         type="number"
@@ -1401,7 +1491,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                         sx={{ flex: 1 }}
                       />
                     </Box>
-                    
+
                     <TextField
                       label="Request Template"
                       value={handler.apicall.formats.requestTemplate || ''}
@@ -1414,12 +1504,11 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                       helperText="사용 가능한 변수: {{sessionId}}, {{requestId}}, {{USER_TEXT_INPUT.[0]}}, {{memorySlots.KEY.value.[0]}}, {{customKey}} 등"
                     />
 
-                    {/* Headers 설정 */}
+                    {/* Headers 설정 (기존 UI 복원) */}
                     <Box sx={{ mb: 1 }}>
                       <Typography variant="subtitle2" sx={{ mb: 1 }}>
                         HTTP Headers
                       </Typography>
-                      
                       {/* 기본 헤더 선택 */}
                       <Box sx={{ mb: 1 }}>
                         <Typography variant="caption" sx={{ display: 'block', mb: 0.5 }}>
@@ -1439,7 +1528,6 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                           ))}
                         </Box>
                       </Box>
-
                       {/* 현재 헤더 목록 */}
                       <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1, minHeight: 60, bgcolor: '#f9f9f9' }}>
                         {Object.entries(handler.apicall.formats.headers || {}).length === 0 ? (
@@ -1478,7 +1566,6 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                           </Grid>
                         )}
                       </Box>
-
                       {/* 커스텀 헤더 추가 */}
                       <Box sx={{ mt: 1, display: 'flex', gap: 1, alignItems: 'center' }}>
                         <TextField
@@ -1537,13 +1624,28 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                         </Button>
                       </Box>
                     </Box>
-                    
+
+                    <TextField
+                      label="Response Schema (JSON)"
+                      value={JSON.stringify(handler.apicall.formats.responseSchema || {}, null, 2)}
+                      onChange={(e) => {
+                        let parsed = {};
+                        try { parsed = JSON.parse(e.target.value); } catch {}
+                        updateApiCallHandler(index, 'responseSchema', parsed);
+                      }}
+                      multiline
+                      rows={3}
+                      fullWidth
+                      sx={{ mb: 1 }}
+                      placeholder='{"field1": "string", "field2": "number"}'
+                      helperText="API 응답의 스키마를 JSON 형식으로 입력하세요."
+                    />
+
                     <TextField
                       label="Response Mappings (JSON)"
                       value={getSafeResponseMappingString(index)}
                       onChange={(e) => {
                         const newStrings = [...responseMappingsStrings];
-                        // 배열 길이가 부족한 경우 확장
                         while (newStrings.length <= index) {
                           newStrings.push('{}');
                         }
@@ -1567,13 +1669,6 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                         }
                         return "JSONPath 표현식을 사용한 응답 매핑 (예: NLU_INTENT: $.nlu.intent)";
                       })()}
-                    />
-                    
-                    <TextField
-                      label="전이 대상 State"
-                      value={handler.transitionTarget.dialogState}
-                      onChange={(e) => updateApiCallHandler(index, 'transitionTarget', e.target.value)}
-                      fullWidth
                     />
                   </Box>
                 ))}

@@ -178,77 +178,6 @@ class StateEngine:
                     "transitions": []
                 }
             
-            # 이벤트 타입이 지정된 경우 이벤트 처리
-            if event_type:
-                return await self._handle_event_trigger(
-                    event_type, current_state, current_dialog_state, scenario, memory
-                )
-            
-            # Webhook이 있는 상태인지 확인
-            webhook_actions = current_dialog_state.get("webhookActions", [])
-            is_webhook_state = len(webhook_actions) > 0
-            
-            # 빈 입력일 경우 자동 전이 확인 (webhook 상태가 아닐 때만)
-            if not user_input.strip():
-                # 슬롯 필링 대기 중인지 확인
-                waiting_slot = memory.get("_WAITING_FOR_SLOT")
-                reprompt_handlers = memory.get("_REPROMPT_HANDLERS")
-                
-                if waiting_slot and reprompt_handlers:
-                    logger.info(f"🔄 Empty input while waiting for slot {waiting_slot}, triggering reprompt")
-                    no_match_result = self._handle_no_match_event(
-                        current_dialog_state, memory, scenario, current_state
-                    )
-                    if no_match_result:
-                        return {
-                            "new_state": no_match_result.get("new_state", current_state),
-                            "response": "\n".join(no_match_result.get("messages", [])),
-                            "transitions": [],
-                            "intent": "NO_MATCH_EVENT",
-                            "entities": {},
-                            "memory": memory
-                        }
-                
-                if is_webhook_state:
-                    logger.info(f"State {current_state} has webhooks - executing webhook actions automatically")
-                    return await self._handle_webhook_actions(
-                        current_state, current_dialog_state, scenario, memory
-                    )
-                else:
-                    # ApiCall Handler 확인 (webhook action이 있는 경우 제외)
-                    webhook_actions = current_dialog_state.get("webhookActions", [])
-                    if not webhook_actions:
-                        apicall_result = await self._handle_apicall_handlers(
-                            current_state, current_dialog_state, scenario, memory
-                        )
-                        if apicall_result:
-                            return apicall_result
-                    
-                    auto_transitions = self.check_auto_transitions(scenario, current_state, memory)
-                    if auto_transitions:
-                        first_transition = auto_transitions[0]
-                        new_state = first_transition.toState
-                        
-                        # Entry Action 실행
-                        entry_response = self._execute_entry_action(scenario, new_state)
-                        response_msg = entry_response or f"🚀 자동 전이: {current_state} → {new_state}"
-                        
-                        return {
-                            "new_state": new_state,
-                            "response": response_msg,
-                            "transitions": [t.dict() for t in auto_transitions],
-                            "intent": "AUTO_TRANSITION",
-                            "entities": {},
-                            "memory": memory
-                        }
-            
-            # Webhook 처리 확인
-            if is_webhook_state:
-                logger.info(f"Processing webhook actions for state: {current_state}")
-                return await self._handle_webhook_actions(
-                    current_state, current_dialog_state, scenario, memory
-                )
-            
             # 일반 입력 처리
             return await self._handle_normal_input(
                 user_input, current_state, current_dialog_state, scenario, memory
@@ -515,45 +444,80 @@ class StateEngine:
     ) -> Dict[str, Any]:
         """일반 사용자 입력을 처리합니다."""
         
-        # 웹훅 액션이 있는 상태에서는 웹훅을 먼저 실행
+        # 1. NLU 결과 파싱 및 entity 메모리 저장
+        intent, entities = self._get_nlu_results(user_input, memory, scenario, current_state)
+        self._store_entities_to_memory(entities, memory)
+
         webhook_actions = current_dialog_state.get("webhookActions", [])
+        apicall_handlers = current_dialog_state.get("apicallHandlers", [])
+        webhook_result = None
+        apicall_result = None
+        transitions = []
+        new_state = current_state
+        response_messages = []
+        webhook_success = False
+
+        # 2. webhookAction이 있다면 실행
         if webhook_actions:
-            logger.info(f"🔗 State {current_state} has webhook actions - executing webhook first")
+            logger.info(f"🔗 State {current_state} has webhook actions - executing webhook")
             webhook_result = await self._handle_webhook_actions(
                 current_state, current_dialog_state, scenario, memory
             )
-            
-            # 웹훅 실행 후 새로운 상태에서 intent/condition/event handler 처리
-            new_state_after_webhook = webhook_result.get("new_state", current_state)
-            new_dialog_state = self._find_dialog_state(scenario, new_state_after_webhook)
-            
-            if new_dialog_state:
-                # 새로운 상태에서 일반 입력 처리 (intent/condition/event handler)
-                logger.info(f"🔗 Processing intent/condition/event handlers after webhook execution")
-                normal_result = await self._handle_normal_input_after_webhook(
-                    user_input, new_state_after_webhook, new_dialog_state, scenario, memory
-                )
-                
-                # 웹훅 결과와 일반 처리 결과를 합침
-                combined_response = webhook_result.get("response", "") + "\n" + normal_result.get("response", "")
-                combined_transitions = webhook_result.get("transitions", []) + normal_result.get("transitions", [])
-                
-                return {
-                    "new_state": normal_result.get("new_state", new_state_after_webhook),
-                    "response": combined_response,
-                    "transitions": combined_transitions,
-                    "intent": normal_result.get("intent", "WEBHOOK_AND_NORMAL_PROCESSING"),
-                    "entities": normal_result.get("entities", {}),
-                    "memory": memory
-                }
+            # webhook 성공 여부 판단 (new_state가 바뀌었거나, 에러가 없는 경우 성공으로 간주)
+            if webhook_result and webhook_result.get("new_state", current_state) != current_state:
+                webhook_success = True
+            elif webhook_result and not webhook_result.get("error"):
+                webhook_success = True
             else:
-                # 새로운 상태를 찾을 수 없는 경우 웹훅 결과만 반환
-                return webhook_result
-        
-        # 웹훅 액션이 없는 경우 일반 처리
-        return await self._handle_normal_input_after_webhook(
-            user_input, current_state, current_dialog_state, scenario, memory
-        )
+                webhook_success = False
+
+        # 3. webhookAction & apicallHandler가 있다면: webhook 실패 시 apicallHandler 실행
+        if webhook_actions and apicall_handlers:
+            if not webhook_success:
+                logger.info(f"🔗 Webhook failed or no transition, executing apicall handler as fallback")
+                apicall_result = await self._handle_apicall_handlers(
+                    current_state, current_dialog_state, scenario, memory
+                )
+        # 4. webhookAction이 없고 apicallHandler만 있다면 apicallHandler 실행
+        elif not webhook_actions and apicall_handlers:
+            logger.info(f"🔗 State {current_state} has only apicall handlers - executing apicall handler")
+            apicall_result = await self._handle_apicall_handlers(
+                current_state, current_dialog_state, scenario, memory
+            )
+
+        # 결과 병합 및 후처리
+        # 우선순위: webhook_result > apicall_result > 일반 처리
+        result = None
+        if webhook_result and webhook_success:
+            # webhook 성공 시, 후처리(EntryAction, 자동전이 등)는 _handle_webhook_actions에서 이미 처리됨
+            result = webhook_result
+        elif apicall_result:
+            result = apicall_result
+        elif webhook_result:
+            # webhook 실패지만 apicall도 없을 때 fallback
+            result = webhook_result
+        else:
+            # webhook/apicall 모두 없는 경우 기존 일반 처리
+            result = await self._handle_normal_input_after_webhook(
+                user_input, current_state, current_dialog_state, scenario, memory
+            )
+
+        # entities, intent, memory 최신화
+        if result is not None:
+            result["entities"] = entities
+            result["intent"] = intent
+            result["memory"] = memory
+            return result
+        else:
+            # fallback
+            return {
+                "new_state": current_state,
+                "response": f"💬 '{user_input}' 입력이 처리되었습니다.",
+                "transitions": [],
+                "intent": intent,
+                "entities": entities,
+                "memory": memory
+            }
     
     async def _handle_normal_input_after_webhook(
         self,
