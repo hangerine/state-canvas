@@ -7,12 +7,14 @@ import uuid
 from typing import Dict, Any, Optional, List
 from models.scenario import StateTransition
 from services.base_handler import BaseHandler
+from services.transition_manager import TransitionManager
 
 logger = logging.getLogger(__name__)
 
 class WebhookHandler(BaseHandler):
-    def __init__(self, scenario_manager):
+    def __init__(self, scenario_manager, transition_manager=None):
         self.scenario_manager = scenario_manager
+        self.transition_manager = transition_manager or TransitionManager(scenario_manager)
 
     async def handle(self, current_state: str, current_dialog_state: Dict[str, Any], scenario: Dict[str, Any], memory: Dict[str, Any]) -> Dict[str, Any]:
         return await self.handle_webhook_actions(current_state, current_dialog_state, scenario, memory)
@@ -104,7 +106,7 @@ class WebhookHandler(BaseHandler):
             condition = handler.get("conditionStatement", "")
             if condition.strip() == "True" or condition.strip() == '"True"':
                 continue
-            if self.scenario_manager._evaluate_condition(condition, memory):
+            if self.transition_manager.evaluate_condition(condition, memory):
                 target = handler.get("transitionTarget", {})
                 new_state = target.get("dialogState", current_state)
                 transition = None

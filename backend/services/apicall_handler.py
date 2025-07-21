@@ -8,12 +8,14 @@ from typing import Dict, Any, Optional, List
 from services import utils
 from models.scenario import StateTransition
 from services.base_handler import BaseHandler
+from services.transition_manager import TransitionManager
 
 logger = logging.getLogger(__name__)
 
 class ApiCallHandler(BaseHandler):
-    def __init__(self, scenario_manager):
+    def __init__(self, scenario_manager, transition_manager=None):
         self.scenario_manager = scenario_manager
+        self.transition_manager = transition_manager or TransitionManager(scenario_manager)
 
     async def handle(self, current_state: str, current_dialog_state: Dict[str, Any], scenario: Dict[str, Any], memory: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return await self.handle_apicall_handlers(current_state, current_dialog_state, scenario, memory)
@@ -32,6 +34,7 @@ class ApiCallHandler(BaseHandler):
         if "sessionId" not in memory:
             memory["sessionId"] = str(uuid.uuid4())
             logger.info(f"🆔 Generated sessionId: {memory['sessionId']}")
+        new_state = current_state
         for handler in apicall_handlers:
             if not isinstance(handler, dict):
                 logger.warning(f"Apicall handler is not a dict: {handler}")
@@ -73,7 +76,7 @@ class ApiCallHandler(BaseHandler):
                         continue
                     logger.info(f"🔍 Evaluating condition: '{condition}' with memory: {memory}")
                     logger.info(f"🔍 NLU_INTENT in memory: {memory.get('NLU_INTENT', 'NOT_FOUND')}")
-                    condition_result = self.scenario_manager._evaluate_condition(condition, memory)
+                    condition_result = self.transition_manager.evaluate_condition(condition, memory)
                     logger.info(f"🔍 Condition result: {condition_result}")
                     if condition_result:
                         cond_target = cond_handler.get("transitionTarget", {})
