@@ -25,6 +25,7 @@ import {
   DialogActions,
   Grid,
   Switch,
+  FormControlLabel,
 } from '@mui/material';
 import { 
   ContentCopy as CopyIcon, 
@@ -859,14 +860,17 @@ const TestPanel: React.FC<TestPanelProps> = ({
         addMessage('system', '📤 JSON 요청을 전송합니다...');
         
         console.log('📤 JSON request:', JSON.stringify(requestData, null, 2));
-        const response = await axios.post('http://localhost:8000/api/process-chatbot-input', requestData);
-        
-        // 새로운 챗봇 응답 포맷 처리
+        let response;
+        if (proxyMode && proxyEndpoint.trim()) {
+          response = await axios.post('http://localhost:8000/api/proxy', {
+            endpoint: proxyEndpoint,
+            payload: requestData
+          });
+        } else {
+          response = await axios.post('http://localhost:8000/api/process-chatbot-input', requestData);
+        }
         handleChatbotResponse(response.data);
-        
-        // JSON 입력 성공 후 textarea 클리어
         setInputText('');
-        
       } catch (error) {
         if (error instanceof SyntaxError) {
           addMessage('system', '❌ JSON 파싱 오류: ' + error.message);
@@ -1004,8 +1008,14 @@ const TestPanel: React.FC<TestPanelProps> = ({
         scenario: scenario!
       };
 
-      console.log('📤 Generated chatbot request:', JSON.stringify(chatbotRequestData, null, 2));
-      response = await axios.post('http://localhost:8000/api/process-chatbot-input', chatbotRequestData);
+      if (proxyMode && proxyEndpoint.trim()) {
+        response = await axios.post('http://localhost:8000/api/proxy', {
+          endpoint: proxyEndpoint,
+          payload: chatbotRequestData
+        });
+      } else {
+        response = await axios.post('http://localhost:8000/api/process-chatbot-input', chatbotRequestData);
+      }
 
       // 새로운 챗봇 응답 포맷 처리
       handleChatbotResponse(response.data);
@@ -1520,6 +1530,9 @@ const TestPanel: React.FC<TestPanelProps> = ({
   //     addMessage('system', responseData.response);
   //   }
   // };
+
+  const [proxyMode, setProxyMode] = useState(false);
+  const [proxyEndpoint, setProxyEndpoint] = useState('');
 
   return (
     <Box
@@ -3223,6 +3236,30 @@ const TestPanel: React.FC<TestPanelProps> = ({
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* 프록시 모드 스위치와 endpoint 입력창 추가 */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+        <FormControlLabel
+          control={
+            <Switch
+              checked={proxyMode}
+              onChange={(_, checked) => setProxyMode(checked)}
+              color="primary"
+            />
+          }
+          label="프록시 모드"
+        />
+        {proxyMode && (
+          <TextField
+            size="small"
+            label="Proxy Endpoint"
+            value={proxyEndpoint}
+            onChange={e => setProxyEndpoint(e.target.value)}
+            placeholder="http://your-api-endpoint"
+            sx={{ minWidth: 320 }}
+          />
+        )}
+      </Box>
     </Box>
   );
 };

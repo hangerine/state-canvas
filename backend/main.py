@@ -1,12 +1,13 @@
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 import json
 import uuid
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel
 import logging
+import requests
 
 from models.scenario import Scenario, ProcessInputRequest, LegacyProcessInputRequest, StateTransition, UserInput, TextContent, CustomEventContent, ChatbotInputRequest, ChatbotProcessRequest
 from services.state_engine import StateEngine
@@ -484,6 +485,21 @@ async def mock_simple_data():
         "active": True,
         "items": ["item1", "item2", "item3"]
     }
+
+@app.post("/api/proxy")
+async def proxy_endpoint(request: Request):
+    data = await request.json()
+    endpoint = data.get("endpoint")
+    payload = data.get("payload")
+    logger.info(f"Proxy endpoint: {endpoint}")
+    if not endpoint or not payload:
+        return JSONResponse(status_code=400, content={"error": "endpoint와 payload가 필요합니다."})
+    try:
+        resp = requests.post(endpoint, json=payload, timeout=15)
+        logger.info(f"Proxy response: {resp.json()}")
+        return JSONResponse(status_code=resp.status_code, content=resp.json() if resp.headers.get('content-type', '').startswith('application/json') else {"raw": resp.text})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 # WebSocket 연결
 @app.websocket("/ws/{session_id}")

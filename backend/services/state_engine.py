@@ -6,6 +6,7 @@ import asyncio
 import time
 import uuid
 from typing import Dict, Any, List, Optional, Tuple
+from jsonpath_ng import parse
 from models.scenario import StateTransition, ChatbotResponse, ErrorInfo, ChatbotDirective, DirectiveContent, ResponseMeta, UsedSlot
 from services.scenario_manager import ScenarioManager
 from services.webhook_handler import WebhookHandler
@@ -271,8 +272,34 @@ class StateEngine:
         if webhook_result and webhook_success:
             # webhook 성공 시, 후처리(EntryAction, 자동전이 등)는 _handle_webhook_actions에서 이미 처리됨
             result = webhook_result
+            # webhook 처리 후 intent handler 분기 추가
+            new_state = webhook_result.get("new_state", current_state)
+            dialog_state_after = self.scenario_manager.find_dialog_state(scenario, new_state)
+            if dialog_state_after and dialog_state_after.get("intentHandlers"):
+                intent_transition = self.transition_manager.check_intent_handlers(
+                    dialog_state_after, intent, memory
+                )
+                logger.info(f"[INTENT HANDLER][after webhook] intent_transition: {intent_transition}")
+                if intent_transition:
+                    result["new_state"] = intent_transition.toState
+                    if "transitions" not in result:
+                        result["transitions"] = []
+                    result["transitions"].append(intent_transition)
         elif apicall_result:
             result = apicall_result
+            # apicall 처리 후 intent handler 분기 추가
+            new_state = apicall_result.get("new_state", current_state)
+            dialog_state_after = self.scenario_manager.find_dialog_state(scenario, new_state)
+            if dialog_state_after and dialog_state_after.get("intentHandlers"):
+                intent_transition = self.transition_manager.check_intent_handlers(
+                    dialog_state_after, intent, memory
+                )
+                logger.info(f"[INTENT HANDLER][after apicall] intent_transition: {intent_transition}")
+                if intent_transition:
+                    result["new_state"] = intent_transition.toState
+                    if "transitions" not in result:
+                        result["transitions"] = []
+                    result["transitions"].append(intent_transition)
         elif webhook_result:
             # webhook 실패지만 apicall도 없을 때 fallback
             result = webhook_result
