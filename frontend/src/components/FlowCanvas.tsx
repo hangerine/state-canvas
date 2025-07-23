@@ -3,6 +3,7 @@ import ReactFlow, {
   Node,
   Edge,
   addEdge,
+  updateEdge,
   Connection,
   useNodesState,
   useEdgesState,
@@ -258,6 +259,13 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
     };
   }, [fitView]);
 
+  // 노드 또는 엣지가 변경되면 뷰를 자동으로 맞춤
+  useEffect(() => {
+    if (nodes.length > 0) {
+      fitView({ duration: 300 });
+    }
+  }, [nodes, edges, fitView]);
+
   // 선택된 노드/연결 삭제
   const handleDeleteSelected = useCallback(() => {
     let updatedNodes = initialNodes;
@@ -462,6 +470,19 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       // onEdgesChange([...initialEdges, newEdge]); // 외부로 전달하지 않음
     },
     [initialEdges, setEdges]
+  );
+
+  // 에지 업데이트 처리 (다른 노드로 연결 이동 등)
+  const handleEdgeUpdate = useCallback(
+    (oldEdge: Edge, newConnection: Connection) => {
+      setEdges((eds) => {
+        const updated = updateEdge(oldEdge, newConnection, eds);
+        setUndoStack((stack) => [...stack, { nodes, edges: updated }]);
+        setRedoStack([]);
+        return updated;
+      });
+    },
+    [nodes]
   );
 
   // 노드 선택 처리
@@ -712,6 +733,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
         onEdgeClick={isEditable ? handleEdgeClick : undefined}
         onPaneClick={isEditable ? handlePaneClick : undefined}
         onEdgeDoubleClick={isEditable ? onEdgeDoubleClick : undefined}
+        onEdgeUpdate={isEditable ? handleEdgeUpdate : undefined}
         fitView
         minZoom={0.2}
         maxZoom={2}
