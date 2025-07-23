@@ -551,12 +551,9 @@ function App() {
             height: '100vh'
           }}>
             <FlowCanvas
-              nodes={nodes}
-              edges={edges}
-              onNodeSelect={handleNodeSelect}
+              initialNodes={nodes}
+              initialEdges={edges}
               currentState={currentState}
-              onNodesChange={handleNodesChange}
-              onEdgesChange={handleEdgesChange}
               scenario={scenario || undefined}
             />
           </Box>

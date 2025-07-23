@@ -7,10 +7,16 @@ interface CustomNodeData {
   label: string;
   dialogState: DialogState;
   onEdit?: (nodeId: string) => void;
+  handleRefs?: {
+    top?: React.Ref<HTMLDivElement>;
+    bottom?: React.Ref<HTMLDivElement>;
+    left?: React.Ref<HTMLDivElement>;
+    right?: React.Ref<HTMLDivElement>;
+  };
 }
 
 const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id }) => {
-  const { dialogState, onEdit } = data;
+  const { dialogState, onEdit, handleRefs } = data;
   
   // 핸들러 개수 계산
   const conditionCount = dialogState.conditionHandlers?.length || 0;
@@ -48,8 +54,9 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
         },
       }}
     >
-      {/* Input Handle */}
+      {/* Input Handle (Top) */}
       <Handle
+        id="top"
         type="target"
         position={Position.Top}
         style={{
@@ -59,7 +66,30 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
           left: '50%',
           top: -5,
           transform: 'translateX(-50%)',
+          border: '2px solid #fff',
+          zIndex: 10,
+          pointerEvents: 'all',
         }}
+        ref={handleRefs?.top}
+      />
+
+      {/* Input Handle (Left) */}
+      <Handle
+        id="left"
+        type="target"
+        position={Position.Left}
+        style={{
+          background: '#1976d2',
+          width: 10,
+          height: 10,
+          left: -5,
+          top: '50%',
+          transform: 'translateY(-50%)',
+          border: '2px solid #fff',
+          zIndex: 10,
+          pointerEvents: 'all',
+        }}
+        ref={handleRefs?.left}
       />
 
       {/* 노드 제목 */}
@@ -155,8 +185,27 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
         )}
       </Box>
 
-      {/* Output Handle */}
+      {/* Output Handle (Right) */}
       <Handle
+        id="right"
+        type="source"
+        position={Position.Right}
+        style={{
+          background: '#1976d2',
+          width: 10,
+          height: 10,
+          right: -5,
+          top: '50%',
+          transform: 'translateY(-50%)',
+          border: '2px solid #fff',
+          zIndex: 10,
+          pointerEvents: 'all',
+        }}
+        ref={handleRefs?.right}
+      />
+      {/* Output Handle (Bottom) */}
+      <Handle
+        id="bottom"
         type="source"
         position={Position.Bottom}
         style={{
@@ -166,7 +215,11 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
           left: '50%',
           bottom: -5,
           transform: 'translateX(-50%)',
+          border: '2px solid #fff',
+          zIndex: 10,
+          pointerEvents: 'all',
         }}
+        ref={handleRefs?.bottom}
       />
     </Box>
   );

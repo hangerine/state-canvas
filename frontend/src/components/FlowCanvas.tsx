@@ -39,13 +39,11 @@ const nodeTypes: NodeTypes = {
 };
 
 interface FlowCanvasProps {
-  nodes: FlowNode[];
-  edges: FlowEdge[];
-  onNodeSelect: (node: FlowNode | null) => void;
+  initialNodes: FlowNode[];
+  initialEdges: FlowEdge[];
   currentState: string;
-  onNodesChange: (nodes: FlowNode[]) => void;
-  onEdgesChange: (edges: FlowEdge[]) => void;
   scenario?: Scenario;
+  // onScenarioSave 등 저장 콜백이 필요하면 추가
 }
 
 // 새로운 DialogState 생성 함수
@@ -67,16 +65,13 @@ const createNewDialogState = (name: string): DialogState => ({
 });
 
 const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
-  nodes: propNodes,
-  edges: propEdges,
-  onNodeSelect,
+  initialNodes,
+  initialEdges,
   currentState,
-  onNodesChange,
-  onEdgesChange,
   scenario,
 }) => {
-  const [nodes, setNodes, onNodesStateChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesStateChange] = useEdgesState([]);
+  const [nodes, setNodes, onNodesStateChange] = useNodesState(initialNodes || []);
+  const [edges, setEdges, onEdgesStateChange] = useEdgesState(initialEdges || []);
   const [contextMenu, setContextMenu] = useState<{
     mouseX: number;
     mouseY: number;
@@ -98,61 +93,104 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
   const [redoStack, setRedoStack] = useState<{nodes: Node[]; edges: Edge[]}[]>([]);
 
   // 이전 propNodes/propEdges를 기억하기 위한 ref
-  const prevNodesRef = useRef<FlowNode[]>(propNodes);
-  const prevEdgesRef = useRef<FlowEdge[]>(propEdges);
+  const prevNodesRef = useRef<FlowNode[]>(initialNodes);
+  const prevEdgesRef = useRef<FlowEdge[]>(initialEdges);
 
   // 최초 시나리오 업로드 시의 노드/에지 상태 저장
-  const initialNodesRef = useRef<Node[]>(propNodes);
-  const initialEdgesRef = useRef<Edge[]>(propEdges);
+  const initialNodesRef = useRef<Node[]>(initialNodes);
+  const initialEdgesRef = useRef<Edge[]>(initialEdges);
 
   // 최초 마운트 시 초기 상태 push
   useEffect(() => {
-    setUndoStack([{ nodes: propNodes, edges: propEdges }]);
+    setUndoStack([{ nodes: initialNodes, edges: initialEdges }]);
     setRedoStack([]);
-    prevNodesRef.current = propNodes;
-    prevEdgesRef.current = propEdges;
+    prevNodesRef.current = initialNodes;
+    prevEdgesRef.current = initialEdges;
     // eslint-disable-next-line
   }, []);
 
   // propNodes/propEdges가 완전히 바뀔 때(시나리오 업로드 등) 최초 상태도 갱신
   useEffect(() => {
-    const nodesChanged = JSON.stringify(prevNodesRef.current.map(n => n.id)) !== JSON.stringify(propNodes.map(n => n.id));
-    const edgesChanged = JSON.stringify(prevEdgesRef.current.map(e => e.id)) !== JSON.stringify(propEdges.map(e => e.id));
-    if (nodesChanged || edgesChanged) {
-      setUndoStack([{ nodes: propNodes, edges: propEdges }]);
+    // 이전 값과 완전히 다를 때만 스택 초기화
+    const prevNodeIds = prevNodesRef.current.map(n => n.id).join(',');
+    const currNodeIds = initialNodes.map(n => n.id).join(',');
+    const prevEdgeIds = prevEdgesRef.current.map(e => e.id).join(',');
+    const currEdgeIds = initialEdges.map(e => e.id).join(',');
+    if (prevNodeIds !== currNodeIds || prevEdgeIds !== currEdgeIds) {
+      setUndoStack([{ nodes: initialNodes, edges: initialEdges }]);
       setRedoStack([]);
-      prevNodesRef.current = propNodes;
-      prevEdgesRef.current = propEdges;
-      initialNodesRef.current = propNodes;
-      initialEdgesRef.current = propEdges;
+      prevNodesRef.current = initialNodes;
+      prevEdgesRef.current = initialEdges;
+      initialNodesRef.current = initialNodes;
+      initialEdgesRef.current = initialEdges;
+      setNodes(initialNodes);
+      setEdges(initialEdges);
     }
-  }, [propNodes, propEdges]);
+  }, [initialNodes, initialEdges]);
 
   // 노드/에지 변경 래퍼 (NodeChange[], EdgeChange[])
   // 1. onNodesChange에서는 상태만 업데이트 (Undo push X, App의 onNodesChange도 호출 X)
   const handleNodesChangeWithUndo = useCallback((changes: NodeChange[]) => {
     setNodes((nds) => {
       const updated = applyNodeChanges(changes, nds);
+      // Undo/Redo만 관리, onNodesChange는 호출하지 않음
       return updated;
     });
   }, []);
 
   // 2. onNodeDragStop에서만 Undo 스택에 push + App의 onNodesChange 호출
   const handleNodeDragStop = useCallback(() => {
-    setUndoStack((stack) => [...stack, { nodes, edges }]);
-    setRedoStack([]);
-    onNodesChange(nodes as any);
-  }, [nodes, edges, onNodesChange]);
+    // 이전 위치와 비교해서 실제로 바뀐 노드가 있는지 확인
+    const hasMoved = nodes.some((node) => {
+      const orig = initialNodes.find(n => n.id === node.id);
+      return orig && (orig.position.x !== node.position.x || orig.position.y !== node.position.y);
+    });
+    if (hasMoved) {
+      setUndoStack((stack) => [...stack, { nodes, edges }]);
+      setRedoStack([]);
+      // onNodesChange(nodes as any); // 이 부분은 외부로 전달하지 않음
+    }
+  }, [nodes, edges, initialNodes]);
 
   const handleEdgesChangeWithUndo = useCallback((changes: EdgeChange[]) => {
     setEdges((eds) => {
-      const updated = applyEdgeChanges(changes, eds);
-      setUndoStack((stack) => [...stack, { nodes, edges: updated }]);
-      setRedoStack([]);
-      onEdgesChange(updated as any); // prop 타입이 FlowEdge[]이지만 실제 Edge[] 전달
+      let updated = applyEdgeChanges(changes, eds);
+
+      // 엣지 업데이트(change.type === 'update') 시 handle 정보 유지
+      changes.forEach(change => {
+        if (
+          (change as any).type === 'update' &&
+          'edge' in change && change.edge &&
+          'id' in change && change.id
+        ) {
+          updated = updated.map(edge =>
+            edge.id === change.id
+              ? {
+                  ...edge,
+                  sourceHandle: (change.edge as any).sourceHandle ?? edge.sourceHandle,
+                  targetHandle: (change.edge as any).targetHandle ?? edge.targetHandle,
+                }
+              : edge
+          );
+        }
+      });
+
+      // 구조 변경이 있을 때만 상위로 알림
+      const hasStructuralChange = changes.some(
+        c =>
+          c.type === 'add' ||
+          c.type === 'remove' ||
+          c.type === 'reset' ||
+          (c.type as string) === 'update'
+      );
+      if (hasStructuralChange) {
+        setUndoStack((stack) => [...stack, { nodes, edges: updated }]);
+        setRedoStack([]);
+        // onEdgesChange(updated as any); // 이 부분은 외부로 전달하지 않음
+      }
       return updated;
     });
-  }, [nodes, onEdgesChange]);
+  }, [nodes, initialNodes]);
 
   // Undo 동작
   const handleUndo = useCallback(() => {
@@ -162,11 +200,11 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       setRedoStack((redo) => [{ nodes, edges }, ...redo]);
       setNodes(prev.nodes);
       setEdges(prev.edges);
-      onNodesChange(prev.nodes as any);
-      onEdgesChange(prev.edges as any);
+      // onNodesChange(prev.nodes as any); // 이 부분은 외부로 전달하지 않음
+      // onEdgesChange(prev.edges as any); // 이 부분은 외부로 전달하지 않음
       return stack.slice(0, -1);
     });
-  }, [nodes, edges, onNodesChange, onEdgesChange, setNodes, setEdges]);
+  }, [nodes, edges]);
 
   // Redo 동작
   const handleRedo = useCallback(() => {
@@ -176,11 +214,11 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       setUndoStack((stack) => [...stack, { nodes: next.nodes, edges: next.edges }]);
       setNodes(next.nodes);
       setEdges(next.edges);
-      onNodesChange(next.nodes as any);
-      onEdgesChange(next.edges as any);
+      // onNodesChange(next.nodes as any); // 이 부분은 외부로 전달하지 않음
+      // onEdgesChange(next.edges as any); // 이 부분은 외부로 전달하지 않음
       return redo.slice(1);
     });
-  }, [onNodesChange, onEdgesChange, setNodes, setEdges]);
+  }, []);
 
   // 단축키 핸들러 (Ctrl+Z, Ctrl+Shift+Z)
   useEffect(() => {
@@ -222,70 +260,49 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
 
   // 선택된 노드/연결 삭제
   const handleDeleteSelected = useCallback(() => {
+    let updatedNodes = initialNodes;
+    let updatedEdges = initialEdges;
+    let changed = false;
     if (selectedNodes.length > 0) {
-      const updatedNodes = propNodes.filter(node => !selectedNodes.includes(node.id));
-      const updatedEdges = propEdges.filter(edge => 
+      updatedNodes = initialNodes.filter(node => !selectedNodes.includes(node.id));
+      updatedEdges = initialEdges.filter(edge => 
         !selectedNodes.includes(edge.source) && !selectedNodes.includes(edge.target)
       );
-      onNodesChange(updatedNodes);
-      onEdgesChange(updatedEdges);
-      setSelectedNodes([]);
-      onNodeSelect(null);
+      changed = true;
+      // onNodeSelect(null); // 외부로 전달하지 않음
     }
     
     if (selectedEdges.length > 0) {
-      const updatedEdges = propEdges.filter(edge => !selectedEdges.includes(edge.id));
-      onEdgesChange(updatedEdges);
+      updatedEdges = updatedEdges.filter(edge => !selectedEdges.includes(edge.id));
+      changed = true;
+    }
+    if (changed) {
+      setUndoStack((stack) => [...stack, { nodes: updatedNodes, edges: updatedEdges }]);
+      setRedoStack([]);
+      // onNodesChange(updatedNodes); // 외부로 전달하지 않음
+      // onEdgesChange(updatedEdges); // 외부로 전달하지 않음
+      setSelectedNodes([]);
       setSelectedEdges([]);
     }
-  }, [selectedNodes, selectedEdges, propNodes, propEdges, onNodesChange, onEdgesChange, onNodeSelect]);
-
-  // 키보드 이벤트 핸들러 (Delete 키)
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // Modal이나 컨텍스트 메뉴가 열려있으면 키보드 이벤트 무시
-      if (editingNode !== null || editingEdge !== null || contextMenu !== null) {
-        return;
-      }
-      
-      // input, textarea 등에 포커스가 있으면 키보드 이벤트 무시
-      const activeElement = document.activeElement;
-      if (activeElement && (
-        activeElement.tagName === 'INPUT' ||
-        activeElement.tagName === 'TEXTAREA' ||
-        activeElement.tagName === 'SELECT' ||
-        activeElement.getAttribute('contenteditable') === 'true'
-      )) {
-        return;
-      }
-      
-      if (event.key === 'Delete' || event.key === 'Backspace') {
-        event.preventDefault();
-        handleDeleteSelected();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [handleDeleteSelected, editingNode, editingEdge, contextMenu]);
+  }, [selectedNodes, selectedEdges, initialNodes, initialEdges]);
 
   // 특정 노드 삭제
   const handleDeleteNode = useCallback((nodeId: string) => {
-    const updatedNodes = propNodes.filter(node => node.id !== nodeId);
-    const updatedEdges = propEdges.filter(edge => 
+    const updatedNodes = initialNodes.filter(node => node.id !== nodeId);
+    const updatedEdges = initialEdges.filter(edge => 
       edge.source !== nodeId && edge.target !== nodeId
     );
-    onNodesChange(updatedNodes);
-    onEdgesChange(updatedEdges);
-    onNodeSelect(null);
+    setUndoStack((stack) => [...stack, { nodes: updatedNodes, edges: updatedEdges }]);
+    setRedoStack([]);
+    // onNodesChange(updatedNodes); // 외부로 전달하지 않음
+    // onEdgesChange(updatedEdges); // 외부로 전달하지 않음
+    // onNodeSelect(null); // 외부로 전달하지 않음
     setContextMenu(null);
-  }, [propNodes, propEdges, onNodesChange, onEdgesChange, onNodeSelect]);
+  }, [initialNodes, initialEdges]);
 
   // 노드 편집 핸들러
   const handleNodeEdit = useCallback((nodeId: string) => {
-    const nodeToEdit = propNodes.find(node => node.id === nodeId);
+    const nodeToEdit = initialNodes.find(node => node.id === nodeId);
     if (nodeToEdit) {
       setEditingNode(nodeToEdit);
       
@@ -295,7 +312,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       console.log('🔍 [DEBUG] FlowCanvas - nodeToEdit.data.dialogState:', nodeToEdit.data.dialogState);
       console.log('🔍 [DEBUG] FlowCanvas - webhookActions:', nodeToEdit.data.dialogState.webhookActions);
     }
-  }, [propNodes, scenario]);
+  }, [initialNodes, scenario]);
 
   // 노드들로부터 엣지 자동 생성
   const generateEdgesFromNodes = useCallback((nodes: FlowNode[]) => {
@@ -375,21 +392,21 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       }
     };
 
-    const updatedNodes = propNodes.map(node => 
+    const updatedNodes = initialNodes.map(node => 
       node.id === editingNode.id ? updatedNode : node
     );
 
     // 새로운 엣지 생성 (전이 관계 기반)
     const newEdges = generateEdgesFromNodes(updatedNodes);
 
-    onNodesChange(updatedNodes);
-    onEdgesChange(newEdges);
+    // onNodesChange(updatedNodes); // 외부로 전달하지 않음
+    // onEdgesChange(newEdges); // 외부로 전달하지 않음
     setEditingNode(null);
-  }, [editingNode, propNodes, onNodesChange, onEdgesChange, generateEdgesFromNodes]);
+  }, [editingNode, initialNodes, generateEdgesFromNodes]);
 
-  // props로 받은 nodes, edges를 상태에 동기화
+  // 렌더링 시 style은 currentState 등으로 동적으로 계산해서 적용
   useEffect(() => {
-    const updatedNodes = propNodes.map(node => ({
+    const updatedNodes = nodes.map(node => ({
       ...node,
       type: 'custom',
       data: {
@@ -403,44 +420,59 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       }
     }));
     setNodes(updatedNodes);
-  }, [propNodes, currentState, setNodes, handleNodeEdit]);
+  }, [nodes, currentState, handleNodeEdit]);
+
+  // --- 선택된 에지 id 추적 ---
+  const selectedEdgeIds = selectedEdges;
 
   // --- 모든 에지 type을 'smoothstep' + markerEnd: 'arrowclosed'로 강제 적용 ---
   useEffect(() => {
-    // propEdges의 type을 모두 'smoothstep'으로, markerEnd를 'arrowclosed'로 변경
-    const arrowEdges = propEdges.map(e => ({
-      ...e,
-      type: 'smoothstep',
-      markerEnd: 'arrowclosed',
-    }));
-    setEdges(arrowEdges);
-  }, [propEdges, setEdges]);
+    // edges의 type을 모두 'smoothstep'으로, markerEnd를 'arrowclosed'로 지정 (공식 권장 방식)
+    const styledEdges = edges.map(e => {
+      const isSelected = selectedEdgeIds.includes(e.id);
+      return {
+        ...e,
+        type: 'smoothstep',
+        markerEnd: 'arrowclosed',
+        style: {
+          ...(e.style || {}),
+          stroke: isSelected ? '#1976d2' : '#888',
+          strokeWidth: isSelected ? 5 : 2.5,
+          filter: isSelected ? 'drop-shadow(0 0 6px #1976d2)' : 'none',
+          transition: 'stroke 0.15s, stroke-width 0.15s, filter 0.15s',
+        },
+      };
+    });
+    setEdges(styledEdges);
+  }, [edges, setEdges, selectedEdgeIds]);
 
   // 연결 생성 처리
   const onConnect = useCallback(
     (params: Connection) => {
       const newEdge: FlowEdge = {
-        id: `${params.source}-${params.target}`,
+        id: `${params.source}-${params.target}-${params.sourceHandle || 'sh'}-${params.targetHandle || 'th'}`,
         source: params.source!,
         target: params.target!,
+        sourceHandle: params.sourceHandle,
+        targetHandle: params.targetHandle,
         type: 'smoothstep',
         label: '새 연결',
       };
       setEdges((eds) => addEdge(newEdge, eds));
-      onEdgesChange([...propEdges, newEdge]);
+      // onEdgesChange([...initialEdges, newEdge]); // 외부로 전달하지 않음
     },
-    [propEdges, onEdgesChange, setEdges]
+    [initialEdges, setEdges]
   );
 
   // 노드 선택 처리
   const onNodeClick = useCallback(
     (event: React.MouseEvent, node: Node) => {
-      const flowNode = propNodes.find(n => n.id === node.id);
-      onNodeSelect(flowNode || null);
+      const flowNode = initialNodes.find(n => n.id === node.id);
+      // onNodeSelect(flowNode || null); // 외부로 전달하지 않음
       setSelectedNodes([node.id]);
       setSelectedEdges([]);
     },
-    [propNodes, onNodeSelect]
+    [initialNodes]
   );
 
   // 연결 클릭 처리
@@ -452,11 +484,11 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
 
   // 빈 공간 클릭 시 선택 해제
   const handlePaneClick = useCallback(() => {
-    onNodeSelect(null);
+    // onNodeSelect(null); // 외부로 전달하지 않음
     setSelectedNodes([]);
     setSelectedEdges([]);
     setEdgeButtonAnchor(null);
-  }, [onNodeSelect]);
+  }, []);
 
   // 노드 위치 변경 처리
   const handleNodesChange = useCallback(
@@ -480,58 +512,58 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
         node.position.x !== nodes[idx]?.position.x || 
         node.position.y !== nodes[idx]?.position.y
       )) {
-        onNodesChange(updatedNodes);
+        // onNodesChange(updatedNodes); // 외부로 전달하지 않음
       }
     },
-    [nodes, onNodesChange, onNodesStateChange]
+    [nodes, onNodesStateChange]
   );
 
   // 연결 더블클릭 핸들러
   const onEdgeDoubleClick = useCallback(
     (event: React.MouseEvent, edge: Edge) => {
       event.stopPropagation();
-      const flowEdge = propEdges.find(e => e.id === edge.id);
+      const flowEdge = initialEdges.find(e => e.id === edge.id);
       if (flowEdge) {
         setEditingEdge(flowEdge);
       }
     },
-    [propEdges]
+    [initialEdges]
   );
 
   // 연결 편집 완료 핸들러
   const handleEdgeEditSave = useCallback((updatedEdge: FlowEdge) => {
-    const updatedEdges = propEdges.map(edge => 
+    const updatedEdges = initialEdges.map(edge => 
       edge.id === updatedEdge.id ? updatedEdge : edge
     );
-    onEdgesChange(updatedEdges);
+    // onEdgesChange(updatedEdges); // 외부로 전달하지 않음
     setEditingEdge(null);
-  }, [propEdges, onEdgesChange]);
+  }, [initialEdges]);
 
   // 연결 삭제 핸들러
   const handleEdgeDelete = useCallback((edgeId: string) => {
-    const updatedEdges = propEdges.filter(edge => edge.id !== edgeId);
-    onEdgesChange(updatedEdges);
+    const updatedEdges = initialEdges.filter(edge => edge.id !== edgeId);
+    // onEdgesChange(updatedEdges); // 외부로 전달하지 않음
     setEditingEdge(null);
-  }, [propEdges, onEdgesChange]);
+  }, [initialEdges]);
 
   // --- Edge Z-Index 조정 함수 ---
   const bringEdgeToFront = useCallback((edgeId: string) => {
-    const idx = propEdges.findIndex(e => e.id === edgeId);
+    const idx = edges.findIndex(e => e.id === edgeId);
     if (idx === -1) return;
-    const newEdges = [...propEdges];
+    const newEdges = [...edges];
     const [edge] = newEdges.splice(idx, 1);
     newEdges.push(edge); // 맨 앞으로(맨 뒤에 push)
-    onEdgesChange(newEdges);
-  }, [propEdges, onEdgesChange]);
+    setEdges(newEdges);
+  }, [edges, setEdges]);
 
   const sendEdgeToBack = useCallback((edgeId: string) => {
-    const idx = propEdges.findIndex(e => e.id === edgeId);
+    const idx = edges.findIndex(e => e.id === edgeId);
     if (idx === -1) return;
-    const newEdges = [...propEdges];
+    const newEdges = [...edges];
     const [edge] = newEdges.splice(idx, 1);
     newEdges.unshift(edge); // 맨 뒤로(맨 앞에 unshift)
-    onEdgesChange(newEdges);
-  }, [propEdges, onEdgesChange]);
+    setEdges(newEdges);
+  }, [edges, setEdges]);
 
   // 우클릭 컨텍스트 메뉴 처리
   const handleContextMenu = useCallback((event: React.MouseEvent) => {
@@ -575,13 +607,13 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       }
     };
 
-    const updatedNodes = [...propNodes, newNode];
-    onNodesChange(updatedNodes);
+    const updatedNodes = [...initialNodes, newNode];
+    // onNodesChange(updatedNodes); // 외부로 전달하지 않음
     setContextMenu(null);
-  }, [contextMenu, propNodes, onNodesChange]);
+  }, [contextMenu, initialNodes]);
 
   // --- Edge 선택 시 버튼 UI ---
-  const selectedEdgeObj = propEdges.find(e => selectedEdges.length === 1 && e.id === selectedEdges[0]);
+  const selectedEdgeObj = initialEdges.find(e => selectedEdges.length === 1 && e.id === selectedEdges[0]);
 
   // --- 선택한 에지의 중간 위치 계산 ---
   let edgeButtonPos = { top: 16, left: 16 };
@@ -652,16 +684,18 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
     setNodes(newNodes);
     setUndoStack((stack) => [...stack, { nodes: newNodes, edges }]);
     setRedoStack([]);
-    onNodesChange(newNodes as any);
-  }, [nodes, edges, setNodes, setUndoStack, setRedoStack, onNodesChange]);
+    // onNodesChange(newNodes as any); // 외부로 전달하지 않음
+  }, [nodes, edges, setNodes, setUndoStack, setRedoStack]);
 
   // 레이아웃 리셋 핸들러
   const handleLayoutReset = useCallback(() => {
-    onNodesChange(initialNodesRef.current as any);
-    onEdgesChange(initialEdgesRef.current as any);
-    setUndoStack([{ nodes: initialNodesRef.current, edges: initialEdgesRef.current }]);
+    // onNodesChange(initialNodesRef.current as any); // 외부로 전달하지 않음
+    // onEdgesChange(initialEdgesRef.current as any); // 외부로 전달하지 않음
+    setNodes(initialNodes);
+    setEdges(initialEdges);
+    setUndoStack([{ nodes: initialNodes, edges: initialEdges }]);
     setRedoStack([]);
-  }, [onNodesChange, onEdgesChange]);
+  }, [initialNodes, initialEdges, setNodes, setEdges]);
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }} onContextMenu={handleContextMenu}>
@@ -694,6 +728,22 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
         edgesFocusable={isEditable}
         edgesUpdatable={isEditable}
       >
+        {/* 커스텀 arrow marker 복구 */}
+        <svg width="0" height="0">
+          <defs>
+            <marker
+              id="arrowclosed"
+              markerWidth="10"
+              markerHeight="10"
+              refX="5"
+              refY="5"
+              orient="auto"
+              markerUnits="strokeWidth"
+            >
+              <path d="M2,2 L8,5 L2,8 Z" fill="#1976d2" />
+            </marker>
+          </defs>
+        </svg>
         <Controls />
         <MiniMap nodeColor={getNodeColor} nodeStrokeWidth={3} zoomable pannable />
         <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
@@ -819,7 +869,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
 
       {/* Edge z-index 조정 버튼 (에지 1개 선택 시만 표시, 클릭 위치 기준) */}
       {selectedEdgeObj && edgeButtonAnchor && (
-        <Stack direction="row" spacing={1} sx={{
+        <Stack direction="row" spacing={0.5} sx={{
           position: 'absolute',
           top: edgeButtonPos.top,
           left: edgeButtonPos.left,
@@ -827,15 +877,15 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
           background: 'rgba(255,255,255,0.97)',
           borderRadius: 2,
           boxShadow: 2,
-          p: 1,
+          p: 0.5,
           pointerEvents: 'auto',
         }}>
-          <Button size="small" variant="outlined" onClick={() => bringEdgeToFront(selectedEdgeObj.id)}>
-            맨앞으로
-          </Button>
-          <Button size="small" variant="outlined" onClick={() => sendEdgeToBack(selectedEdgeObj.id)}>
-            맨뒤로
-          </Button>
+          <IconButton size="small" onClick={() => bringEdgeToFront(selectedEdgeObj.id)} sx={{ fontSize: 16, p: 0.5, minWidth: 24, minHeight: 24 }} title="맨앞으로">
+            ▲
+          </IconButton>
+          <IconButton size="small" onClick={() => sendEdgeToBack(selectedEdgeObj.id)} sx={{ fontSize: 16, p: 0.5, minWidth: 24, minHeight: 24 }} title="맨뒤로">
+            ▼
+          </IconButton>
         </Stack>
       )}
 

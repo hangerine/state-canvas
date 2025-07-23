@@ -242,6 +242,9 @@ export interface FlowEdge {
   target: string;
   label?: string;
   type?: string;
+  style?: React.CSSProperties;
+  sourceHandle?: string | null;
+  targetHandle?: string | null;
 } 
 
 // 새로운 챗봇 응답 포맷 타입들
