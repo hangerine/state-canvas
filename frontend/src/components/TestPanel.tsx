@@ -816,11 +816,21 @@ const TestPanel: React.FC<TestPanelProps> = ({
                 type: 'text',
                 value: {},
                 version: '1.0'
+              },
+              nluResult: {
+                type: 'skt.opennlu',
+                results: [
+                  {
+                    nluNbest: [],
+                    text: '',
+                    extra: {}
+                  }
+                ]
               }
             }
           },
-          context: {},
-          headers: {},
+          context: defaultContext,
+          headers: defaultHeaders,
           currentState,
           scenario: scenario!
         };
@@ -840,25 +850,49 @@ const TestPanel: React.FC<TestPanelProps> = ({
       if (!inputText.trim()) return;
       
       try {
-        // JSON 파싱
-        const jsonRequest = JSON.parse(inputText);
-        
+        let jsonRequest = JSON.parse(inputText);
+        // eventType만 입력된 경우 보조 처리
+        if (typeof jsonRequest === 'string') {
+          // eventType만 입력된 경우 userInput 포맷으로 감싸기
+          jsonRequest = {
+            userId,
+            botId,
+            botVersion,
+            botName,
+            botResourcePath: `${botId}-${botVersion}.json`,
+            sessionId,
+            requestId: 'chatbot-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+            userInput: {
+              type: 'customEvent',
+              content: {
+                type: jsonRequest,
+                value: {
+                  scope: null,
+                  type: jsonRequest,
+                  value: {},
+                  version: '1.0'
+                }
+              }
+            },
+            context: defaultContext,
+            headers: defaultHeaders,
+            currentState,
+            scenario: scenario
+          };
+        }
         // 필수 필드 확인
         if (!jsonRequest.userId || !jsonRequest.sessionId || !jsonRequest.userInput) {
           addMessage('system', '❌ JSON 형식 오류: userId, sessionId, userInput 필드가 필요합니다.');
           return;
         }
-        
         // currentState와 scenario 추가
         const requestData = {
           ...jsonRequest,
           currentState,
           scenario: scenario
         };
-        
         addMessage('user', `[JSON] ${JSON.stringify(jsonRequest.userInput, null, 2)}`);
         addMessage('system', '📤 JSON 요청을 전송합니다...');
-        
         console.log('📤 JSON request:', JSON.stringify(requestData, null, 2));
         let response;
         if (proxyMode && proxyEndpoint.trim()) {
@@ -1000,8 +1034,8 @@ const TestPanel: React.FC<TestPanelProps> = ({
         sessionId,
         requestId: newRequestId,
         userInput: userInput, // NLU 결과가 포함된 userInput 사용
-        context: {},
-        headers: {},
+        context: defaultContext,
+        headers: defaultHeaders,
         
         // 추가 처리 필드들
         currentState,
@@ -1098,41 +1132,50 @@ const TestPanel: React.FC<TestPanelProps> = ({
   const handleEventTrigger = async (eventType: string) => {
     try {
       addMessage('info', `🎯 이벤트 트리거: ${eventType}`);
-      
-      // 현재는 Mock으로 처리
-      const response = await axios.post('http://localhost:8000/test/trigger-event', {
+
+      // customEvent 타입 userInput 생성
+      const userInput: UserInput = {
+        type: 'customEvent',
+        content: {
+          type: eventType,
+          value: {
+            scope: null,
+            type: eventType,
+            value: {},
+            version: '1.0'
+          }
+        }
+      };
+
+      const newRequestId = 'chatbot-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+      const chatbotRequestData: ChatbotProcessRequest = {
+        userId,
+        botId,
+        botVersion,
+        botName,
+        botResourcePath: `${botId}-${botVersion}.json`,
         sessionId,
+        requestId: newRequestId,
+        userInput,
+        context: defaultContext,
+        headers: defaultHeaders,
         currentState,
-        eventType
-      });
-      
-      if (response.data.success) {
-        addMessage('system', response.data.message || `이벤트 ${eventType} 처리됨`);
-        if (response.data.newState && response.data.newState !== currentState) {
-          onStateChange(response.data.newState);
-          addMessage('transition', `상태 전이: ${currentState} → ${response.data.newState}`);
-        }
+        scenario: scenario!
+      };
+
+      let response;
+      if (proxyMode && proxyEndpoint.trim()) {
+        response = await axios.post('http://localhost:8000/api/proxy', {
+          endpoint: proxyEndpoint,
+          payload: chatbotRequestData
+        });
       } else {
-        addMessage('system', `❌ 이벤트 처리 실패: ${response.data.error || '알 수 없는 오류'}`);
+        response = await axios.post('http://localhost:8000/api/process-chatbot-input', chatbotRequestData);
       }
+      handleChatbotResponse(response.data);
     } catch (error) {
-      console.log('🎯 이벤트 트리거 Mock 실행 (백엔드 미연결)');
-      addMessage('system', `🎯 이벤트 ${eventType} Mock 처리됨 (백엔드 미연결)`);
-      
-      // Mock 상태 전이 (이벤트에 따른 기본 동작)
-      const eventHandlers = getEventHandlers();
-      const handler = eventHandlers.find(h => {
-        if (h.event) {
-          if (typeof h.event === 'object' && h.event.type === eventType) return true;
-          if (typeof h.event === 'string' && h.event === eventType) return true;
-        }
-        return false;
-      });
-      
-      if (handler && handler.transitionTarget.dialogState) {
-        onStateChange(handler.transitionTarget.dialogState);
-        addMessage('transition', `상태 전이: ${currentState} → ${handler.transitionTarget.dialogState}`);
-      }
+      addMessage('system', `❌ 이벤트 처리 오류: ${(error as Error).message}`);
+      console.error('Event trigger error:', error);
     }
   };
 
@@ -1533,6 +1576,123 @@ const TestPanel: React.FC<TestPanelProps> = ({
 
   const [proxyMode, setProxyMode] = useState(false);
   const [proxyEndpoint, setProxyEndpoint] = useState('');
+
+  // 1. context, headers mock 데이터 정의 (파일 상단 useState 아래에 추가)
+  const defaultContext = {
+    context: {
+      client: {
+        os: 'darwin',
+        playStack: [],
+        wakeupWord: ' ' 
+      },
+      supportedInterfaces: {
+        ACP: null
+      },
+      system: {
+        accessToken: ' ',
+        device: {
+          age: null,
+          ageGroup: null,
+          attributes: null,
+          authToken: ' ',
+          birthdate: null,
+          ci: null,
+          defaultVoiceCode: null,
+          deviceTtsOption: true,
+          deviceUniqueId: null,
+          gender: null,
+          id: ' ',
+          iwfTypeCode: ' ',
+          latitude: null,
+          longitude: null,
+          phoneNumber: null,
+          pocGroup: {},
+          pocId: ' ',
+          pocName: null,
+          pocServiceName: null,
+          pocStatus: null,
+          typeCode: null,
+          typeId: null,
+          useWakeupTts: null,
+          userCharacterName: null,
+          userCharacterTone: null,
+          userCharacterVoice: null,
+          userName: null,
+          userType: null
+        },
+        play: {
+          alias: [],
+          ambiguityHint: {},
+          apiKey: ' ',
+          capabilityInterfaces: [ ' ' ],
+          charge: ' ',
+          extendedAlias: [],
+          interlockType: ' ',
+          invocationName: null,
+          invocationType: ' ',
+          isSpecializedRoute: null,
+          isTest: false,
+          nluType: ' ',
+          permission: {
+            available: [ ' ' ],
+            required: [ ' ' ]
+          },
+          playName: ' ',
+          playNo: 0,
+          playRevisionId: ' ',
+          playServiceId: ' ',
+          playServiceName: ' ',
+          routingType: ' ',
+          specializedRouteOrder: null,
+          status: ' ',
+          supportedPocList: [],
+          systemCodes: null,
+          type: ' ',
+          url: ' ',
+          useOAuth: false,
+          voices: null
+        },
+        serviceId: ' ',
+        serviceType: ' ',
+        userId: userId
+      }
+    },
+    request: {
+      event: {
+        scope: null,
+        type: 'text',
+        value: {},
+        version: '1.0'
+      },
+      nlu: null,
+      requestId: '',
+      text: '',
+      transactionId: '',
+      type: 'ACP.RecognizeResult'
+    },
+    session: {
+      id: sessionId,
+      isNew: false,
+      playId: 5021,
+      playType: 'BOT_GROUP'
+    },
+    version: {
+      client: '1.0',
+      npk: '2.2',
+      sdk: '1.0'
+    }
+  };
+  const defaultHeaders = {
+    'Accept': ['*/*'],
+    'Accept-Encoding': ['gzip'],
+    'Content-Length': ['2250'],
+    'Content-Type': ['application/json'],
+    'User-Agent': ['ReactorNetty/1.2.4'],
+    'X-Trace-Id': ['test-trace-id'],
+    'X-Trace-Requestid': ['test-request-id'],
+    'X-Trace-Sessionid': [sessionId],
+    'X-Transaction-Id': ['test-transaction-id']
+  };
 
   return (
     <Box
@@ -2174,11 +2334,11 @@ const TestPanel: React.FC<TestPanelProps> = ({
                         rows={useJsonInputMode ? 8 : undefined}
                         placeholder={
                           useJsonInputMode 
-                            ? "JSON 형태의 전체 요청을 입력하세요...\n\n예시:\n{\n  \"userId\": \"user-123\",\n  \"botId\": \"1370\",\n  \"userInput\": {\n    \"type\": \"text\",\n    \"content\": {\n      \"text\": \"안녕하세요\"\n    }\n  }\n}"
+                            ? `JSON 형태의 전체 요청을 입력하세요...\n\n예시:\n{\n  "userId": "user-123",\n  "botId": "1370",\n  "botVersion": "5916",\n  "botName": "나단도움봇_테스트",\n  "botResourcePath": "1370-5916.json",\n  "sessionId": "chat-41949057-072e-413d-b42c-d3d4242056a8",\n  "requestId": "chatbot-uuid",\n  "userInput": {\n    "type": "text",\n    "content": {\n      "text": "아들 계좌를 하나 만들고 싶어요.",\n      "nluResult": {\n        "type": "skt.opennlu",\n        "results": [\n          {\n            "nluNbest": [],\n            "text": "아들 계좌를 하나 만들고 싶어요",\n            "extra": {}\n          }\n        ]\n      },\n      "value": {\n        "scope": null,\n        "type": "text",\n        "value": {},\n        "version": "1.0"\n      }\n    }\n  },\n  "context": { ... },\n  "headers": { ... },\n  "currentState": "Start",\n  "scenario": { ... }\n}`
                             : inputType === 'customEvent' 
                               ? `Event가 전송됩니다: ${eventType}`
                               : isWebhookState() 
-                                ? "�� Webhook 상태 - 자동으로 처리됩니다" 
+                                ? "Webhook 상태 - 자동으로 처리됩니다" 
                                 : "메시지를 입력하세요..."
                         }
                         value={inputText}
