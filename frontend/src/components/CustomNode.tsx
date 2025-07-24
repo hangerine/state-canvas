@@ -13,10 +13,11 @@ interface CustomNodeData {
     left?: React.Ref<HTMLDivElement>;
     right?: React.Ref<HTMLDivElement>;
   };
+  currentState?: string; // 추가: 현재 상태 이름
 }
 
 const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id }) => {
-  const { dialogState, onEdit, handleRefs } = data;
+  const { dialogState, onEdit, handleRefs, currentState } = data;
   
   // 핸들러 개수 계산
   const conditionCount = dialogState.conditionHandlers?.length || 0;
@@ -31,6 +32,9 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
     }
   };
 
+  // 파란색 글로우 효과 조건
+  const isCurrent = currentState === id;
+
   return (
     <Box
       onDoubleClick={handleDoubleClick}
@@ -42,15 +46,16 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
         justifyContent: 'center',
         alignItems: 'center',
         padding: 1.5,
-        border: selected ? '2px solid #1976d2' : '1px solid #ccc',
+        border: selected ? '2px solid #1976d2' : isCurrent ? '2.5px solid #1976d2' : '1px solid #ccc',
         borderRadius: 2,
         backgroundColor: 'white',
-        boxShadow: selected ? 3 : 1,
+        boxShadow: isCurrent ? '0 0 16px 4px #1976d2aa' : selected ? 3 : 1,
         cursor: 'pointer',
         position: 'relative',
         overflow: 'hidden',
+        transition: 'box-shadow 0.2s, border 0.2s',
         '&:hover': {
-          boxShadow: 2,
+          boxShadow: isCurrent ? '0 0 20px 6px #1976d2cc' : 2,
         },
       }}
     >

@@ -526,6 +526,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       data: {
         ...node.data,
         onEdit: handleNodeEdit,
+        currentState, // 현재 상태 이름 전달
       },
       style: {
         ...node.style,
@@ -978,7 +979,13 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       {/* React Flow 메인 뷰 + 팝업 위치 개선 */}
       <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%' }}>
         <ReactFlow
-          nodes={nodes}
+          nodes={nodes.map(node => ({
+            ...node,
+            data: {
+              ...node.data,
+              currentState,
+            }
+          }))}
           edges={edges}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
