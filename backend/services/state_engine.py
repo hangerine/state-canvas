@@ -39,6 +39,7 @@ class StateEngine:
         self.chatbot_response_factory = chatbot_response_factory or ChatbotResponseFactory()
         self.event_trigger_manager = event_trigger_manager or EventTriggerManager(self.action_executor, self.transition_manager)
         self.sessions: Dict[str, Dict[str, Any]] = {}
+        self.session_stacks: Dict[str, List[Dict[str, Any]]] = {}
         self.global_intent_mapping: List[Dict[str, Any]] = []
     
     def load_scenario(self, session_id: str, scenario_data: Dict[str, Any]):
@@ -72,6 +73,16 @@ class StateEngine:
                 logger.info("🔗 No states with webhook actions found")
         
         logger.info(f"Scenario loaded for session: {session_id}")
+
+        initial_state = self.get_initial_state(scenario_data)
+        self.session_stacks[session_id] = [
+            {
+                "scenarioName": scenario_data.get("plan", [{}])[0].get("name", ""),
+                "dialogStateName": initial_state,
+                "lastExecutedHandlerIndex": -1,
+                "entryActionExecuted": False,
+            }
+        ]
         
     def get_scenario(self, session_id: str) -> Optional[Dict[str, Any]]:
         """세션의 시나리오를 반환합니다."""
@@ -179,10 +190,10 @@ class StateEngine:
         return auto_transitions
 
     async def process_input(
-        self, 
-        session_id: str, 
-        user_input: str, 
-        current_state: str, 
+        self,
+        session_id: str,
+        user_input: str,
+        current_state: str,
         scenario: Dict[str, Any],
         memory: Dict[str, Any],
         event_type: Optional[str] = None
@@ -202,7 +213,12 @@ class StateEngine:
             
             # 일반 입력 처리
             return await self._handle_normal_input(
-                user_input, current_state, current_dialog_state, scenario, memory
+                session_id,
+                user_input,
+                current_state,
+                current_dialog_state,
+                scenario,
+                memory
             )
             
         except Exception as e:
@@ -216,6 +232,7 @@ class StateEngine:
     
     async def _handle_normal_input(
         self,
+        session_id: str,
         user_input: str,
         current_state: str,
         current_dialog_state: Dict[str, Any],
@@ -306,7 +323,12 @@ class StateEngine:
         else:
             # webhook/apicall 모두 없는 경우 기존 일반 처리
             result = await self._handle_normal_input_after_webhook(
-                user_input, current_state, current_dialog_state, scenario, memory
+                session_id,
+                user_input,
+                current_state,
+                current_dialog_state,
+                scenario,
+                memory
             )
 
         # entities, intent, memory 최신화
@@ -328,6 +350,7 @@ class StateEngine:
     
     async def _handle_normal_input_after_webhook(
         self,
+        session_id: str,
         user_input: str,
         current_state: str,
         current_dialog_state: Dict[str, Any],
@@ -524,6 +547,15 @@ class StateEngine:
             logger.error(f"Error processing transitions in _handle_normal_input_after_webhook: {e}")
             transition_dicts = []
         
+        if new_state == "__END_SCENARIO__":
+            stack = self.session_stacks.get(session_id, [])
+            if len(stack) > 1:
+                stack.pop()
+                prev = stack[-1]
+                new_state = prev.get("dialogStateName", new_state)
+            else:
+                new_state = "__END_SESSION__"
+
         return {
             "new_state": new_state,
             "response": "\n".join(response_messages),

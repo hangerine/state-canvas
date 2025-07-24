@@ -54,9 +54,9 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
         },
       }}
     >
-      {/* Input Handle (Top) */}
+      {/* Handle (Top) - source & target */}
       <Handle
-        id="top"
+        id="top-target"
         type="target"
         position={Position.Top}
         style={{
@@ -72,11 +72,45 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
         }}
         ref={handleRefs?.top}
       />
-
-      {/* Input Handle (Left) */}
       <Handle
-        id="left"
+        id="top-source"
+        type="source"
+        position={Position.Top}
+        style={{
+          background: '#1976d2',
+          width: 10,
+          height: 10,
+          left: '50%',
+          top: -5,
+          transform: 'translateX(-50%)',
+          border: '2px solid #fff',
+          zIndex: 10,
+          pointerEvents: 'all',
+        }}
+        ref={handleRefs?.top}
+      />
+
+      {/* Handle (Left) - source & target */}
+      <Handle
+        id="left-target"
         type="target"
+        position={Position.Left}
+        style={{
+          background: '#1976d2',
+          width: 10,
+          height: 10,
+          left: -5,
+          top: '50%',
+          transform: 'translateY(-50%)',
+          border: '2px solid #fff',
+          zIndex: 10,
+          pointerEvents: 'all',
+        }}
+        ref={handleRefs?.left}
+      />
+      <Handle
+        id="left-source"
+        type="source"
         position={Position.Left}
         style={{
           background: '#1976d2',
@@ -185,9 +219,9 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
         )}
       </Box>
 
-      {/* Output Handle (Right) */}
+      {/* Handle (Right) - source & target */}
       <Handle
-        id="right"
+        id="right-source"
         type="source"
         position={Position.Right}
         style={{
@@ -203,10 +237,44 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
         }}
         ref={handleRefs?.right}
       />
-      {/* Output Handle (Bottom) */}
       <Handle
-        id="bottom"
+        id="right-target"
+        type="target"
+        position={Position.Right}
+        style={{
+          background: '#1976d2',
+          width: 10,
+          height: 10,
+          right: -5,
+          top: '50%',
+          transform: 'translateY(-50%)',
+          border: '2px solid #fff',
+          zIndex: 10,
+          pointerEvents: 'all',
+        }}
+        ref={handleRefs?.right}
+      />
+      {/* Handle (Bottom) - source & target */}
+      <Handle
+        id="bottom-source"
         type="source"
+        position={Position.Bottom}
+        style={{
+          background: '#1976d2',
+          width: 10,
+          height: 10,
+          left: '50%',
+          bottom: -5,
+          transform: 'translateX(-50%)',
+          border: '2px solid #fff',
+          zIndex: 10,
+          pointerEvents: 'all',
+        }}
+        ref={handleRefs?.bottom}
+      />
+      <Handle
+        id="bottom-target"
+        type="target"
         position={Position.Bottom}
         style={{
           background: '#1976d2',

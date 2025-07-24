@@ -13,6 +13,7 @@ import {
   Badge,
   CircularProgress
 } from '@mui/material';
+import { TreeView, TreeItem } from '@mui/lab';
 import { ExpandMore as ExpandMoreIcon } from '@mui/icons-material';
 import { Scenario, FlowNode } from '../types/scenario';
 import { compareScenarios } from '../utils/scenarioUtils';
@@ -54,6 +55,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     modified: string[];
     removed: string[];
   }>({ added: [], modified: [], removed: [] });
+  const [treeSelectedState, setTreeSelectedState] = useState<FlowNode | null>(null);
 
   // 변경사항 감지 (노드가 변경될 때마다 체크)
   useEffect(() => {
@@ -227,6 +229,19 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
   }, [selectedNode]);
 
+  const handleNewScenario = () => {
+    const newScenario: Scenario = {
+      plan: [{ name: `Scenario-${Date.now()}`, dialogState: [] }],
+      botConfig: { botType: 'CONVERSATIONAL' },
+      intentMapping: [],
+      multiIntentMapping: [],
+      handlerGroups: [],
+      webhooks: [],
+      dialogResult: 'END_SESSION'
+    };
+    onScenarioLoad(newScenario);
+  };
+
   return (
     <Box sx={{ height: '100vh', overflow: 'auto', p: 2, bgcolor: '#f5f5f5' }}>
       <Typography variant="h6" gutterBottom>
@@ -292,21 +307,29 @@ const Sidebar: React.FC<SidebarProps> = ({
         )}
 
         <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
-          <Button 
-            variant="contained" 
+          <Button
+            variant="contained"
             onClick={() => fileInputRef.current?.click()}
             size="small"
             disabled={isLoading}
           >
             {isLoading ? '로딩중...' : '업로드'}
           </Button>
-          <Button 
-            variant="outlined" 
+          <Button
+            variant="outlined"
             onClick={handleDownload}
             disabled={!scenario || isLoading}
             size="small"
           >
             원본 다운로드
+          </Button>
+          <Button
+            variant="outlined"
+            color="secondary"
+            onClick={handleNewScenario}
+            size="small"
+          >
+            새 시나리오
           </Button>
           <Badge 
             badgeContent={hasChanges ? changeCount : 0} 
@@ -417,6 +440,35 @@ const Sidebar: React.FC<SidebarProps> = ({
           <Typography variant="body2" color="text.secondary">
             웹훅 수: {scenario.webhooks?.length || 0}
           </Typography>
+        </Paper>
+      )}
+
+      {scenario && (
+        <Paper sx={{ p: 2, mb: 2 }}>
+          <Typography variant="subtitle1" gutterBottom>
+            시나리오 구조
+          </Typography>
+          <TreeView
+            defaultCollapseIcon={<ExpandMoreIcon />}
+            defaultExpandIcon={<ExpandMoreIcon />}
+            onNodeSelect={(_e, id) => {
+              const found = nodes.find(n => n.id === id);
+              if (found) setTreeSelectedState(found);
+            }}
+          >
+            {scenario.plan.map((plan, pIdx) => (
+              <TreeItem nodeId={plan.name || `plan-${pIdx}`} label={plan.name || `Plan ${pIdx}`}> 
+                {plan.dialogState.map((state, sIdx) => (
+                  <TreeItem key={sIdx} nodeId={state.name} label={state.name} />
+                ))}
+              </TreeItem>
+            ))}
+          </TreeView>
+          {treeSelectedState && (
+            <Box sx={{ mt: 1, p:1, bgcolor:'#fafafa', borderRadius:1 }}>
+              <Typography variant="caption">{JSON.stringify(treeSelectedState.data.dialogState, null, 2)}</Typography>
+            </Box>
+          )}
         </Paper>
       )}
 
