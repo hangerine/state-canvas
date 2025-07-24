@@ -68,17 +68,33 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
 
   // 시나리오 내 상태 이름 목록 + 시나리오 전이 노드 목록 추출
   const stateAndTransitionOptions = React.useMemo(() => {
-    if (!scenario || !scenario.plan || scenario.plan.length === 0) return [];
-    const stateNames = scenario.plan[0].dialogState.map(ds => ds.name).filter(Boolean);
+    if (!nodes) return [];
+    // 일반 state: [시나리오이름]::[스테이트이름]
+    const scenarioName = scenario?.plan?.[0]?.name || activeScenarioId || '';
+    const stateOptions = nodes
+      .filter((n: any) => n.type !== 'scenarioTransition')
+      .map((n: any) => ({
+        key: `${scenarioName}::${n.data.dialogState.name}`,
+        label: `${scenarioName} → ${n.data.dialogState.name}`,
+        scenario: scenarioName,
+        state: n.data.dialogState.name,
+      }));
     // 시나리오 전이 노드
-    const transitionNodes = (scenarios ? Object.values(scenarios) : [])
-      .flatMap(s => s.plan[0]?.dialogState || [])
-      .filter(ds => ds.name === '시나리오 전이'); // 실제로는 FlowNode에서 type: 'scenarioTransition'인 노드가 필요함
-    // FlowCanvas에서 nodes prop을 받아서 type: 'scenarioTransition'인 노드 목록을 받아야 더 정확함
-    // 여기서는 편의상 scenarioTransition 노드가 별도 관리되지 않으므로, prop으로 nodes를 받아서 처리하는 것이 가장 명확함
-    // 일단 stateNames만 반환, 아래에서 FlowNode[] nodes prop을 추가로 받아서 처리하도록 확장 필요
-    return stateNames;
-  }, [scenario, scenarios]);
+    const transitionOptions = nodes
+      .filter((n: any) => n.type === 'scenarioTransition')
+      .map((n: any) => {
+        const tScenario = n.data.targetScenario || '';
+        const tState = n.data.targetState || '';
+        const label = `${n.data.label || '시나리오 전이'}: ${tScenario} → ${tState}`;
+        return {
+          key: `${tScenario}::${tState}`,
+          label,
+          scenario: tScenario,
+          state: tState,
+        };
+      });
+    return [...stateOptions, ...transitionOptions];
+  }, [nodes, scenario, activeScenarioId]);
 
   // 시나리오 전이 노드용: 시나리오 목록
   const scenarioOptions = React.useMemo(() => Object.entries(scenarios).map(([id, s]) => ({ id, name: s.plan[0]?.name || id })), [scenarios]);
@@ -1144,39 +1160,35 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                       <InputLabel>전이 대상 State</InputLabel>
                       <Select
                         label="전이 대상 State"
-                        value={String(handler.transitionTarget.dialogState ?? '')}
+                        value={(() => {
+                          const t = handler.transitionTarget;
+                          if (t && typeof t === 'object' && t.scenario && t.dialogState) {
+                            return `${t.scenario}::${t.dialogState}`;
+                          }
+                          if (typeof t === 'string' && t) return t;
+                          return '';
+                        })()}
                         onChange={e => {
                           const value = e.target.value;
-                          console.log(value, nodes);
-                          const scenarioTransitionNode = nodes?.find(n => n.id === value && n.type === 'scenarioTransition');
-                          if (scenarioTransitionNode) {
-                            // targetScenario가 시나리오 ID라면 이름으로 변환
-                            let scenarioName = scenarioTransitionNode.data.targetScenario;
-                            if (scenarios && scenarioName && scenarios[scenarioName]) {
-                              scenarioName = scenarios[scenarioName].plan[0]?.name || scenarioName;
-                            }
-                            updateConditionHandler(index, 'transitionTarget', { scenario: scenarioName || '', dialogState: scenarioTransitionNode.data.targetState || '' });
+                          // scenarioTransition 노드 id는 nodes에서 type이 scenarioTransition인 노드의 id와 일치
+                          const isScenarioTransitionId = nodes?.some((n: any) => n.type === 'scenarioTransition' && n.id === value);
+                          if (isScenarioTransitionId) {
+                            // scenarioTransition 노드 선택 시 id(string)로 저장
+                            updateConditionHandler(index, 'transitionTarget', value);
+                          } else if (typeof value === 'string' && value.includes('::')) {
+                            // 일반 state 선택 시 {scenario, dialogState}로 저장
+                            const [scenario, dialogState] = value.split('::');
+                            updateConditionHandler(index, 'transitionTarget', { scenario, dialogState });
                           } else {
+                            // 특수값 (__END_SESSION__ 등)
                             updateConditionHandler(index, 'transitionTarget', value);
                           }
                         }}
                       >
                         <MenuItem value="__END_SESSION__">__END_SESSION__</MenuItem>
                         <MenuItem value="__END_SCENARIO__">__END_SCENARIO__</MenuItem>
-                        {stateAndTransitionOptions.map(name => (
-                          <MenuItem key={name} value={name}>{name}</MenuItem>
-                        ))}
-                        {/* 시나리오 전이 노드 옵션 추가 */}
-                        {nodes?.filter(n => n.type === 'scenarioTransition').map(n => (
-                          <MenuItem key={n.id} value={n.id}>
-                            {(() => {
-                              const nodeLabel = n.data.label || n.data.dialogState?.name || n.id;
-                              const scenarioKey = n.data.targetScenario;
-                              const scenarioObj = typeof scenarioKey === 'string' && scenarios && scenarios[scenarioKey] ? scenarios[scenarioKey] : undefined;
-                              const scenarioName = scenarioObj?.plan?.[0]?.name || scenarioKey;
-                              return `${nodeLabel}: ${scenarioName} → ${n.data.targetState}`;
-                            })()}
-                          </MenuItem>
+                        {stateAndTransitionOptions.map(opt => (
+                          <MenuItem key={opt.key} value={opt.key}>{opt.label || opt.key}</MenuItem>
                         ))}
                       </Select>
                     </FormControl>
@@ -1323,39 +1335,35 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                       <InputLabel>전이 대상 State</InputLabel>
                       <Select
                         label="전이 대상 State"
-                        value={String(handler.transitionTarget.dialogState ?? '')}
+                        value={(() => {
+                          const t = handler.transitionTarget;
+                          if (t && typeof t === 'object' && t.scenario && t.dialogState) {
+                            return `${t.scenario}::${t.dialogState}`;
+                          }
+                          if (typeof t === 'string' && t) return t;
+                          return '';
+                        })()}
                         onChange={e => {
                           const value = e.target.value;
-                          console.log(value, nodes);
-                          const scenarioTransitionNode = nodes?.find(n => n.id === value && n.type === 'scenarioTransition');
-                          if (scenarioTransitionNode) {
-                            // targetScenario가 시나리오 ID라면 이름으로 변환
-                            let scenarioName = scenarioTransitionNode.data.targetScenario;
-                            if (scenarios && scenarioName && scenarios[scenarioName]) {
-                              scenarioName = scenarios[scenarioName].plan[0]?.name || scenarioName;
-                            }
-                            updateConditionHandler(index, 'transitionTarget', { scenario: scenarioName || '', dialogState: scenarioTransitionNode.data.targetState || '' });
+                          // scenarioTransition 노드 id는 nodes에서 type이 scenarioTransition인 노드의 id와 일치
+                          const isScenarioTransitionId = nodes?.some((n: any) => n.type === 'scenarioTransition' && n.id === value);
+                          if (isScenarioTransitionId) {
+                            // scenarioTransition 노드 선택 시 id(string)로 저장
+                            updateConditionHandler(index, 'transitionTarget', value);
+                          } else if (typeof value === 'string' && value.includes('::')) {
+                            // 일반 state 선택 시 {scenario, dialogState}로 저장
+                            const [scenario, dialogState] = value.split('::');
+                            updateConditionHandler(index, 'transitionTarget', { scenario, dialogState });
                           } else {
+                            // 특수값 (__END_SESSION__ 등)
                             updateConditionHandler(index, 'transitionTarget', value);
                           }
                         }}
                       >
                         <MenuItem value="__END_SESSION__">__END_SESSION__</MenuItem>
                         <MenuItem value="__END_SCENARIO__">__END_SCENARIO__</MenuItem>
-                        {stateAndTransitionOptions.map(name => (
-                          <MenuItem key={name} value={name}>{name}</MenuItem>
-                        ))}
-                        {/* 시나리오 전이 노드 옵션 추가 */}
-                        {nodes?.filter(n => n.type === 'scenarioTransition').map(n => (
-                          <MenuItem key={n.id} value={n.id}>
-                            {(() => {
-                              const nodeLabel = n.data.label || n.data.dialogState?.name || n.id;
-                              const scenarioKey = n.data.targetScenario;
-                              const scenarioObj = typeof scenarioKey === 'string' && scenarios && scenarios[scenarioKey] ? scenarios[scenarioKey] : undefined;
-                              const scenarioName = scenarioObj?.plan?.[0]?.name || scenarioKey;
-                              return `${nodeLabel}: ${scenarioName} → ${n.data.targetState}`;
-                            })()}
-                          </MenuItem>
+                        {stateAndTransitionOptions.map(opt => (
+                          <MenuItem key={opt.key} value={opt.key}>{opt.label || opt.key}</MenuItem>
                         ))}
                       </Select>
                     </FormControl>
@@ -1475,39 +1483,35 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                       <InputLabel>전이 대상 State</InputLabel>
                       <Select
                         label="전이 대상 State"
-                        value={String(handler.transitionTarget.dialogState ?? '')}
+                        value={(() => {
+                          const t = handler.transitionTarget;
+                          if (t && typeof t === 'object' && t.scenario && t.dialogState) {
+                            return `${t.scenario}::${t.dialogState}`;
+                          }
+                          if (typeof t === 'string' && t) return t;
+                          return '';
+                        })()}
                         onChange={e => {
                           const value = e.target.value;
-                          console.log(value, nodes);
-                          const scenarioTransitionNode = nodes?.find(n => n.id === value && n.type === 'scenarioTransition');
-                          if (scenarioTransitionNode) {
-                            // targetScenario가 시나리오 ID라면 이름으로 변환
-                            let scenarioName = scenarioTransitionNode.data.targetScenario;
-                            if (scenarios && scenarioName && scenarios[scenarioName]) {
-                              scenarioName = scenarios[scenarioName].plan[0]?.name || scenarioName;
-                            }
-                            updateConditionHandler(index, 'transitionTarget', { scenario: scenarioName || '', dialogState: scenarioTransitionNode.data.targetState || '' });
+                          // scenarioTransition 노드 id는 nodes에서 type이 scenarioTransition인 노드의 id와 일치
+                          const isScenarioTransitionId = nodes?.some((n: any) => n.type === 'scenarioTransition' && n.id === value);
+                          if (isScenarioTransitionId) {
+                            // scenarioTransition 노드 선택 시 id(string)로 저장
+                            updateConditionHandler(index, 'transitionTarget', value);
+                          } else if (typeof value === 'string' && value.includes('::')) {
+                            // 일반 state 선택 시 {scenario, dialogState}로 저장
+                            const [scenario, dialogState] = value.split('::');
+                            updateConditionHandler(index, 'transitionTarget', { scenario, dialogState });
                           } else {
+                            // 특수값 (__END_SESSION__ 등)
                             updateConditionHandler(index, 'transitionTarget', value);
                           }
                         }}
                       >
                         <MenuItem value="__END_SESSION__">__END_SESSION__</MenuItem>
                         <MenuItem value="__END_SCENARIO__">__END_SCENARIO__</MenuItem>
-                        {stateAndTransitionOptions.map(name => (
-                          <MenuItem key={name} value={name}>{name}</MenuItem>
-                        ))}
-                        {/* 시나리오 전이 노드 옵션 추가 */}
-                        {nodes?.filter(n => n.type === 'scenarioTransition').map(n => (
-                          <MenuItem key={n.id} value={n.id}>
-                            {(() => {
-                              const nodeLabel = n.data.label || n.data.dialogState?.name || n.id;
-                              const scenarioKey = n.data.targetScenario;
-                              const scenarioObj = typeof scenarioKey === 'string' && scenarios && scenarios[scenarioKey] ? scenarios[scenarioKey] : undefined;
-                              const scenarioName = scenarioObj?.plan?.[0]?.name || scenarioKey;
-                              return `${nodeLabel}: ${scenarioName} → ${n.data.targetState}`;
-                            })()}
-                          </MenuItem>
+                        {stateAndTransitionOptions.map(opt => (
+                          <MenuItem key={opt.key} value={opt.key}>{opt.label || opt.key}</MenuItem>
                         ))}
                       </Select>
                     </FormControl>

@@ -63,7 +63,8 @@ interface TestPanelProps {
   scenario: Scenario | null;
   currentState: string;
   onStateChange: (state: string) => void;
-  onScenarioUpdate?: (scenario: Scenario) => void;
+  onScenarioUpdate: (scenario: Scenario) => void;
+  scenarios?: { [key: string]: Scenario };
 }
 
 interface TestMessage {
@@ -77,6 +78,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
   currentState,
   onStateChange,
   onScenarioUpdate,
+  scenarios
 }) => {
   const [inputText, setInputText] = useState('');
   const [messages, setMessages] = useState<TestMessage[]>([]);
@@ -832,7 +834,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
           context: defaultContext,
           headers: defaultHeaders,
           currentState,
-          scenario: scenario!
+          scenario: scenarios && Object.values(scenarios).length > 0 ? Object.values(scenarios) as Scenario[] : [scenario!]
         };
 
         const response = await axios.post('http://localhost:8000/api/process-chatbot-input', chatbotRequestData);
@@ -877,7 +879,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
             context: defaultContext,
             headers: defaultHeaders,
             currentState,
-            scenario: scenario
+            scenario: scenarios && Object.values(scenarios).length > 0 ? Object.values(scenarios) as Scenario[] : [scenario!]
           };
         }
         // 필수 필드 확인
@@ -889,7 +891,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
         const requestData = {
           ...jsonRequest,
           currentState,
-          scenario: scenario
+          scenario: scenarios && Object.values(scenarios).length > 0 ? Object.values(scenarios) as Scenario[] : [scenario!]
         };
         addMessage('user', `[JSON] ${JSON.stringify(jsonRequest.userInput, null, 2)}`);
         addMessage('system', '📤 JSON 요청을 전송합니다...');
@@ -1039,8 +1041,11 @@ const TestPanel: React.FC<TestPanelProps> = ({
         
         // 추가 처리 필드들
         currentState,
-        scenario: scenario!
+        scenario: scenarios && Object.values(scenarios).length > 0 ? Object.values(scenarios) as Scenario[] : [scenario!]
       };
+
+      // === 추가: 백엔드로 전송되는 시나리오 배열 로그 ===
+      console.log('🛫 백엔드로 전송되는 시나리오 배열:', chatbotRequestData.scenario);
 
       if (proxyMode && proxyEndpoint.trim()) {
         response = await axios.post('http://localhost:8000/api/proxy', {
@@ -1160,7 +1165,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
         context: defaultContext,
         headers: defaultHeaders,
         currentState,
-        scenario: scenario!
+        scenario: scenarios && Object.values(scenarios).length > 0 ? Object.values(scenarios) as Scenario[] : [scenario!]
       };
 
       let response;

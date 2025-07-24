@@ -4,8 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 import json
 import uuid
-from typing import Dict, Any, List, Optional
-from pydantic import BaseModel
+from typing import Dict, Any, List, Optional, Union
+from pydantic import BaseModel, Field
 import logging
 import requests
 
@@ -73,27 +73,22 @@ async def health_check():
 # 시나리오 파일 업로드
 @app.post("/api/upload-scenario")
 async def upload_scenario(file: UploadFile = File(...)):
-    """시나리오 JSON 파일 업로드"""
+    """시나리오 JSON 파일 업로드 (여러 개 가능)"""
     try:
         content = await file.read()
         scenario_data = json.loads(content.decode('utf-8'))
-        
-        # 시나리오 validation
-        scenario = Scenario(**scenario_data)
-        
+        # 여러 시나리오 지원
+        scenarios = scenario_data if isinstance(scenario_data, list) else [scenario_data]
         # State engine에 로드
         session_id = str(uuid.uuid4())
-        state_engine.load_scenario(session_id, scenario_data)
-        
-        logger.info(f"Scenario uploaded for session: {session_id}")
-        
+        state_engine.load_scenario(session_id, scenarios)
+        logger.info(f"Scenario(s) uploaded for session: {session_id}")
         return {
             "status": "success",
             "session_id": session_id,
             "scenario": scenario_data,
             "message": "시나리오가 성공적으로 업로드되었습니다."
         }
-        
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=400, detail=f"JSON 파싱 오류: {str(e)}")
     except Exception as e:
@@ -138,26 +133,24 @@ class UpdateIntentMappingRequest(BaseModel):
 # 세션 초기화
 @app.post("/api/reset-session/{session_id}")
 async def reset_session(session_id: str, request: Optional[ResetSessionRequest] = None):
-    """세션을 초기화합니다"""
+    """세션을 초기화합니다 (여러 시나리오 지원)"""
     try:
         scenario = None
         initial_state = "Start"  # 기본값
-        
         # 요청에서 시나리오 가져오기
         if request and request.scenario:
             scenario = request.scenario
-            # State engine을 사용하여 초기 상태 결정
-            initial_state = state_engine.get_initial_state(scenario)
-            # State engine에 시나리오 로드
-            state_engine.load_scenario(session_id, scenario)
+            scenarios = scenario if isinstance(scenario, list) else [scenario]
+            initial_state = state_engine.get_initial_state(scenarios[0])
+            state_engine.load_scenario(session_id, scenarios)
         else:
             # 기존 세션에서 시나리오 가져오기
             if session_id in active_sessions:
                 scenario = active_sessions[session_id].get("scenario")
                 if scenario:
-                    initial_state = state_engine.get_initial_state(scenario)
-                    state_engine.load_scenario(session_id, scenario)
-        
+                    scenarios = scenario if isinstance(scenario, list) else [scenario]
+                    initial_state = state_engine.get_initial_state(scenarios[0])
+                    state_engine.load_scenario(session_id, scenarios)
         # 세션 초기화
         active_sessions[session_id] = {
             "current_state": initial_state,
@@ -165,16 +158,13 @@ async def reset_session(session_id: str, request: Optional[ResetSessionRequest] 
             "history": [],
             "scenario": scenario
         }
-        
         logger.info(f"Session {session_id} reset to state: {initial_state}")
-        
         return {
             "status": "success",
             "session_id": session_id,
             "initial_state": initial_state,
             "message": f"세션이 초기화되었습니다. 초기 상태: {initial_state}"
         }
-        
     except Exception as e:
         logger.error(f"Session reset error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"세션 초기화 오류: {str(e)}")
@@ -208,8 +198,11 @@ async def update_intent_mapping(request: UpdateIntentMappingRequest):
         raise HTTPException(status_code=500, detail=f"Failed to update intent mapping: {str(e)}")
 
 # 새로운 userInput 형식을 지원하는 엔드포인트
+class MultiScenarioProcessInputRequest(ProcessInputRequest):
+    scenario: Union[Dict[str, Any], List[Dict[str, Any]]] = Field(...)
+
 @app.post("/api/process-input")
-async def process_input(request: ProcessInputRequest):
+async def process_input(request: MultiScenarioProcessInputRequest):
     """
     새로운 userInput 형식으로 사용자 입력을 처리하고 State 전이를 수행합니다.
     """
@@ -250,15 +243,18 @@ async def process_input(request: ProcessInputRequest):
             "content": request.userInput.content.dict() if hasattr(request.userInput.content, 'dict') else request.userInput.content
         }
     
-    # State Engine에 시나리오 로드
-    state_engine.load_scenario(request.sessionId, request.scenario)
+    # 여러 시나리오 지원
+    scenarios: List[Dict[str, Any]] = request.scenario if isinstance(request.scenario, list) else [request.scenario]
+    if not scenarios:
+        raise HTTPException(status_code=400, detail="No scenario(s) provided.")
+    state_engine.load_scenario(request.sessionId, scenarios)
     
     # 입력 처리 (기존 state_engine은 텍스트를 기대하므로 변환)
     result = await state_engine.process_input(
         session_id=request.sessionId,
         user_input=user_text,
         current_state=request.currentState,
-        scenario=request.scenario,
+        scenario=scenarios[0],
         memory=memory,
         event_type=request.eventType
     )
@@ -270,8 +266,11 @@ async def process_input(request: ProcessInputRequest):
     return result
 
 # 새로운 챗봇 입력 포맷을 지원하는 엔드포인트
+class MultiScenarioChatbotProcessRequest(ChatbotProcessRequest):
+    scenario: Union[Dict[str, Any], List[Dict[str, Any]]] = Field(...)
+
 @app.post("/api/process-chatbot-input")
-async def process_chatbot_input(request: ChatbotProcessRequest):
+async def process_chatbot_input(request: MultiScenarioChatbotProcessRequest):
     """
     새로운 챗봇 입력 포맷으로 사용자 입력을 처리하고 State 전이를 수행합니다.
     """
@@ -320,15 +319,17 @@ async def process_chatbot_input(request: ChatbotProcessRequest):
             "content": request.userInput.content.dict() if hasattr(request.userInput.content, 'dict') else request.userInput.content
         }
     
-    # State Engine에 시나리오 로드
-    state_engine.load_scenario(request.sessionId, request.scenario)
+    scenarios: List[Dict[str, Any]] = request.scenario if isinstance(request.scenario, list) else [request.scenario]
+    if not scenarios:
+        raise HTTPException(status_code=400, detail="No scenario(s) provided.")
+    state_engine.load_scenario(request.sessionId, scenarios)
     
     # 입력 처리 (기존 state_engine은 텍스트를 기대하므로 변환)
     result = await state_engine.process_input(
         session_id=request.sessionId,
         user_input=user_text,
         current_state=request.currentState,
-        scenario=request.scenario,
+        scenario=scenarios[0],
         memory=memory,
         event_type=request.eventType
     )
@@ -343,7 +344,7 @@ async def process_chatbot_input(request: ChatbotProcessRequest):
         intent=result.get("intent", ""),
         entities=result.get("entities", {}),
         memory=result.get("memory", memory),
-        scenario=request.scenario,
+        scenario=scenarios[0],
         used_slots=None,  # TODO: 추후 구현
         event_type=request.eventType
     )
@@ -352,8 +353,11 @@ async def process_chatbot_input(request: ChatbotProcessRequest):
     return chatbot_response
 
 # 기존 형식 지원을 위한 레거시 엔드포인트
+class MultiScenarioLegacyProcessInputRequest(LegacyProcessInputRequest):
+    scenario: Union[Dict[str, Any], List[Dict[str, Any]]] = Field(...)
+
 @app.post("/api/process-input-legacy")
-async def process_input_legacy(request: LegacyProcessInputRequest):
+async def process_input_legacy(request: MultiScenarioLegacyProcessInputRequest):
     """
     기존 input 형식으로 사용자 입력을 처리하고 State 전이를 수행합니다. (호환성 유지)
     """
@@ -366,15 +370,17 @@ async def process_input_legacy(request: LegacyProcessInputRequest):
     if request.input.strip():
         memory["USER_TEXT_INPUT"] = [request.input.strip()]
     
-    # State Engine에 시나리오 로드
-    state_engine.load_scenario(request.sessionId, request.scenario)
+    scenarios: List[Dict[str, Any]] = request.scenario if isinstance(request.scenario, list) else [request.scenario]
+    if not scenarios:
+        raise HTTPException(status_code=400, detail="No scenario(s) provided.")
+    state_engine.load_scenario(request.sessionId, scenarios)
     
     # 입력 처리
     result = await state_engine.process_input(
         session_id=request.sessionId,
         user_input=request.input,
         current_state=request.currentState,
-        scenario=request.scenario,
+        scenario=scenarios[0],
         memory=memory,
         event_type=request.eventType
     )

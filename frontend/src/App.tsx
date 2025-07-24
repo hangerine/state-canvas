@@ -509,11 +509,11 @@ function App() {
     setNodes(updatedNodes);
     if (scenario) {
       const latestName = scenarios[activeScenarioId]?.plan?.[0]?.name || scenario.plan[0].name;
-      const updatedScenario = convertNodesToScenario(updatedNodes, scenario, latestName, scenarios);
+      const updatedScenario = convertNodesToScenario(updatedNodes, edges, scenario, latestName, scenarios);
       setScenario(updatedScenario);
       setScenarios(prev => activeScenarioId ? { ...prev, [activeScenarioId]: updatedScenario } : prev);
     }
-  }, [scenario, activeScenarioId, scenarios]);
+  }, [scenario, activeScenarioId, scenarios, edges]);
 
   // 연결 변경 시 처리 (현재는 UI에서만 관리, 향후 확장 가능)
   const handleEdgesChange = useCallback((newEdges: FlowEdge[]) => {
@@ -530,7 +530,7 @@ function App() {
 
     // 현재 노드들을 시나리오로 변환
     const latestName = scenarios[activeScenarioId]?.plan?.[0]?.name || originalScenario?.plan[0].name;
-    const convertedScenario = convertNodesToScenario(nodes, originalScenario, latestName, scenarios);
+    const convertedScenario = convertNodesToScenario(nodes, edges, originalScenario, latestName, scenarios);
     
     // 변경사항 비교
     const changes = compareScenarios(nodes, originalScenario);
@@ -538,7 +538,7 @@ function App() {
     setNewScenario(convertedScenario);
     setScenarioChanges(changes);
     setSaveModalOpen(true);
-  }, [nodes, originalScenario, scenarios, activeScenarioId]);
+  }, [nodes, originalScenario, scenarios, activeScenarioId, edges]);
 
   // 즉시 반영 저장 처리 (새로운 기능)
   const handleApplyChanges = useCallback(() => {
@@ -550,7 +550,7 @@ function App() {
     try {
       // 현재 노드들을 시나리오로 변환
       const latestName = scenarios[activeScenarioId]?.plan?.[0]?.name || originalScenario?.plan[0].name;
-      const convertedScenario = convertNodesToScenario(nodes, originalScenario, latestName, scenarios);
+      const convertedScenario = convertNodesToScenario(nodes, edges, originalScenario, latestName, scenarios);
       
       // 변경사항 비교
       const changes = compareScenarios(nodes, originalScenario);
@@ -594,7 +594,7 @@ function App() {
       // console.error('시나리오 반영 오류:', error);
       alert('❌ 시나리오 반영 중 오류가 발생했습니다: ' + (error as Error).message);
     }
-  }, [nodes, originalScenario, currentState, getInitialState, scenarios, activeScenarioId]);
+  }, [nodes, originalScenario, currentState, getInitialState, scenarios, activeScenarioId, edges]);
 
   // 모달에서 최종 저장 처리
   const handleSaveConfirm = useCallback((filename: string) => {
@@ -732,7 +732,7 @@ function App() {
               currentScenarioId={activeScenarioId}
               onNodeSelect={handleNodeSelect}
               onNodesChange={handleNodesChange}
-              onEdgesChange={setEdges}
+              onEdgesChange={handleEdgesChange}
               isTestMode={isTestMode}
             />
           </Box>
@@ -791,6 +791,7 @@ function App() {
             currentState={currentState}
             onStateChange={setCurrentState}
             onScenarioUpdate={handleScenarioUpdate}
+            scenarios={scenarios}
           />
               </Box>
             </Box>

@@ -5,7 +5,7 @@ import aiohttp
 import asyncio
 import time
 import uuid
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Union
 from jsonpath_ng import parse
 from models.scenario import StateTransition, ChatbotResponse, ErrorInfo, ChatbotDirective, DirectiveContent, ResponseMeta, UsedSlot
 from services.scenario_manager import ScenarioManager
@@ -42,18 +42,26 @@ class StateEngine:
         self.session_stacks: Dict[str, List[Dict[str, Any]]] = {}
         self.global_intent_mapping: List[Dict[str, Any]] = []
     
-    def load_scenario(self, session_id: str, scenario_data: Dict[str, Any]):
-        """시나리오를 로드합니다."""
-        self.scenario_manager.load_scenario(session_id, scenario_data)
-        
-        # Webhook 정보 로딩 확인
-        webhooks = scenario_data.get("webhooks", [])
+    def load_scenario(self, session_id: str, scenario_data: Union[List[Dict[str, Any]], Dict[str, Any]]):
+        """여러 시나리오를 한 세션에 로드할 수 있도록 확장"""
+        if isinstance(scenario_data, list):
+            # 여러 시나리오를 한 번에 로드
+            for s in scenario_data:
+                self.scenario_manager.load_scenario(session_id, s)
+            # 첫 번째 시나리오를 초기화에 사용
+            first = scenario_data[0] if scenario_data else None
+        else:
+            self.scenario_manager.load_scenario(session_id, scenario_data)
+            first = scenario_data
+        if not first:
+            logger.error(f"[LOAD_SCENARIO] No scenario data provided for session: {session_id}")
+            return
+        # Webhook 정보 로딩 확인 (첫 번째 시나리오 기준)
+        webhooks = first.get("webhooks", [])
         logger.info(f"📋 Loaded {len(webhooks)} webhooks for session: {session_id}")
         for webhook in webhooks:
             logger.info(f"🔗 Webhook: {webhook.get('name', 'Unknown')} -> {webhook.get('url', 'Unknown URL')}")
-        
-        # Webhook Actions 확인
-        plan = scenario_data.get("plan", [])
+        plan = first.get("plan", [])
         if plan and len(plan) > 0:
             dialog_states = plan[0].get("dialogState", [])
             webhook_states = []
@@ -64,20 +72,17 @@ class StateEngine:
                         "state": state.get("name", "Unknown"),
                         "actions": [action.get("name", "Unknown") for action in webhook_actions]
                     })
-            
             if webhook_states:
                 logger.info(f"🔗 Found {len(webhook_states)} states with webhook actions:")
                 for ws in webhook_states:
                     logger.info(f"   - {ws['state']}: {ws['actions']}")
             else:
                 logger.info("🔗 No states with webhook actions found")
-        
         logger.info(f"Scenario loaded for session: {session_id}")
-
-        initial_state = self.get_initial_state(scenario_data)
+        initial_state = self.get_initial_state(first)
         self.session_stacks[session_id] = [
             {
-                "scenarioName": scenario_data.get("plan", [{}])[0].get("name", ""),
+                "scenarioName": first.get("plan", [{}])[0].get("name", ""),
                 "dialogStateName": initial_state,
                 "lastExecutedHandlerIndex": -1,
                 "entryActionExecuted": False,
@@ -267,16 +272,21 @@ class StateEngine:
                         target = handler.get("transitionTarget", {})
                         target_scenario = target.get("scenario")
                         target_state = target.get("dialogState")
+                        logger.info(f"[SCENARIO TRANSITION CHECK] handler_type={handler_type}, target={target}")
                         if target_scenario and target_scenario != scenario["plan"][0]["name"]:
+                            logger.info(f"[SCENARIO TRANSITION DETECTED] from={scenario['plan'][0]['name']} to={target_scenario}, state={str(target_state)}")
                             return target_scenario, target_state
                 return None, None
             target_scenario, target_state = get_target_scenario_and_state(current_dialog_state)
             if target_scenario and target_state:
+                logger.info(f"[SCENARIO SWITCH] session={session_id}, from={scenario['plan'][0]['name']} to={target_scenario}, state={str(target_state)}")
                 self.switch_to_scenario(session_id, target_scenario, target_state)
                 scenario_obj = self.scenario_manager.get_scenario_by_name(target_scenario)
+                logger.info(f"[SCENARIO OBJ] scenario_obj={scenario_obj}")
                 if scenario_obj:
                     return await self.process_input(session_id, user_input, target_state, scenario_obj, memory, event_type)
                 else:
+                    logger.error(f"[SCENARIO NOT FOUND] target_scenario={target_scenario}")
                     return {
                         "error": f"시나리오 '{target_scenario}'를 찾을 수 없습니다.",
                         "new_state": current_state,
@@ -600,7 +610,7 @@ class StateEngine:
             if auto_transition_result:
                 logger.info(f"[AUTO TRANSITION] auto_transition_result: {auto_transition_result}")
                 new_state = auto_transition_result["new_state"]
-                response_messages.extend(auto_transition_result["messages"])
+                response_messages.extend(auto_transition_result.get("messages", []))
                 if auto_transition_result.get("transitions"):
                     transitions.extend(auto_transition_result["transitions"])
         
@@ -687,7 +697,8 @@ class StateEngine:
             "transitions": transition_dicts,
             "intent": intent,
             "entities": entities,
-            "memory": memory
+            "memory": memory,
+            "messages": response_messages
         }
     
     async def _check_and_execute_auto_transitions(
@@ -732,7 +743,7 @@ class StateEngine:
                             )
                             if next_auto_result:
                                 new_state = next_auto_result["new_state"]
-                                response_messages.extend(next_auto_result["messages"])
+                                response_messages.extend(next_auto_result.get("messages", []))
                                 if next_auto_result.get("transitions"):
                                     webhook_result["transitions"].extend(next_auto_result["transitions"])
                             memory["_AUTO_TRANSITION_DEPTH"] = current_depth
@@ -770,7 +781,7 @@ class StateEngine:
                             )
                             if next_auto_result:
                                 new_state = next_auto_result["new_state"]
-                                response_messages.extend(next_auto_result["messages"])
+                                response_messages.extend(next_auto_result.get("messages", []))
                                 if next_auto_result.get("transitions"):
                                     apicall_result["transitions"].extend(next_auto_result["transitions"])
                             memory["_AUTO_TRANSITION_DEPTH"] = current_depth
@@ -791,9 +802,26 @@ class StateEngine:
                 logger.warning(f"Handler is not a dict: {handler}")
                 continue
             condition = handler.get("conditionStatement", "")
+            target = handler.get("transitionTarget", {})
+            target_scenario = target.get("scenario")
+            target_state = target.get("dialogState", current_state)
+            # 시나리오 전이 처리 추가
+            if target_scenario and target_scenario != scenario["plan"][0]["name"]:
+                logger.info(f"[AUTO SCENARIO TRANSITION DETECTED] from={scenario['plan'][0]['name']} to={target_scenario}, state={str(target_state)}")
+                self.switch_to_scenario(memory.get('session_id', ''), target_scenario, target_state)
+                scenario_obj = self.scenario_manager.get_scenario_by_name(target_scenario)
+                if scenario_obj:
+                    # process_input을 재귀적으로 호출하여 시나리오 context를 바꾼다
+                    return await self.process_input(memory.get('session_id', ''), '', target_state, scenario_obj, memory)
+                else:
+                    logger.error(f"[AUTO SCENARIO NOT FOUND] target_scenario={target_scenario}")
+                    return {
+                        "new_state": current_state,
+                        "messages": [f"❌ 시나리오 전이 실패: {target_scenario}"],
+                        "transitions": []
+                    }
             if condition.strip() == "True" or condition.strip() == '"True"':
-                target = handler.get("transitionTarget", {})
-                new_state = target.get("dialogState", current_state)
+                new_state = target_state
                 transition = StateTransition(
                     fromState=current_state,
                     toState=new_state,
@@ -806,8 +834,7 @@ class StateEngine:
                 break
             else:
                 if self.transition_manager.evaluate_condition(condition, memory):
-                    target = handler.get("transitionTarget", {})
-                    new_state = target.get("dialogState", current_state)
+                    new_state = target_state
                     transition = StateTransition(
                         fromState=current_state,
                         toState=new_state,
@@ -833,7 +860,7 @@ class StateEngine:
                 )
                 if next_auto_result:
                     new_state = next_auto_result["new_state"]
-                    response_messages.extend(next_auto_result["messages"])
+                    response_messages.extend(next_auto_result.get("messages", []))
                     if next_auto_result.get("transitions"):
                         auto_transitions.extend(next_auto_result["transitions"])
                 memory["_AUTO_TRANSITION_DEPTH"] = current_depth
@@ -989,7 +1016,7 @@ class StateEngine:
                 )
                 if auto_transition_result:
                     new_state = auto_transition_result["new_state"]
-                    response_messages.extend(auto_transition_result["messages"])
+                    response_messages.extend(auto_transition_result.get("messages", []))
                     if auto_transition_result.get("transitions"):
                         transitions.extend(auto_transition_result["transitions"])
             except Exception as e:
