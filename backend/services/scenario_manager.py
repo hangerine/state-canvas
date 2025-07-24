@@ -37,6 +37,16 @@ class ScenarioManager:
     def get_scenario(self, session_id: str) -> Optional[Dict[str, Any]]:
         return self.scenarios.get(session_id)
 
+    def get_scenario_by_name(self, scenario_name: str) -> Optional[Dict[str, Any]]:
+        """
+        시나리오 이름(plan[0].name)으로 시나리오를 찾습니다.
+        """
+        for scenario in self.scenarios.values():
+            plans = scenario.get("plan", [])
+            if plans and plans[0].get("name") == scenario_name:
+                return scenario
+        return None
+
     def find_dialog_state(self, scenario: Dict[str, Any], state_name: str) -> Optional[Dict[str, Any]]:
         """
         시나리오에서 특정 상태를 찾습니다.

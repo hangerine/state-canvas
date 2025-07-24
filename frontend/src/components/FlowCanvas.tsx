@@ -24,27 +24,95 @@ import { FlowNode, FlowEdge, DialogState, Scenario } from '../types/scenario';
 import CustomNode from './CustomNode';
 import NodeEditModal from './NodeEditModal';
 import EdgeEditModal from './EdgeEditModal';
-import { Menu, MenuItem, Typography, Button, Stack, IconButton } from '@mui/material';
+import { Menu, MenuItem, Typography, Button, Stack, IconButton, Box, Chip, FormControlLabel } from '@mui/material';
 import UndoIcon from '@mui/icons-material/Undo';
 import RedoIcon from '@mui/icons-material/Redo';
 import dagre from 'dagre';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import EditOffIcon from '@mui/icons-material/EditOff';
 import EditIcon from '@mui/icons-material/Edit';
-import { Switch, FormControlLabel } from '@mui/material';
+import { Switch } from '@mui/material';
 import ReplayIcon from '@mui/icons-material/Replay';
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import Radio from '@mui/material/Radio';
+import RadioGroup from '@mui/material/RadioGroup';
+import CustomEdge from './CustomEdge';
+
+// 시나리오 전이 노드 컴포넌트
+const ScenarioTransitionNode: React.FC<any> = ({ data }) => {
+  return (
+    <Box
+      sx={{
+        width: 120,
+        height: 60,
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 1,
+        border: '2px dashed #ff6b35',
+        borderRadius: 2,
+        backgroundColor: '#fff3e0',
+        boxShadow: 2,
+        position: 'relative',
+        overflow: 'hidden',
+      }}
+    >
+      <SwapHorizIcon sx={{ color: '#ff6b35', fontSize: 20, mb: 0.5 }} />
+      <Typography 
+        variant="caption" 
+        sx={{ 
+          fontWeight: 'bold',
+          textAlign: 'center',
+          color: '#ff6b35',
+          fontSize: '0.7rem',
+          lineHeight: 1.2,
+        }}
+      >
+        {data.targetScenario || '시나리오 전이'}
+      </Typography>
+      {data.targetState && (
+        <Typography 
+          variant="caption" 
+          sx={{ 
+            textAlign: 'center',
+            color: '#ff6b35',
+            fontSize: '0.6rem',
+            opacity: 0.8,
+          }}
+        >
+          → {data.targetState}
+        </Typography>
+      )}
+    </Box>
+  );
+};
 
 // 커스텀 노드 타입 정의
 const nodeTypes: NodeTypes = {
   custom: CustomNode,
+  scenarioTransition: ScenarioTransitionNode,
+};
+
+const edgeTypes = {
+  custom: CustomEdge,
 };
 
 interface FlowCanvasProps {
-  initialNodes: FlowNode[];
-  initialEdges: FlowEdge[];
+  nodes: FlowNode[];
+  edges: FlowEdge[];
   currentState: string;
   scenario?: Scenario;
-  // onScenarioSave 등 저장 콜백이 필요하면 추가
+  scenarios?: { [key: string]: Scenario };
+  currentScenarioId?: string;
+  onNodeSelect?: (node: FlowNode | null) => void;
+  onNodesChange?: (nodes: FlowNode[]) => void;
+  onEdgesChange?: (edges: FlowEdge[]) => void;
+  isTestMode?: boolean;
 }
 
 // 새로운 DialogState 생성 함수
@@ -66,13 +134,30 @@ const createNewDialogState = (name: string): DialogState => ({
 });
 
 const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
-  initialNodes,
-  initialEdges,
+  nodes,
+  edges,
   currentState,
   scenario,
+  scenarios = {},
+  currentScenarioId = '',
+  onNodeSelect,
+  onNodesChange,
+  onEdgesChange,
+  isTestMode = false,
+  ...rest
 }) => {
-  const [nodes, setNodes, onNodesStateChange] = useNodesState(initialNodes || []);
-  const [edges, setEdges, onEdgesStateChange] = useEdgesState(initialEdges || []);
+  useEffect(() => {
+    console.log('FlowCanvas nodes', nodes.map(n => ({
+      id: n.id,
+      type: n.type,
+      label: n.data.label,
+      targetScenario: n.data.targetScenario,
+      targetState: n.data.targetState
+    })));
+  }, [nodes]);
+  // 내부 상태 제거
+  // const [nodes, setNodes, onNodesStateChange] = useNodesState(initialNodes || []);
+  // const [edges, setEdges, onEdgesStateChange] = useEdgesState(initialEdges || []);
   const [contextMenu, setContextMenu] = useState<{
     mouseX: number;
     mouseY: number;
@@ -86,7 +171,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
   const [edgeButtonAnchor, setEdgeButtonAnchor] = useState<{ x: number; y: number } | null>(null);
   const [isEditable, setIsEditable] = useState(true);
   
-  const { project, fitView } = useReactFlow();
+  const { project, fitView, screenToFlowPosition } = useReactFlow();
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Undo/Redo 스택 (Node[], Edge[])
@@ -94,56 +179,41 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
   const [redoStack, setRedoStack] = useState<{nodes: Node[]; edges: Edge[]}[]>([]);
 
   // 이전 propNodes/propEdges를 기억하기 위한 ref
-  const prevNodesRef = useRef<FlowNode[]>(initialNodes);
-  const prevEdgesRef = useRef<FlowEdge[]>(initialEdges);
+  const prevNodesRef = useRef<FlowNode[]>(nodes);
+  const prevEdgesRef = useRef<FlowEdge[]>(edges);
 
   // 최초 시나리오 업로드 시의 노드/에지 상태 저장
-  const initialNodesRef = useRef<Node[]>(initialNodes);
-  const initialEdgesRef = useRef<Edge[]>(initialEdges);
+  const initialNodesRef = useRef<Node[]>(nodes);
+  const initialEdgesRef = useRef<Edge[]>(edges);
 
-  // 최초 마운트 시 초기 상태 push
+  // 최초 마운트 시 초기 상태 push 및 setNodes/setEdges
   useEffect(() => {
-    setUndoStack([{ nodes: initialNodes, edges: initialEdges }]);
+    setUndoStack([{ nodes, edges }]);
     setRedoStack([]);
-    prevNodesRef.current = initialNodes;
-    prevEdgesRef.current = initialEdges;
+    prevNodesRef.current = nodes;
+    prevEdgesRef.current = edges;
+    initialNodesRef.current = nodes;
+    initialEdgesRef.current = edges;
     // eslint-disable-next-line
-  }, []);
-
-  // propNodes/propEdges가 완전히 바뀔 때(시나리오 업로드 등) 최초 상태도 갱신
-  useEffect(() => {
-    // 이전 값과 완전히 다를 때만 스택 초기화
-    const prevNodeIds = prevNodesRef.current.map(n => n.id).join(',');
-    const currNodeIds = initialNodes.map(n => n.id).join(',');
-    const prevEdgeIds = prevEdgesRef.current.map(e => e.id).join(',');
-    const currEdgeIds = initialEdges.map(e => e.id).join(',');
-    if (prevNodeIds !== currNodeIds || prevEdgeIds !== currEdgeIds) {
-      setUndoStack([{ nodes: initialNodes, edges: initialEdges }]);
-      setRedoStack([]);
-      prevNodesRef.current = initialNodes;
-      prevEdgesRef.current = initialEdges;
-      initialNodesRef.current = initialNodes;
-      initialEdgesRef.current = initialEdges;
-      setNodes(initialNodes);
-      setEdges(initialEdges);
-    }
-  }, [initialNodes, initialEdges]);
+  }, []); // 최초 마운트 시에만 실행
 
   // 노드/에지 변경 래퍼 (NodeChange[], EdgeChange[])
   // 1. onNodesChange에서는 상태만 업데이트 (Undo push X, App의 onNodesChange도 호출 X)
   const handleNodesChangeWithUndo = useCallback((changes: NodeChange[]) => {
-    setNodes((nds) => {
-      const updated = applyNodeChanges(changes, nds);
-      // Undo/Redo만 관리, onNodesChange는 호출하지 않음
-      return updated;
-    });
-  }, []);
+    if (!onNodesChange) return;
+    const updated = applyNodeChanges(changes, nodes);
+    onNodesChange(
+      updated
+        .filter(n => n && typeof n.id === 'string' && typeof n.data === 'object')
+        .map(n => ({ ...n, type: typeof n.type === 'string' ? n.type : 'custom' }))
+    );
+  }, [nodes, onNodesChange]);
 
   // 2. onNodeDragStop에서만 Undo 스택에 push + App의 onNodesChange 호출
   const handleNodeDragStop = useCallback(() => {
     // 이전 위치와 비교해서 실제로 바뀐 노드가 있는지 확인
     const hasMoved = nodes.some((node) => {
-      const orig = initialNodes.find(n => n.id === node.id);
+      const orig = nodes.find(n => n.id === node.id);
       return orig && (orig.position.x !== node.position.x || orig.position.y !== node.position.y);
     });
     if (hasMoved) {
@@ -151,47 +221,13 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       setRedoStack([]);
       // onNodesChange(nodes as any); // 이 부분은 외부로 전달하지 않음
     }
-  }, [nodes, edges, initialNodes]);
+  }, [nodes, edges]);
 
   const handleEdgesChangeWithUndo = useCallback((changes: EdgeChange[]) => {
-    setEdges((eds) => {
-      let updated = applyEdgeChanges(changes, eds);
-
-      // 엣지 업데이트(change.type === 'update') 시 handle 정보 유지
-      changes.forEach(change => {
-        if (
-          (change as any).type === 'update' &&
-          'edge' in change && change.edge &&
-          'id' in change && change.id
-        ) {
-          updated = updated.map(edge =>
-            edge.id === change.id
-              ? {
-                  ...edge,
-                  sourceHandle: (change.edge as any).sourceHandle ?? edge.sourceHandle,
-                  targetHandle: (change.edge as any).targetHandle ?? edge.targetHandle,
-                }
-              : edge
-          );
-        }
-      });
-
-      // 구조 변경이 있을 때만 상위로 알림
-      const hasStructuralChange = changes.some(
-        c =>
-          c.type === 'add' ||
-          c.type === 'remove' ||
-          c.type === 'reset' ||
-          (c.type as string) === 'update'
-      );
-      if (hasStructuralChange) {
-        setUndoStack((stack) => [...stack, { nodes, edges: updated }]);
-        setRedoStack([]);
-        // onEdgesChange(updated as any); // 이 부분은 외부로 전달하지 않음
-      }
-      return updated;
-    });
-  }, [nodes, initialNodes]);
+    if (!onEdgesChange) return;
+    const updated = applyEdgeChanges(changes, edges);
+    onEdgesChange(updated.map(e => ({ ...e, label: typeof e.label === 'string' ? e.label : '' })));
+  }, [edges, onEdgesChange]);
 
   // Undo 동작
   const handleUndo = useCallback(() => {
@@ -199,13 +235,11 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       if (stack.length <= 1) return stack;
       const prev = stack[stack.length - 2];
       setRedoStack((redo) => [{ nodes, edges }, ...redo]);
-      setNodes(prev.nodes);
-      setEdges(prev.edges);
-      // onNodesChange(prev.nodes as any); // 이 부분은 외부로 전달하지 않음
-      // onEdgesChange(prev.edges as any); // 이 부분은 외부로 전달하지 않음
+      onNodesChange?.(prev.nodes.map(n => ({ ...n, type: typeof n.type === 'string' ? n.type : 'custom' })));
+      onEdgesChange?.(prev.edges.map(e => ({ ...e, label: typeof e.label === 'string' ? e.label : '' })));
       return stack.slice(0, -1);
     });
-  }, [nodes, edges]);
+  }, [nodes, edges, onNodesChange, onEdgesChange]);
 
   // Redo 동작
   const handleRedo = useCallback(() => {
@@ -213,13 +247,11 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       if (redo.length === 0) return redo;
       const next = redo[0];
       setUndoStack((stack) => [...stack, { nodes: next.nodes, edges: next.edges }]);
-      setNodes(next.nodes);
-      setEdges(next.edges);
-      // onNodesChange(next.nodes as any); // 이 부분은 외부로 전달하지 않음
-      // onEdgesChange(next.edges as any); // 이 부분은 외부로 전달하지 않음
+      onNodesChange?.(next.nodes.map(n => ({ ...n, type: typeof n.type === 'string' ? n.type : 'custom' })));
+      onEdgesChange?.(next.edges.map(e => ({ ...e, label: typeof e.label === 'string' ? e.label : '' })));
       return redo.slice(1);
     });
-  }, []);
+  }, [onNodesChange, onEdgesChange]);
 
   // 단축키 핸들러 (Ctrl+Z, Ctrl+Shift+Z)
   useEffect(() => {
@@ -268,12 +300,12 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
 
   // 선택된 노드/연결 삭제
   const handleDeleteSelected = useCallback(() => {
-    let updatedNodes = initialNodes;
-    let updatedEdges = initialEdges;
+    let updatedNodes = nodes;
+    let updatedEdges = edges;
     let changed = false;
     if (selectedNodes.length > 0) {
-      updatedNodes = initialNodes.filter(node => !selectedNodes.includes(node.id));
-      updatedEdges = initialEdges.filter(edge => 
+      updatedNodes = nodes.filter(node => !selectedNodes.includes(node.id));
+      updatedEdges = edges.filter(edge => 
         !selectedNodes.includes(edge.source) && !selectedNodes.includes(edge.target)
       );
       changed = true;
@@ -292,12 +324,12 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       setSelectedNodes([]);
       setSelectedEdges([]);
     }
-  }, [selectedNodes, selectedEdges, initialNodes, initialEdges]);
+  }, [selectedNodes, selectedEdges, nodes, edges]);
 
   // 특정 노드 삭제
   const handleDeleteNode = useCallback((nodeId: string) => {
-    const updatedNodes = initialNodes.filter(node => node.id !== nodeId);
-    const updatedEdges = initialEdges.filter(edge => 
+    const updatedNodes = nodes.filter(node => node.id !== nodeId);
+    const updatedEdges = edges.filter(edge => 
       edge.source !== nodeId && edge.target !== nodeId
     );
     setUndoStack((stack) => [...stack, { nodes: updatedNodes, edges: updatedEdges }]);
@@ -306,11 +338,11 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
     // onEdgesChange(updatedEdges); // 외부로 전달하지 않음
     // onNodeSelect(null); // 외부로 전달하지 않음
     setContextMenu(null);
-  }, [initialNodes, initialEdges]);
+  }, [nodes, edges]);
 
   // 노드 편집 핸들러
   const handleNodeEdit = useCallback((nodeId: string) => {
-    const nodeToEdit = initialNodes.find(node => node.id === nodeId);
+    const nodeToEdit = nodes.find(node => node.id === nodeId);
     if (nodeToEdit) {
       setEditingNode(nodeToEdit);
       
@@ -320,7 +352,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       console.log('🔍 [DEBUG] FlowCanvas - nodeToEdit.data.dialogState:', nodeToEdit.data.dialogState);
       console.log('🔍 [DEBUG] FlowCanvas - webhookActions:', nodeToEdit.data.dialogState.webhookActions);
     }
-  }, [initialNodes, scenario]);
+  }, [nodes, scenario]);
 
   // 노드들로부터 엣지 자동 생성
   const generateEdgesFromNodes = useCallback((nodes: FlowNode[]) => {
@@ -388,29 +420,107 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
   }, []);
 
   // 노드 편집 완료 핸들러
-  const handleNodeEditSave = useCallback((updatedDialogState: DialogState) => {
-    if (!editingNode) return;
-
-    const updatedNode: FlowNode = {
-      ...editingNode,
-      data: {
-        ...editingNode.data,
-        label: updatedDialogState.name,
-        dialogState: updatedDialogState,
-      }
-    };
-
-    const updatedNodes = initialNodes.map(node => 
-      node.id === editingNode.id ? updatedNode : node
-    );
-
-    // 새로운 엣지 생성 (전이 관계 기반)
-    const newEdges = generateEdgesFromNodes(updatedNodes);
-
-    // onNodesChange(updatedNodes); // 외부로 전달하지 않음
-    // onEdgesChange(newEdges); // 외부로 전달하지 않음
-    setEditingNode(null);
-  }, [editingNode, initialNodes, generateEdgesFromNodes]);
+  const handleNodeEditSave = useCallback((updated: DialogState | { targetScenario: string; targetState: string }) => {
+    if (editingNode?.type === 'scenarioTransition' && 'targetScenario' in updated && 'targetState' in updated) {
+      const updatedNode = {
+        ...editingNode,
+        data: {
+          ...editingNode.data,
+          targetScenario: updated.targetScenario,
+          targetState: updated.targetState,
+        },
+      };
+      onNodesChange?.(nodes.map(n => n.id === updatedNode.id ? updatedNode : n));
+      setEditingNode(null);
+      return;
+    }
+    // 기존 DialogState 업데이트 로직 + 에지 자동 생성
+    if (editingNode) {
+      const updatedNode = {
+        ...editingNode,
+        data: {
+          ...editingNode.data,
+          dialogState: updated as DialogState,
+        },
+      };
+      const updatedNodes = nodes.map(n => n.id === updatedNode.id ? updatedNode : n);
+      // --- 에지 자동 생성 로직 ---
+      const newEdges: FlowEdge[] = [...edges];
+      const state = (updated as DialogState);
+      const sourceId = updatedNode.id;
+      // Condition Handlers
+      state.conditionHandlers?.forEach((handler, idx) => {
+        const target = handler.transitionTarget?.dialogState;
+        if (target && target !== '__END_SESSION__' && target !== '') {
+          if (!newEdges.some(e => e.source === sourceId && e.target === target && e.type === 'custom')) {
+            newEdges.push({
+              id: `${sourceId}-condition-${idx}-${target}-${Date.now()}`,
+              source: sourceId,
+              target,
+              label: `조건: ${handler.conditionStatement}`,
+              type: 'custom',
+            });
+          }
+        }
+      });
+      // Intent Handlers
+      state.intentHandlers?.forEach((handler, idx) => {
+        const target = handler.transitionTarget?.dialogState;
+        if (target && target !== '') {
+          if (!newEdges.some(e => e.source === sourceId && e.target === target && e.type === 'custom')) {
+            newEdges.push({
+              id: `${sourceId}-intent-${idx}-${target}-${Date.now()}`,
+              source: sourceId,
+              target,
+              label: `인텐트: ${handler.intent}`,
+              type: 'custom',
+            });
+          }
+        }
+      });
+      // Event Handlers
+      state.eventHandlers?.forEach((handler, idx) => {
+        const target = handler.transitionTarget?.dialogState;
+        let eventType = '';
+        if (handler.event) {
+          if (typeof handler.event === 'object' && handler.event.type) {
+            eventType = handler.event.type;
+          } else if (typeof handler.event === 'string') {
+            eventType = handler.event;
+          }
+        }
+        if (target && target !== '' && target !== '__CURRENT_DIALOG_STATE__') {
+          if (!newEdges.some(e => e.source === sourceId && e.target === target && e.type === 'custom')) {
+            newEdges.push({
+              id: `${sourceId}-event-${idx}-${target}-${Date.now()}`,
+              source: sourceId,
+              target,
+              label: `이벤트: ${eventType}`,
+              type: 'custom',
+            });
+          }
+        }
+      });
+      // ApiCall Handlers
+      state.apicallHandlers?.forEach((handler, idx) => {
+        const target = handler.transitionTarget?.dialogState;
+        if (target && target !== '') {
+          if (!newEdges.some(e => e.source === sourceId && e.target === target && e.type === 'custom')) {
+            newEdges.push({
+              id: `${sourceId}-apicall-${idx}-${target}-${Date.now()}`,
+              source: sourceId,
+              target,
+              label: `API콜: ${handler.name}`,
+              type: 'custom',
+            });
+          }
+        }
+      });
+      onNodesChange?.(updatedNodes);
+      onEdgesChange?.(newEdges);
+      setEditingNode(null);
+    }
+  }, [editingNode, nodes, edges, onNodesChange, onEdgesChange]);
 
   // 렌더링 시 style은 currentState 등으로 동적으로 계산해서 적용
   useEffect(() => {
@@ -427,7 +537,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
         border: currentState === node.id ? '2px solid #1976d2' : '1px solid #ccc',
       }
     }));
-    setNodes(updatedNodes);
+    // onNodesChange(updatedNodes); // 내부 상태 업데이트 제거
   }, [nodes, currentState, handleNodeEdit]);
 
   // --- 선택된 에지 id 추적 ---
@@ -438,62 +548,159 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
     // edges의 type을 모두 'smoothstep'으로, markerEnd를 'arrowclosed'로 지정 (공식 권장 방식)
     const styledEdges = edges.map(e => {
       const isSelected = selectedEdgeIds.includes(e.id);
+      const isScenarioTransition = (typeof e.label === 'string' && e.label.includes('시나리오 전이')) || e.target.includes('scenario-');
+      
+      // 시나리오 간 전이인 경우 라벨 스타일 개선
+      let enhancedLabel = e.label;
+      if (isScenarioTransition && typeof e.label === 'string') {
+        const targetScenarioMatch = e.target.match(/scenario-(\d+)/);
+        if (targetScenarioMatch) {
+          const targetScenarioId = targetScenarioMatch[1];
+          const targetScenario = scenarios[targetScenarioId];
+          const scenarioName = targetScenario?.plan[0]?.name || `Scenario ${targetScenarioId}`;
+          enhancedLabel = `🚀 ${scenarioName}`;
+        }
+      }
+      
       return {
         ...e,
         type: 'smoothstep',
         markerEnd: 'arrowclosed',
+        label: enhancedLabel,
+        labelStyle: {
+          fontSize: '12px',
+          fontWeight: 'bold',
+          fill: isScenarioTransition ? '#ff6b35' : '#333',
+          backgroundColor: isScenarioTransition ? '#fff3e0' : 'white',
+          padding: '4px 8px',
+          borderRadius: '4px',
+          border: isScenarioTransition ? '1px solid #ff6b35' : '1px solid #ccc',
+        },
         style: {
           ...(e.style || {}),
-          stroke: isSelected ? '#1976d2' : '#888',
-          strokeWidth: isSelected ? 5 : 2.5,
-          filter: isSelected ? 'drop-shadow(0 0 6px #1976d2)' : 'none',
+          stroke: isScenarioTransition ? '#ff6b35' : (isSelected ? '#1976d2' : '#888'),
+          strokeWidth: isSelected ? 5 : (isScenarioTransition ? 3 : 2.5),
+          filter: isSelected ? 'drop-shadow(0 0 6px #1976d2)' : (isScenarioTransition ? 'drop-shadow(0 0 4px #ff6b35)' : 'none'),
           transition: 'stroke 0.15s, stroke-width 0.15s, filter 0.15s',
+          strokeDasharray: isScenarioTransition ? '5,5' : 'none',
         },
       };
     });
-    setEdges(styledEdges);
-  }, [edges, setEdges, selectedEdgeIds]);
+    // onEdges(styledEdges); // 내부 상태 업데이트 제거
+  }, [edges, selectedEdgeIds, scenarios]);
+
+  // 핸들 id 접미사 변환 유틸리티
+  function swapHandleSuffix(handleId: string | null | undefined): string | null {
+    if (!handleId) return null;
+    if (handleId.endsWith('-source')) return handleId.replace(/-source$/, '-target');
+    if (handleId.endsWith('-target')) return handleId.replace(/-target$/, '-source');
+    return handleId;
+  }
 
   // 연결 생성 처리
+  const [conditionModalEdge, setConditionModalEdge] = useState<FlowEdge | null>(null);
+  const [conditionModalOpen, setConditionModalOpen] = useState(false);
+  const [selectedCondition, setSelectedCondition] = useState('');
+
+  // onConnect에서 에지 id 유일성 보장
   const onConnect = useCallback(
     (params: Connection) => {
+      let { source, target, sourceHandle, targetHandle } = params;
+      sourceHandle = sourceHandle ?? null;
+      targetHandle = targetHandle ?? null;
+      if (sourceHandle && targetHandle) {
+        if (sourceHandle.endsWith('-target') && targetHandle.endsWith('-source')) {
+          [source, target] = [target, source];
+          [sourceHandle, targetHandle] = [targetHandle, sourceHandle];
+        }
+      }
+      if (sourceHandle && !sourceHandle.endsWith('-source')) {
+        sourceHandle = sourceHandle.replace(/-target$/, '-source');
+      }
+      if (targetHandle && !targetHandle.endsWith('-target')) {
+        targetHandle = targetHandle.replace(/-source$/, '-target');
+      }
+      // id에 Date.now() 추가로 유일성 보장
+      const edgeId = `${source}-${target}-${sourceHandle || 'sh'}-${targetHandle || 'th'}-${Date.now()}`;
       const newEdge: FlowEdge = {
-        id: `${params.source}-${params.target}-${params.sourceHandle || 'sh'}-${params.targetHandle || 'th'}`,
-        source: params.source!,
-        target: params.target!,
-        sourceHandle: params.sourceHandle,
-        targetHandle: params.targetHandle,
-        type: 'smoothstep',
-        label: '새 연결',
+        id: edgeId,
+        source: source!,
+        target: target!,
+        sourceHandle: sourceHandle ?? null,
+        targetHandle: targetHandle ?? null,
+        type: 'custom',
+        label: '', // 조건 선택 후 label 지정
       };
-      setEdges((eds) => addEdge(newEdge, eds));
-      // onEdgesChange([...initialEdges, newEdge]); // 외부로 전달하지 않음
-    },
-    [initialEdges, setEdges]
-  );
+      onEdgesChange?.([...edges, newEdge]);
+      setConditionModalEdge(newEdge);
+      setConditionModalOpen(true);
+    }, [edges, onEdgesChange]);
 
-  // 에지 업데이트 처리 (다른 노드로 연결 이동 등)
+  // ConditionModal 저장
+  const handleConditionModalSave = () => {
+    if (conditionModalEdge && selectedCondition) {
+      onEdgesChange?.(edges.map(e =>
+        e.id === conditionModalEdge.id ? { ...e, label: selectedCondition } : e
+      ));
+    }
+    setConditionModalOpen(false);
+    setConditionModalEdge(null);
+    setSelectedCondition('');
+  };
+  // ConditionModal 취소(에지 삭제)
+  const handleConditionModalCancel = () => {
+    if (conditionModalEdge) {
+      onEdgesChange?.(edges.filter(e => e.id !== conditionModalEdge.id).map(e => ({ ...e, label: typeof e.label === 'string' ? e.label : '' })));
+    }
+    setConditionModalOpen(false);
+    setConditionModalEdge(null);
+    setSelectedCondition('');
+  };
+
+  // onEdgeUpdate에서 id 유일성 보장
   const handleEdgeUpdate = useCallback(
     (oldEdge: Edge, newConnection: Connection) => {
-      setEdges((eds) => {
-        const updated = updateEdge(oldEdge, newConnection, eds);
-        setUndoStack((stack) => [...stack, { nodes, edges: updated }]);
-        setRedoStack([]);
-        return updated;
-      });
-    },
-    [nodes]
-  );
+      // id에 Date.now() 추가로 유일성 보장
+      const edgeId = `${newConnection.source}-${newConnection.target}-${newConnection.sourceHandle || 'sh'}-${newConnection.targetHandle || 'th'}-${Date.now()}`;
+      const updatedEdge: FlowEdge = {
+        ...oldEdge,
+        ...newConnection,
+        id: edgeId,
+        type: 'custom',
+        source: newConnection.source!,
+        target: newConnection.target!,
+        sourceHandle: newConnection.sourceHandle ?? null,
+        targetHandle: newConnection.targetHandle ?? null,
+        label: (newConnection as any).label ?? oldEdge.label ?? undefined,
+      };
+      onEdgesChange?.([...edges.filter(e => e.id !== oldEdge.id), updatedEdge]);
+      setUndoStack((stack) => [...stack, { nodes, edges }]);
+      setRedoStack([]);
+    }, [edges, nodes, onEdgesChange]);
 
   // 노드 선택 처리
   const onNodeClick = useCallback(
     (event: React.MouseEvent, node: Node) => {
-      const flowNode = initialNodes.find(n => n.id === node.id);
-      // onNodeSelect(flowNode || null); // 외부로 전달하지 않음
+      const flowNode = nodes.find(n => n.id === node.id);
+      if (onNodeSelect) {
+        onNodeSelect(flowNode || null);
+      }
       setSelectedNodes([node.id]);
       setSelectedEdges([]);
     },
-    [initialNodes]
+    [nodes, onNodeSelect]
+  );
+
+  // 1. onNodeDoubleClick 핸들러 추가
+  const onNodeDoubleClick = useCallback(
+    (event: React.MouseEvent, node: Node) => {
+      event.stopPropagation();
+      const flowNode = nodes.find(n => n.id === node.id);
+      if (flowNode) {
+        setEditingNode({ ...flowNode, type: flowNode.type || 'custom' });
+      }
+    },
+    [nodes]
   );
 
   // 연결 클릭 처리
@@ -501,20 +708,28 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
     // React Flow의 onEdgeClick은 (event, edge) 순서
     setSelectedEdges([edge.id]);
     setEdgeButtonAnchor({ x: event.clientX, y: event.clientY });
+    
+    // 시나리오 간 전이인 경우 더블클릭으로 편집 모달 열기
+    const isScenarioTransition = (typeof edge.label === 'string' && edge.label.includes('시나리오 전이')) || edge.target.includes('scenario-');
+    if (isScenarioTransition) {
+      setEditingEdge(edge as FlowEdge);
+    }
   }, []);
 
   // 빈 공간 클릭 시 선택 해제
   const handlePaneClick = useCallback(() => {
-    // onNodeSelect(null); // 외부로 전달하지 않음
+    if (onNodeSelect) {
+      onNodeSelect(null);
+    }
     setSelectedNodes([]);
     setSelectedEdges([]);
     setEdgeButtonAnchor(null);
-  }, []);
+  }, [onNodeSelect]);
 
   // 노드 위치 변경 처리
   const handleNodesChange = useCallback(
     (changes: any[]) => {
-      onNodesStateChange(changes);
+      // onNodesStateChange(changes); // 내부 상태 업데이트 제거
       
       // 위치 변경된 노드들을 업데이트
       const updatedNodes: FlowNode[] = nodes.map(node => {
@@ -536,36 +751,36 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
         // onNodesChange(updatedNodes); // 외부로 전달하지 않음
       }
     },
-    [nodes, onNodesStateChange]
+    [nodes]
   );
 
   // 연결 더블클릭 핸들러
   const onEdgeDoubleClick = useCallback(
     (event: React.MouseEvent, edge: Edge) => {
       event.stopPropagation();
-      const flowEdge = initialEdges.find(e => e.id === edge.id);
+      const flowEdge = edges.find(e => e.id === edge.id);
       if (flowEdge) {
         setEditingEdge(flowEdge);
       }
     },
-    [initialEdges]
+    [edges]
   );
 
   // 연결 편집 완료 핸들러
   const handleEdgeEditSave = useCallback((updatedEdge: FlowEdge) => {
-    const updatedEdges = initialEdges.map(edge => 
+    const updatedEdges = edges.map(edge => 
       edge.id === updatedEdge.id ? updatedEdge : edge
     );
     // onEdgesChange(updatedEdges); // 외부로 전달하지 않음
     setEditingEdge(null);
-  }, [initialEdges]);
+  }, [edges]);
 
   // 연결 삭제 핸들러
   const handleEdgeDelete = useCallback((edgeId: string) => {
-    const updatedEdges = initialEdges.filter(edge => edge.id !== edgeId);
+    const updatedEdges = edges.filter(edge => edge.id !== edgeId);
     // onEdgesChange(updatedEdges); // 외부로 전달하지 않음
     setEditingEdge(null);
-  }, [initialEdges]);
+  }, [edges]);
 
   // --- Edge Z-Index 조정 함수 ---
   const bringEdgeToFront = useCallback((edgeId: string) => {
@@ -574,8 +789,8 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
     const newEdges = [...edges];
     const [edge] = newEdges.splice(idx, 1);
     newEdges.push(edge); // 맨 앞으로(맨 뒤에 push)
-    setEdges(newEdges);
-  }, [edges, setEdges]);
+    onEdgesChange?.(newEdges);
+  }, [edges, onEdgesChange]);
 
   const sendEdgeToBack = useCallback((edgeId: string) => {
     const idx = edges.findIndex(e => e.id === edgeId);
@@ -583,15 +798,15 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
     const newEdges = [...edges];
     const [edge] = newEdges.splice(idx, 1);
     newEdges.unshift(edge); // 맨 뒤로(맨 앞에 unshift)
-    setEdges(newEdges);
-  }, [edges, setEdges]);
+    onEdgesChange?.(newEdges);
+  }, [edges, onEdgesChange]);
 
   // 우클릭 컨텍스트 메뉴 처리
   const handleContextMenu = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
     
-    // React Flow 좌표계로 변환
-    const position = project({ x: event.clientX, y: event.clientY });
+    // React Flow 좌표계로 변환 (deprecated된 project 대신 screenToFlowPosition 사용)
+    const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
     
     // 클릭된 요소가 노드인지 확인
     const target = event.target as HTMLElement;
@@ -604,7 +819,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       position,
       nodeId: nodeId || undefined
     });
-  }, [project]);
+  }, [screenToFlowPosition]);
 
   // 컨텍스트 메뉴 닫기
   const handleContextMenuClose = useCallback(() => {
@@ -628,13 +843,13 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       }
     };
 
-    const updatedNodes = [...initialNodes, newNode];
-    // onNodesChange(updatedNodes); // 외부로 전달하지 않음
+    // 현재 nodes 상태에 새 노드 추가
+    onNodesChange?.(nodes.concat(newNode));
     setContextMenu(null);
-  }, [contextMenu, initialNodes]);
+  }, [contextMenu, nodes, onNodesChange]);
 
   // --- Edge 선택 시 버튼 UI ---
-  const selectedEdgeObj = initialEdges.find(e => selectedEdges.length === 1 && e.id === selectedEdges[0]);
+  const selectedEdgeObj = edges.find(e => selectedEdges.length === 1 && e.id === selectedEdges[0]);
 
   // --- 선택한 에지의 중간 위치 계산 ---
   let edgeButtonPos = { top: 16, left: 16 };
@@ -650,6 +865,18 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       edgeButtonPos = {
         top: Math.min(sy, ty) + Math.abs(ty - sy) / 2 - 24, // 버튼 높이 보정
         left: Math.min(sx, tx) + Math.abs(tx - sx) / 2 - 60, // 버튼 너비 보정
+      };
+    } else if (sourceNode) {
+      // sourceNode만 있을 때 (예: Start node)
+      edgeButtonPos = {
+        top: sourceNode.position.y + 60 - 24,
+        left: sourceNode.position.x + 110 - 60,
+      };
+    } else if (targetNode) {
+      // targetNode만 있을 때
+      edgeButtonPos = {
+        top: targetNode.position.y + 60 - 24,
+        left: targetNode.position.x + 110 - 60,
       };
     }
   }
@@ -702,212 +929,249 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
         // dagre는 positionAbsolute를 사용하지 않으므로 필요시 추가
       };
     });
-    setNodes(newNodes);
-    setUndoStack((stack) => [...stack, { nodes: newNodes, edges }]);
-    setRedoStack([]);
-    // onNodesChange(newNodes as any); // 외부로 전달하지 않음
-  }, [nodes, edges, setNodes, setUndoStack, setRedoStack]);
+    onNodesChange?.(newNodes);
+    // onSetNodes(newNodes); // 내부 상태 업데이트 제거
+    // onSetUndoStack((stack) => [...stack, { nodes: newNodes, edges }]); // 내부 상태 업데이트 제거
+    // onSetRedoStack([]); // 내부 상태 업데이트 제거
+  }, [nodes, edges, onNodesChange]);
 
   // 레이아웃 리셋 핸들러
   const handleLayoutReset = useCallback(() => {
-    // onNodesChange(initialNodesRef.current as any); // 외부로 전달하지 않음
-    // onEdgesChange(initialEdgesRef.current as any); // 외부로 전달하지 않음
-    setNodes(initialNodes);
-    setEdges(initialEdges);
-    setUndoStack([{ nodes: initialNodes, edges: initialEdges }]);
+    // onSetNodes(initialNodesRef.current as any); // 외부로 전달하지 않음
+    // onSetEdges(initialEdgesRef.current as any); // 외부로 전달하지 않음
+    onNodesChange?.(nodes);
+    onEdgesChange?.(edges);
+    setUndoStack([{ nodes, edges }]);
     setRedoStack([]);
-  }, [initialNodes, initialEdges, setNodes, setEdges]);
+  }, [nodes, edges, onNodesChange, onEdgesChange]);
+
+  // --- ReactFlow 렌더링 부분 바로 위에 ConditionModal 추가 ---
+  // source 노드의 conditionHandlers 목록 추출
+  const sourceNode = conditionModalEdge ? nodes.find(n => n.id === conditionModalEdge.source) : null;
+  const conditionHandlers = sourceNode?.data?.dialogState?.conditionHandlers || [];
 
   return (
-    <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }} onContextMenu={handleContextMenu}>
-      {/* React Flow 메인 뷰 */}
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        onNodesChange={isEditable ? handleNodesChangeWithUndo : undefined}
-        onNodeDragStop={isEditable ? handleNodeDragStop : undefined}
-        onEdgesChange={isEditable ? handleEdgesChangeWithUndo : undefined}
-        onConnect={isEditable ? onConnect : undefined}
-        onNodeClick={isEditable ? onNodeClick : undefined}
-        onEdgeClick={isEditable ? handleEdgeClick : undefined}
-        onPaneClick={isEditable ? handlePaneClick : undefined}
-        onEdgeDoubleClick={isEditable ? onEdgeDoubleClick : undefined}
-        onEdgeUpdate={isEditable ? handleEdgeUpdate : undefined}
-        fitView
-        minZoom={0.2}
-        maxZoom={2}
-        selectionOnDrag={isEditable}
-        multiSelectionKeyCode={['Shift', 'Meta']}
-        style={{ width: '100%', height: '100%' }}
-        panOnDrag={true}
-        panOnScroll={true}
-        zoomOnScroll={true}
-        zoomOnPinch={true}
-        elementsSelectable={isEditable}
-        nodesDraggable={isEditable}
-        nodesConnectable={isEditable}
-        edgesFocusable={isEditable}
-        edgesUpdatable={isEditable}
-      >
-        {/* 커스텀 arrow marker 복구 */}
-        <svg width="0" height="0">
-          <defs>
-            <marker
-              id="arrowclosed"
-              markerWidth="10"
-              markerHeight="10"
-              refX="5"
-              refY="5"
-              orient="auto"
-              markerUnits="strokeWidth"
+    <>
+      {/* Condition 선택 모달 */}
+      <Dialog open={conditionModalOpen} onClose={handleConditionModalCancel}>
+        <DialogTitle>전이 조건 선택</DialogTitle>
+        <DialogContent>
+          {conditionHandlers.length === 0 ? (
+            <div>조건 핸들러가 없습니다.</div>
+          ) : (
+            <RadioGroup
+              value={selectedCondition}
+              onChange={e => setSelectedCondition(e.target.value)}
             >
-              <path d="M2,2 L8,5 L2,8 Z" fill="#1976d2" />
-            </marker>
-          </defs>
-        </svg>
-        <Controls />
-        <MiniMap nodeColor={getNodeColor} nodeStrokeWidth={3} zoomable pannable />
-        <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
-      </ReactFlow>
-
-      {/* Undo/Redo 버튼 (상단 좌측) */}
-      <Stack direction="row" spacing={1} sx={{
-        position: 'absolute',
-        top: 16,
-        left: 16,
-        zIndex: 2000,
-        background: 'rgba(255,255,255,0.97)',
-        borderRadius: 2,
-        boxShadow: 2,
-        p: 1,
-        pointerEvents: 'auto',
-      }}>
-        <IconButton size="small" onClick={handleUndo} disabled={undoStack.length <= 1}>
-          <UndoIcon />
-        </IconButton>
-        <IconButton size="small" onClick={handleRedo} disabled={redoStack.length === 0}>
-          <RedoIcon />
-        </IconButton>
-      </Stack>
-
-      {/* 자동정렬/레이아웃/편집기능 버튼 (상단 우측) */}
-      <Stack direction="row" spacing={2} sx={{
-        position: 'absolute',
-        top: 16,
-        right: 16,
-        zIndex: 2000,
-        background: 'rgba(255,255,255,0.97)',
-        borderRadius: 3,
-        boxShadow: 3,
-        p: 1.2,
-        alignItems: 'center',
-        minHeight: 48,
-      }}>
-        <Button
-          size="medium"
-          variant="contained"
-          startIcon={<AutoFixHighIcon />}
-          sx={{
-            background: 'linear-gradient(90deg, #1976d2 0%, #42a5f5 100%)',
-            color: 'white',
-            fontWeight: 700,
-            letterSpacing: 1,
+              {conditionHandlers.map((handler: any, idx: number) => (
+                <FormControlLabel
+                  key={idx}
+                  value={handler.name || `Condition${idx+1}`}
+                  control={<Radio />}
+                  label={handler.name || handler.condition || `Condition${idx+1}`}
+                />
+              ))}
+            </RadioGroup>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleConditionModalCancel} color="error">취소</Button>
+          <Button onClick={handleConditionModalSave} color="primary" disabled={!selectedCondition}>저장</Button>
+        </DialogActions>
+      </Dialog>
+      {/* React Flow 메인 뷰 + 팝업 위치 개선 */}
+      <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%' }}>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          onNodesChange={onNodesChange ? handleNodesChangeWithUndo : undefined}
+          onNodeDragStop={onNodesChange ? handleNodeDragStop : undefined}
+          onEdgesChange={onEdgesChange ? handleEdgesChangeWithUndo : undefined}
+          onConnect={onEdgesChange ? onConnect : undefined}
+          onNodeClick={onNodeClick}
+          onNodeDoubleClick={onNodeDoubleClick}
+          onEdgeClick={handleEdgeClick}
+          onPaneClick={handlePaneClick}
+          onEdgeDoubleClick={onEdgeDoubleClick}
+          onEdgeUpdate={onEdgesChange ? handleEdgeUpdate : undefined}
+          onPaneContextMenu={handleContextMenu}
+          fitView
+          minZoom={0.2}
+          maxZoom={2}
+          selectionOnDrag={isEditable}
+          multiSelectionKeyCode={['Shift', 'Meta']}
+          style={{ width: '100%', height: '100%' }}
+          panOnDrag={true}
+          panOnScroll={true}
+          zoomOnScroll={true}
+          zoomOnPinch={true}
+          elementsSelectable={isEditable}
+          nodesDraggable={isEditable}
+          nodesConnectable={isEditable}
+          edgesFocusable={isEditable}
+          edgesUpdatable={isEditable}
+        >
+          {/* Undo/Redo 버튼 (드로잉 영역 좌상단, Controls 위) */}
+          <Stack direction="row" spacing={1} sx={{
+            position: 'absolute',
+            top: 24,
+            left: 24,
+            zIndex: 10,
+            background: 'rgba(255,255,255,0.97)',
             borderRadius: 2,
             boxShadow: 2,
-            height: 40,
-            px: 2.5,
-            fontSize: '1rem',
-            textTransform: 'none',
-            transition: 'all 0.18s',
-            '&:hover': {
-              background: 'linear-gradient(90deg, #1565c0 0%, #64b5f6 100%)',
-              boxShadow: 4,
-              transform: 'scale(1.04)',
-            },
-          }}
-          onClick={applyAutoLayout}
-        >
-          자동정렬
-        </Button>
-        <Button
-          size="medium"
-          variant="outlined"
-          startIcon={<ReplayIcon />}
-          sx={{
-            background: 'white',
-            color: '#1976d2',
-            fontWeight: 700,
+            p: 1,
+            pointerEvents: 'auto',
+          }}>
+            <IconButton size="small" onClick={handleUndo} disabled={undoStack.length <= 1}>
+              <UndoIcon />
+            </IconButton>
+            <IconButton size="small" onClick={handleRedo} disabled={redoStack.length === 0}>
+              <RedoIcon />
+            </IconButton>
+          </Stack>
+          {/* 커스텀 arrow marker 복구 */}
+          <svg width="0" height="0">
+            <defs>
+              <marker
+                id="arrowclosed"
+                markerWidth="10"
+                markerHeight="10"
+                refX="5"
+                refY="5"
+                orient="auto"
+                markerUnits="strokeWidth"
+              >
+                <path d="M2,2 L8,5 L2,8 Z" fill="#1976d2" />
+              </marker>
+            </defs>
+          </svg>
+          <Controls />
+          <MiniMap nodeColor={getNodeColor} nodeStrokeWidth={3} zoomable pannable />
+          <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
+        </ReactFlow>
+        {/* Edge z-index 조정 버튼 (에지 1개 선택 시만 표시, 클릭 위치 기준) */}
+        {selectedEdgeObj && edgeButtonAnchor && (
+          <Stack direction="row" spacing={0.5} sx={{
+            position: 'absolute',
+            top: edgeButtonPos.top,
+            left: edgeButtonPos.left,
+            zIndex: 30,
+            background: 'rgba(255,255,255,0.97)',
             borderRadius: 2,
-            boxShadow: 1,
-            height: 40,
-            px: 2.2,
-            fontSize: '1rem',
-            textTransform: 'none',
-            border: '2px solid #1976d2',
-            transition: 'all 0.18s',
-            '&:hover': {
-              background: '#e3f2fd',
-              color: '#1565c0',
-              border: '2px solid #1565c0',
-              boxShadow: 2,
-              transform: 'scale(1.04)',
-            },
-          }}
-          onClick={handleLayoutReset}
-        >
-          레이아웃 리셋
-        </Button>
-        <FormControlLabel
-          control={
-            <Switch
-              checked={isEditable}
-              onChange={() => setIsEditable(v => !v)}
-              color="primary"
-              icon={<EditOffIcon sx={{ fontSize: 22 }} />}
-              checkedIcon={<EditIcon sx={{ fontSize: 22 }} />}
-              sx={{
-                mx: 1,
-                '& .MuiSwitch-thumb': {
-                  boxShadow: '0 2px 6px rgba(25, 118, 210, 0.15)',
-                },
-              }}
-            />
-          }
-          label={<span style={{fontWeight:600, fontSize:'1rem', color:isEditable?'#1976d2':'#888'}}>편집모드</span>}
-          sx={{
-            ml: 0,
-            mr: 0,
-            color: isEditable ? '#1976d2' : '#888',
-            fontWeight: 'bold',
-            userSelect: 'none',
-            '.MuiSwitch-root': { verticalAlign: 'middle' },
-            height: 40,
-            pl: 1.5,
-          }}
-          labelPlacement="end"
-        />
-      </Stack>
+            boxShadow: 2,
+            p: 0.5,
+            pointerEvents: 'auto',
+          }}>
+            <IconButton size="small" onClick={() => bringEdgeToFront(selectedEdgeObj.id)} sx={{ fontSize: 16, p: 0.5, minWidth: 24, minHeight: 24 }} title="맨앞으로">
+              ▲
+            </IconButton>
+            <IconButton size="small" onClick={() => sendEdgeToBack(selectedEdgeObj.id)} sx={{ fontSize: 16, p: 0.5, minWidth: 24, minHeight: 24 }} title="맨뒤로">
+              ▼
+            </IconButton>
+          </Stack>
+        )}
+      </div>
 
-      {/* Edge z-index 조정 버튼 (에지 1개 선택 시만 표시, 클릭 위치 기준) */}
-      {selectedEdgeObj && edgeButtonAnchor && (
-        <Stack direction="row" spacing={0.5} sx={{
+      {/* 자동정렬/레이아웃/편집기능 버튼 (상단 우측) */}
+      {!isTestMode && (
+        <Stack direction="row" spacing={2} sx={{
           position: 'absolute',
-          top: edgeButtonPos.top,
-          left: edgeButtonPos.left,
+          top: 16,
+          right: 16,
           zIndex: 2000,
           background: 'rgba(255,255,255,0.97)',
-          borderRadius: 2,
-          boxShadow: 2,
-          p: 0.5,
-          pointerEvents: 'auto',
+          borderRadius: 3,
+          boxShadow: 3,
+          p: 1.2,
+          alignItems: 'center',
+          minHeight: 48,
         }}>
-          <IconButton size="small" onClick={() => bringEdgeToFront(selectedEdgeObj.id)} sx={{ fontSize: 16, p: 0.5, minWidth: 24, minHeight: 24 }} title="맨앞으로">
-            ▲
-          </IconButton>
-          <IconButton size="small" onClick={() => sendEdgeToBack(selectedEdgeObj.id)} sx={{ fontSize: 16, p: 0.5, minWidth: 24, minHeight: 24 }} title="맨뒤로">
-            ▼
-          </IconButton>
+          <Button
+            size="medium"
+            variant="contained"
+            startIcon={<AutoFixHighIcon />}
+            sx={{
+              background: 'linear-gradient(90deg, #1976d2 0%, #42a5f5 100%)',
+              color: 'white',
+              fontWeight: 700,
+              letterSpacing: 1,
+              borderRadius: 2,
+              boxShadow: 2,
+              height: 40,
+              px: 2.5,
+              fontSize: '1rem',
+              textTransform: 'none',
+              transition: 'all 0.18s',
+              '&:hover': {
+                background: 'linear-gradient(90deg, #1565c0 0%, #64b5f6 100%)',
+                boxShadow: 4,
+                transform: 'scale(1.04)',
+              },
+            }}
+            onClick={applyAutoLayout}
+          >
+            자동정렬
+          </Button>
+          <Button
+            size="medium"
+            variant="outlined"
+            startIcon={<ReplayIcon />}
+            sx={{
+              background: 'white',
+              color: '#1976d2',
+              fontWeight: 700,
+              borderRadius: 2,
+              boxShadow: 1,
+              height: 40,
+              px: 2.2,
+              fontSize: '1rem',
+              textTransform: 'none',
+              border: '2px solid #1976d2',
+              transition: 'all 0.18s',
+              '&:hover': {
+                background: '#e3f2fd',
+                color: '#1565c0',
+                border: '2px solid #1565c0',
+                boxShadow: 2,
+                transform: 'scale(1.04)',
+              },
+            }}
+            onClick={handleLayoutReset}
+          >
+            레이아웃 리셋
+          </Button>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={isEditable}
+                onChange={() => setIsEditable(v => !v)}
+                color="primary"
+                icon={<EditOffIcon sx={{ fontSize: 22 }} />}
+                checkedIcon={<EditIcon sx={{ fontSize: 22 }} />}
+                sx={{
+                  mx: 1,
+                  '& .MuiSwitch-thumb': {
+                    boxShadow: '0 2px 6px rgba(25, 118, 210, 0.15)',
+                  },
+                }}
+              />
+            }
+            label={<span style={{fontWeight:600, fontSize:'1rem', color:isEditable?'#1976d2':'#888'}}>편집모드</span>}
+            sx={{
+              ml: 0,
+              mr: 0,
+              color: isEditable ? '#1976d2' : '#888',
+              fontWeight: 'bold',
+              userSelect: 'none',
+              '.MuiSwitch-root': { verticalAlign: 'middle' },
+              height: 40,
+              pl: 1.5,
+            }}
+            labelPlacement="end"
+          />
         </Stack>
       )}
 
@@ -921,6 +1185,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
             ? { top: contextMenu.mouseY, left: contextMenu.mouseX }
             : undefined
         }
+        disablePortal={false}
         slotProps={{
           root: {
             onContextMenu: (e) => {
@@ -931,9 +1196,39 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
         }}
       >
         {!contextMenu?.nodeId && (
-          <MenuItem onClick={handleAddNode}>
-            <Typography variant="body2">새 State 추가</Typography>
-          </MenuItem>
+          <>
+            <MenuItem onClick={handleAddNode}>
+              <Typography variant="body2">새 State 추가</Typography>
+            </MenuItem>
+            <MenuItem onClick={() => {
+              // 시나리오 간 전이 노드 추가
+              const newNodeId = `scenario-transition-${Date.now()}`;
+              const newNode: FlowNode = {
+                id: newNodeId,
+                type: 'scenarioTransition',
+                position: contextMenu?.position || { x: 0, y: 0 },
+                data: {
+                  label: '시나리오 전이',
+                  dialogState: {
+                    name: '시나리오 전이',
+                    conditionHandlers: [],
+                    eventHandlers: [],
+                    intentHandlers: [],
+                    webhookActions: [],
+                    slotFillingForm: []
+                  },
+                  targetScenario: '선택된 시나리오',
+                  targetState: 'Start',
+                }
+              };
+              onNodesChange?.(nodes.concat(newNode));
+              handleContextMenuClose();
+            }}>
+              <Typography variant="body2" sx={{ color: '#ff6b35' }}>
+                🚀 시나리오 전이 노드 추가
+              </Typography>
+            </MenuItem>
+          </>
         )}
         {contextMenu?.nodeId && (
           <MenuItem onClick={() => handleDeleteNode(contextMenu.nodeId!)}>
@@ -957,6 +1252,13 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
         onSave={handleNodeEditSave}
         availableWebhooks={scenario?.webhooks || []}
         availableApiCalls={scenario?.apicalls || []}
+        scenario={scenario}
+        nodeType={editingNode?.type}
+        scenarios={scenarios}
+        activeScenarioId={currentScenarioId}
+        targetScenario={editingNode?.data.targetScenario}
+        targetState={editingNode?.data.targetState}
+        nodes={nodes}
       />
 
       {/* 연결 편집 모달 */}
@@ -966,8 +1268,10 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
         onClose={() => setEditingEdge(null)}
         onSave={handleEdgeEditSave}
         onDelete={handleEdgeDelete}
+        scenarios={scenarios}
+        currentScenarioId={currentScenarioId}
       />
-    </div>
+    </>
   );
 };
 

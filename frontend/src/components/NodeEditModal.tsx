@@ -31,9 +31,16 @@ interface NodeEditModalProps {
   open: boolean;
   dialogState: DialogState | null;
   onClose: () => void;
-  onSave: (updatedDialogState: DialogState) => void;
+  onSave: (updatedDialogState: DialogState | { targetScenario: string; targetState: string }) => void;
   availableWebhooks?: Webhook[];
   availableApiCalls?: ApiCallWithName[];
+  scenario?: import('../types/scenario').Scenario;
+  nodeType?: string;
+  scenarios?: { [key: string]: import('../types/scenario').Scenario };
+  activeScenarioId?: string;
+  targetScenario?: string;
+  targetState?: string;
+  nodes?: import('../types/scenario').FlowNode[]; // FlowNode[] nodes prop 추가
 }
 
 const NodeEditModal: React.FC<NodeEditModalProps> = ({
@@ -43,11 +50,43 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
   onSave,
   availableWebhooks = [],
   availableApiCalls = [],
+  scenario,
+  nodeType,
+  scenarios = {},
+  activeScenarioId,
+  targetScenario: initialTargetScenario = '',
+  targetState: initialTargetState = '',
+  nodes, // nodes prop 추가
 }) => {
   const [editedState, setEditedState] = useState<DialogState | null>(null);
+  // 시나리오 전이 노드용 state
+  const [selectedScenario, setSelectedScenario] = useState<string>(initialTargetScenario);
+  const [selectedState, setSelectedState] = useState<string>(initialTargetState);
 
   // Response Mappings를 위한 별도 state (문자열로 저장)
   const [responseMappingsStrings, setResponseMappingsStrings] = useState<string[]>([]);
+
+  // 시나리오 내 상태 이름 목록 + 시나리오 전이 노드 목록 추출
+  const stateAndTransitionOptions = React.useMemo(() => {
+    if (!scenario || !scenario.plan || scenario.plan.length === 0) return [];
+    const stateNames = scenario.plan[0].dialogState.map(ds => ds.name).filter(Boolean);
+    // 시나리오 전이 노드
+    const transitionNodes = (scenarios ? Object.values(scenarios) : [])
+      .flatMap(s => s.plan[0]?.dialogState || [])
+      .filter(ds => ds.name === '시나리오 전이'); // 실제로는 FlowNode에서 type: 'scenarioTransition'인 노드가 필요함
+    // FlowCanvas에서 nodes prop을 받아서 type: 'scenarioTransition'인 노드 목록을 받아야 더 정확함
+    // 여기서는 편의상 scenarioTransition 노드가 별도 관리되지 않으므로, prop으로 nodes를 받아서 처리하는 것이 가장 명확함
+    // 일단 stateNames만 반환, 아래에서 FlowNode[] nodes prop을 추가로 받아서 처리하도록 확장 필요
+    return stateNames;
+  }, [scenario, scenarios]);
+
+  // 시나리오 전이 노드용: 시나리오 목록
+  const scenarioOptions = React.useMemo(() => Object.entries(scenarios).map(([id, s]) => ({ id, name: s.plan[0]?.name || id })), [scenarios]);
+  // 시나리오 전이 노드용: 선택된 시나리오의 상태 목록
+  const scenarioStateOptions = React.useMemo(() => {
+    if (!selectedScenario || !scenarios[selectedScenario]) return [];
+    return scenarios[selectedScenario].plan[0]?.dialogState.map(ds => ds.name) || [];
+  }, [selectedScenario, scenarios]);
 
   // JSON validation helper
   const validateJson = (jsonString: string): { isValid: boolean; error?: string } => {
@@ -58,6 +97,13 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
       return { isValid: false, error: (error as Error).message };
     }
   };
+
+  useEffect(() => {
+    if (nodeType === 'scenarioTransition') {
+      setSelectedScenario(initialTargetScenario || Object.keys(scenarios)[0] || '');
+      setSelectedState(initialTargetState || (scenarios[initialTargetScenario]?.plan[0]?.dialogState[0]?.name || ''));
+    }
+  }, [open, nodeType, scenarios, initialTargetScenario, initialTargetState]);
 
   useEffect(() => {
     if (dialogState) {
@@ -198,18 +244,26 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
     });
   };
 
-  const updateConditionHandler = (index: number, field: string, value: string) => {
+  const updateConditionHandler = (
+    index: number,
+    field: string,
+    value: string | { scenario: string; dialogState: string }
+  ) => {
     const updated = editedState.conditionHandlers?.map((handler, i) => {
       if (i === index) {
         if (field === 'conditionStatement') {
-          return { ...handler, conditionStatement: value };
+          return { ...handler, conditionStatement: value as string };
         } else if (field === 'transitionTarget') {
-          return { ...handler, transitionTarget: { ...handler.transitionTarget, dialogState: value } };
+          if (typeof value === 'string') {
+            return { ...handler, transitionTarget: { ...handler.transitionTarget, dialogState: value } };
+          } else {
+            return { ...handler, transitionTarget: value };
+          }
         }
       }
       return handler;
     }) || [];
-    
+  
     setEditedState({
       ...editedState,
       conditionHandlers: updated
@@ -978,6 +1032,65 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
     }
   };
 
+  if (nodeType === 'scenarioTransition') {
+    return (
+      <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+        <DialogTitle>시나리오 전이 노드 편집</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <InputLabel>전이할 시나리오</InputLabel>
+              <Select
+                label="전이할 시나리오"
+                value={selectedScenario}
+                onChange={e => {
+                  const scenarioId = e.target.value;
+                  // 시나리오 이름으로 변환
+                  let scenarioName = scenarioId;
+                  if (scenarios && scenarios[scenarioId]) {
+                    scenarioName = scenarios[scenarioId].plan[0]?.name || scenarioId;
+                  }
+                  setSelectedScenario(scenarioId); // UI용
+                  setEditedState(prev => ({
+                    ...prev,
+                    targetScenario: scenarioName // 항상 이름으로 저장
+                  }));
+                }}
+              >
+                {Object.entries(scenarios).map(([id, s]) => (
+                  <MenuItem key={id} value={id}>{s.plan[0]?.name || id}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl fullWidth>
+              <InputLabel>전이할 상태</InputLabel>
+              <Select
+                label="전이할 상태"
+                value={selectedState}
+                onChange={e => setSelectedState(e.target.value)}
+              >
+                {scenarioStateOptions.map(name => (
+                  <MenuItem key={name} value={name}>{name}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={onClose}>취소</Button>
+          <Button onClick={() => {
+            // 저장 시에도 항상 이름으로 변환
+            let scenarioName = selectedScenario;
+            if (scenarios && scenarios[selectedScenario]) {
+              scenarioName = scenarios[selectedScenario].plan[0]?.name || selectedScenario;
+            }
+            onSave({ targetScenario: scenarioName, targetState: selectedState });
+          }} variant="contained" color="primary" disabled={!selectedScenario || !selectedState}>저장</Button>
+        </DialogActions>
+      </Dialog>
+    );
+  }
+
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle>
@@ -989,14 +1102,14 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
           {/* 기본 정보 */}
           <TextField
             label="State 이름"
-            value={editedState.name}
+            value={String(editedState.name ?? '')}
             onChange={(e) => handleNameChange(e.target.value)}
             fullWidth
           />
 
           <TextField
             label="Entry Action (발화 내용)"
-            value={editedState.entryAction?.directives?.[0]?.content || ''}
+            value={String(editedState.entryAction?.directives?.[0]?.content ?? '')}
             onChange={(e) => handleEntryActionChange(e.target.value)}
             multiline
             rows={2}
@@ -1022,18 +1135,79 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                     </Box>
                     <TextField
                       label="조건문"
-                      value={handler.conditionStatement}
+                      value={String(handler.conditionStatement ?? '')}
                       onChange={(e) => updateConditionHandler(index, 'conditionStatement', e.target.value)}
                       fullWidth
                       sx={{ mb: 1 }}
                     />
-                    <TextField
-                      label="전이 대상 State"
-                      value={handler.transitionTarget.dialogState}
-                      onChange={(e) => updateConditionHandler(index, 'transitionTarget', e.target.value)}
-                      fullWidth
-                      sx={{ mb: 2 }}
-                    />
+                    <FormControl fullWidth sx={{ mb: 2 }}>
+                      <InputLabel>전이 대상 State</InputLabel>
+                      <Select
+                        label="전이 대상 State"
+                        value={String(handler.transitionTarget.dialogState ?? '')}
+                        onChange={e => {
+                          const value = e.target.value;
+                          console.log(value, nodes);
+                          const scenarioTransitionNode = nodes?.find(n => n.id === value && n.type === 'scenarioTransition');
+                          if (scenarioTransitionNode) {
+                            // targetScenario가 시나리오 ID라면 이름으로 변환
+                            let scenarioName = scenarioTransitionNode.data.targetScenario;
+                            if (scenarios && scenarioName && scenarios[scenarioName]) {
+                              scenarioName = scenarios[scenarioName].plan[0]?.name || scenarioName;
+                            }
+                            updateConditionHandler(index, 'transitionTarget', { scenario: scenarioName || '', dialogState: scenarioTransitionNode.data.targetState || '' });
+                          } else {
+                            updateConditionHandler(index, 'transitionTarget', value);
+                          }
+                        }}
+                      >
+                        <MenuItem value="__END_SESSION__">__END_SESSION__</MenuItem>
+                        <MenuItem value="__END_SCENARIO__">__END_SCENARIO__</MenuItem>
+                        {stateAndTransitionOptions.map(name => (
+                          <MenuItem key={name} value={name}>{name}</MenuItem>
+                        ))}
+                        {/* 시나리오 전이 노드 옵션 추가 */}
+                        {nodes?.filter(n => n.type === 'scenarioTransition').map(n => (
+                          <MenuItem key={n.id} value={n.id}>
+                            {(() => {
+                              const nodeLabel = n.data.label || n.data.dialogState?.name || n.id;
+                              const scenarioKey = n.data.targetScenario;
+                              const scenarioObj = typeof scenarioKey === 'string' && scenarios && scenarios[scenarioKey] ? scenarios[scenarioKey] : undefined;
+                              const scenarioName = scenarioObj?.plan?.[0]?.name || scenarioKey;
+                              return `${nodeLabel}: ${scenarioName} → ${n.data.targetState}`;
+                            })()}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+
+                    {/* 조건 핸들러 Accordion 내 전이 대상 State 표시 부분 */}
+                    <Grid container spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" display="block">
+                        {(() => {
+                          const t = handler.transitionTarget;
+                          if (t && typeof t === 'object' && t.dialogState) {
+                            return t.dialogState;
+                          }
+                          return typeof t === 'string' ? t : '';
+                        })()}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      {(() => {
+                        const t = handler.transitionTarget;
+                        if (t && typeof t === 'object' && t.scenario) {
+                          let scenarioName = t.scenario;
+                          if (scenarios && scenarios[t.scenario]) {
+                            scenarioName = scenarios[t.scenario].plan[0]?.name || t.scenario;
+                          }
+                          return <Chip label={scenarioName} size="small" color="warning" sx={{ fontWeight: 600 }} />;
+                        }
+                        return null;
+                      })()}
+                    </Grid>
+                  </Grid>
                     
                     {/* Memory Actions */}
                     <Typography variant="subtitle2" sx={{ mb: 1 }}>Memory Actions</Typography>
@@ -1044,7 +1218,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                             <FormControl fullWidth size="small">
                               <InputLabel>Type</InputLabel>
                               <Select
-                                value={memoryAction.actionType}
+                                value={String(memoryAction.actionType ?? '')}
                                 onChange={(e) => updateMemoryActionInConditionHandler(index, memoryIndex, 'actionType', e.target.value)}
                                 label="Type"
                               >
@@ -1057,7 +1231,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                           <Grid item xs={3}>
                             <TextField
                               label="Memory Key"
-                              value={memoryAction.memorySlotKey}
+                              value={String(memoryAction.memorySlotKey ?? '')}
                               onChange={(e) => updateMemoryActionInConditionHandler(index, memoryIndex, 'memorySlotKey', e.target.value)}
                               size="small"
                               fullWidth
@@ -1066,7 +1240,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                           <Grid item xs={3}>
                             <TextField
                               label="Memory Value"
-                              value={memoryAction.memorySlotValue}
+                              value={String(memoryAction.memorySlotValue ?? '')}
                               onChange={(e) => updateMemoryActionInConditionHandler(index, memoryIndex, 'memorySlotValue', e.target.value)}
                               size="small"
                               fullWidth
@@ -1076,7 +1250,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                              <FormControl fullWidth size="small">
                                <InputLabel>Scope</InputLabel>
                                <Select
-                                 value={memoryAction.actionScope}
+                                 value={String(memoryAction.actionScope ?? '')}
                                  onChange={(e) => updateMemoryActionInConditionHandler(index, memoryIndex, 'actionScope', e.target.value)}
                                  label="Scope"
                                >
@@ -1140,18 +1314,51 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                     </Box>
                     <TextField
                       label="인텐트"
-                      value={handler.intent}
+                      value={String(handler.intent ?? '')}
                       onChange={(e) => updateIntentHandler(index, 'intent', e.target.value)}
                       fullWidth
                       sx={{ mb: 1 }}
                     />
-                    <TextField
-                      label="전이 대상 State"
-                      value={handler.transitionTarget.dialogState}
-                      onChange={(e) => updateIntentHandler(index, 'transitionTarget', e.target.value)}
-                      fullWidth
-                      sx={{ mb: 2 }}
-                    />
+                    <FormControl fullWidth sx={{ mb: 2 }}>
+                      <InputLabel>전이 대상 State</InputLabel>
+                      <Select
+                        label="전이 대상 State"
+                        value={String(handler.transitionTarget.dialogState ?? '')}
+                        onChange={e => {
+                          const value = e.target.value;
+                          console.log(value, nodes);
+                          const scenarioTransitionNode = nodes?.find(n => n.id === value && n.type === 'scenarioTransition');
+                          if (scenarioTransitionNode) {
+                            // targetScenario가 시나리오 ID라면 이름으로 변환
+                            let scenarioName = scenarioTransitionNode.data.targetScenario;
+                            if (scenarios && scenarioName && scenarios[scenarioName]) {
+                              scenarioName = scenarios[scenarioName].plan[0]?.name || scenarioName;
+                            }
+                            updateConditionHandler(index, 'transitionTarget', { scenario: scenarioName || '', dialogState: scenarioTransitionNode.data.targetState || '' });
+                          } else {
+                            updateConditionHandler(index, 'transitionTarget', value);
+                          }
+                        }}
+                      >
+                        <MenuItem value="__END_SESSION__">__END_SESSION__</MenuItem>
+                        <MenuItem value="__END_SCENARIO__">__END_SCENARIO__</MenuItem>
+                        {stateAndTransitionOptions.map(name => (
+                          <MenuItem key={name} value={name}>{name}</MenuItem>
+                        ))}
+                        {/* 시나리오 전이 노드 옵션 추가 */}
+                        {nodes?.filter(n => n.type === 'scenarioTransition').map(n => (
+                          <MenuItem key={n.id} value={n.id}>
+                            {(() => {
+                              const nodeLabel = n.data.label || n.data.dialogState?.name || n.id;
+                              const scenarioKey = n.data.targetScenario;
+                              const scenarioObj = typeof scenarioKey === 'string' && scenarios && scenarios[scenarioKey] ? scenarios[scenarioKey] : undefined;
+                              const scenarioName = scenarioObj?.plan?.[0]?.name || scenarioKey;
+                              return `${nodeLabel}: ${scenarioName} → ${n.data.targetState}`;
+                            })()}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
                     
                     {/* Memory Actions */}
                     <Typography variant="subtitle2" sx={{ mb: 1 }}>Memory Actions</Typography>
@@ -1162,7 +1369,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                             <FormControl fullWidth size="small">
                               <InputLabel>Type</InputLabel>
                               <Select
-                                value={memoryAction.actionType}
+                                value={String(memoryAction.actionType ?? '')}
                                 onChange={(e) => updateMemoryActionInIntentHandler(index, memoryIndex, 'actionType', e.target.value)}
                                 label="Type"
                               >
@@ -1175,7 +1382,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                           <Grid item xs={3}>
                             <TextField
                               label="Memory Key"
-                              value={memoryAction.memorySlotKey}
+                              value={String(memoryAction.memorySlotKey ?? '')}
                               onChange={(e) => updateMemoryActionInIntentHandler(index, memoryIndex, 'memorySlotKey', e.target.value)}
                               size="small"
                               fullWidth
@@ -1184,7 +1391,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                           <Grid item xs={3}>
                             <TextField
                               label="Memory Value"
-                              value={memoryAction.memorySlotValue}
+                              value={String(memoryAction.memorySlotValue ?? '')}
                               onChange={(e) => updateMemoryActionInIntentHandler(index, memoryIndex, 'memorySlotValue', e.target.value)}
                               size="small"
                               fullWidth
@@ -1194,7 +1401,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                              <FormControl fullWidth size="small">
                                <InputLabel>Scope</InputLabel>
                                <Select
-                                 value={memoryAction.actionScope}
+                                 value={String(memoryAction.actionScope ?? '')}
                                  onChange={(e) => updateMemoryActionInIntentHandler(index, memoryIndex, 'actionScope', e.target.value)}
                                  label="Scope"
                                >
@@ -1258,19 +1465,52 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                     </Box>
                     <TextField
                       label="이벤트 타입"
-                      value={getEventType(handler.event)}
+                      value={String(getEventType(handler.event) ?? '')}
                       onChange={(e) => updateEventHandler(index, 'eventType', e.target.value)}
                       fullWidth
                       sx={{ mb: 1 }}
                       helperText="예: CUSTOM_EVENT, USER_DIALOG_START, USER_DIALOG_END 등"
                     />
-                    <TextField
-                      label="전이 대상 State"
-                      value={handler.transitionTarget.dialogState}
-                      onChange={(e) => updateEventHandler(index, 'transitionTarget', e.target.value)}
-                      fullWidth
-                      sx={{ mb: 2 }}
-                    />
+                    <FormControl fullWidth sx={{ mb: 2 }}>
+                      <InputLabel>전이 대상 State</InputLabel>
+                      <Select
+                        label="전이 대상 State"
+                        value={String(handler.transitionTarget.dialogState ?? '')}
+                        onChange={e => {
+                          const value = e.target.value;
+                          console.log(value, nodes);
+                          const scenarioTransitionNode = nodes?.find(n => n.id === value && n.type === 'scenarioTransition');
+                          if (scenarioTransitionNode) {
+                            // targetScenario가 시나리오 ID라면 이름으로 변환
+                            let scenarioName = scenarioTransitionNode.data.targetScenario;
+                            if (scenarios && scenarioName && scenarios[scenarioName]) {
+                              scenarioName = scenarios[scenarioName].plan[0]?.name || scenarioName;
+                            }
+                            updateConditionHandler(index, 'transitionTarget', { scenario: scenarioName || '', dialogState: scenarioTransitionNode.data.targetState || '' });
+                          } else {
+                            updateConditionHandler(index, 'transitionTarget', value);
+                          }
+                        }}
+                      >
+                        <MenuItem value="__END_SESSION__">__END_SESSION__</MenuItem>
+                        <MenuItem value="__END_SCENARIO__">__END_SCENARIO__</MenuItem>
+                        {stateAndTransitionOptions.map(name => (
+                          <MenuItem key={name} value={name}>{name}</MenuItem>
+                        ))}
+                        {/* 시나리오 전이 노드 옵션 추가 */}
+                        {nodes?.filter(n => n.type === 'scenarioTransition').map(n => (
+                          <MenuItem key={n.id} value={n.id}>
+                            {(() => {
+                              const nodeLabel = n.data.label || n.data.dialogState?.name || n.id;
+                              const scenarioKey = n.data.targetScenario;
+                              const scenarioObj = typeof scenarioKey === 'string' && scenarios && scenarios[scenarioKey] ? scenarios[scenarioKey] : undefined;
+                              const scenarioName = scenarioObj?.plan?.[0]?.name || scenarioKey;
+                              return `${nodeLabel}: ${scenarioName} → ${n.data.targetState}`;
+                            })()}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
                     
                     {/* Memory Actions */}
                     <Typography variant="subtitle2" sx={{ mb: 1 }}>Memory Actions</Typography>
@@ -1281,7 +1521,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                             <FormControl fullWidth size="small">
                               <InputLabel>Type</InputLabel>
                               <Select
-                                value={memoryAction.actionType}
+                                value={String(memoryAction.actionType ?? '')}
                                 onChange={(e) => updateMemoryActionInEventHandler(index, memoryIndex, 'actionType', e.target.value)}
                                 label="Type"
                               >
@@ -1294,7 +1534,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                           <Grid item xs={3}>
                             <TextField
                               label="Memory Key"
-                              value={memoryAction.memorySlotKey}
+                              value={String(memoryAction.memorySlotKey ?? '')}
                               onChange={(e) => updateMemoryActionInEventHandler(index, memoryIndex, 'memorySlotKey', e.target.value)}
                               size="small"
                               fullWidth
@@ -1303,7 +1543,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                           <Grid item xs={3}>
                             <TextField
                               label="Memory Value"
-                              value={memoryAction.memorySlotValue}
+                              value={String(memoryAction.memorySlotValue ?? '')}
                               onChange={(e) => updateMemoryActionInEventHandler(index, memoryIndex, 'memorySlotValue', e.target.value)}
                               size="small"
                               fullWidth
@@ -1313,7 +1553,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                              <FormControl fullWidth size="small">
                                <InputLabel>Scope</InputLabel>
                                <Select
-                                 value={memoryAction.actionScope}
+                                 value={String(memoryAction.actionScope ?? '')}
                                  onChange={(e) => updateMemoryActionInEventHandler(index, memoryIndex, 'actionScope', e.target.value)}
                                  label="Scope"
                                >
@@ -1800,7 +2040,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                     
                     <TextField
                       label="슬롯 이름"
-                      value={slot.name}
+                      value={String(slot.name ?? '')}
                       onChange={(e) => updateSlotFillingForm(index, 'name', e.target.value)}
                       fullWidth
                       sx={{ mb: 1 }}
@@ -1811,7 +2051,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                       <FormControl sx={{ minWidth: 120 }}>
                         <InputLabel>필수 여부</InputLabel>
                         <Select
-                          value={slot.required}
+                          value={String(slot.required ?? '')}
                           label="필수 여부"
                           onChange={(e) => updateSlotFillingForm(index, 'required', e.target.value)}
                         >
@@ -1822,7 +2062,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                       
                       <TextField
                         label="Memory Slot Keys (쉼표로 구분)"
-                        value={slot.memorySlotKey?.join(', ') || ''}
+                        value={String(slot.memorySlotKey?.join(', ') ?? '')}
                         onChange={(e) => updateSlotFillingForm(index, 'memorySlotKey', e.target.value.split(',').map(k => k.trim()).filter(k => k))}
                         sx={{ flex: 1 }}
                         placeholder="CITY:CITY, LOCATION:LOCATION"
@@ -1832,7 +2072,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                     
                     <TextField
                       label="Prompt Action Content"
-                      value={getSlotPromptContent(slot)}
+                      value={String(getSlotPromptContent(slot) ?? '')}
                       onChange={(e) => updateSlotFillingForm(index, 'promptContent', e.target.value)}
                       multiline
                       rows={3}
@@ -1844,7 +2084,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                     
                     <TextField
                       label="Reprompt Content (재요청 메시지)"
-                      value={getSlotRepromptContent(slot)}
+                      value={String(getSlotRepromptContent(slot) ?? '')}
                       onChange={(e) => updateSlotFillingForm(index, 'repromptContent', e.target.value)}
                       multiline
                       rows={2}

@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@mui/lab": "^7.0.0-beta.14",
+    "react-simple-tree-menu": "^1.1.18"
+  }
+}
