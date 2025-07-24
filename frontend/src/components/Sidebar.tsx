@@ -11,25 +11,43 @@ import {
   Alert,
   Chip,
   Badge,
-  CircularProgress
+  CircularProgress,
+  Tabs,
+  Tab,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemSecondaryAction,
+  IconButton
 } from '@mui/material';
+
 import { TreeView, TreeItem } from '@mui/lab';
-import { ExpandMore as ExpandMoreIcon } from '@mui/icons-material';
+import { ExpandMore as ExpandMoreIcon, ChevronRight as ChevronRightIcon } from '@mui/icons-material';
 import { Scenario, FlowNode } from '../types/scenario';
 import { compareScenarios } from '../utils/scenarioUtils';
 
 interface SidebarProps {
   scenario: Scenario | null;
   selectedNode: FlowNode | null;
-  onScenarioLoad: (scenario: Scenario) => void;
+  onScenarioLoad: (scenario: Scenario, loadedId?: string) => void;
   onLoadingStart: (startTime?: number) => void;
   onScenarioSave: () => void;
   onApplyChanges: () => void;
+  onCreateNewScenario: () => void;
+  onSaveAllScenarios: () => void;
+  scenarios?: { [key: string]: Scenario };
+  activeScenarioId?: string;
+  onSwitchScenario?: (scenarioId: string) => void;
+  onDeleteScenario?: (scenarioId: string) => void;
+  onUpdateScenarioName?: (scenarioId: string, newName: string) => void;
   nodes: FlowNode[];
   originalScenario: Scenario | null;
   onNodeUpdate: (node: FlowNode) => void;
   isLoading: boolean;
   loadingTime: number | null;
+  onAllScenariosLoad?: (scenarioMap: Record<string, Scenario>) => void;
+  setIsLoading: (v: boolean) => void;
+  setLoadingTime: (v: number) => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -39,11 +57,21 @@ const Sidebar: React.FC<SidebarProps> = ({
   onLoadingStart,
   onScenarioSave,
   onApplyChanges,
+  onCreateNewScenario,
+  onSaveAllScenarios,
+  scenarios = {},
+  activeScenarioId,
+  onSwitchScenario,
+  onDeleteScenario,
+  onUpdateScenarioName,
   nodes,
   originalScenario,
   onNodeUpdate,
   isLoading,
-  loadingTime
+  loadingTime,
+  onAllScenariosLoad,
+  setIsLoading,
+  setLoadingTime
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [validationError, setValidationError] = useState<string>('');
@@ -56,6 +84,9 @@ const Sidebar: React.FC<SidebarProps> = ({
     removed: string[];
   }>({ added: [], modified: [], removed: [] });
   const [treeSelectedState, setTreeSelectedState] = useState<FlowNode | null>(null);
+  const [activeTab, setActiveTab] = useState(0);
+  const [editingScenarioId, setEditingScenarioId] = useState<string | null>(null);
+  const [editingScenarioName, setEditingScenarioName] = useState('');
 
   // 변경사항 감지 (노드가 변경될 때마다 체크)
   useEffect(() => {
@@ -138,30 +169,53 @@ const Sidebar: React.FC<SidebarProps> = ({
       try {
         const parseStartTime = performance.now();
         const jsonContent = e.target?.result as string;
-        const parsedScenario = JSON.parse(jsonContent);
+        const parsed = JSON.parse(jsonContent);
         const parseTime = performance.now() - parseStartTime;
         console.log('⏱️ [TIMING] JSON 파싱 완료:', parseTime.toFixed(2), 'ms');
-        
-        // 기본 validation
-        const validationStartTime = performance.now();
-        if (!validateScenario(parsedScenario)) {
-          setValidationError('잘못된 시나리오 파일 형식입니다.');
+
+        // 여러 시나리오 배열 지원
+        if (Array.isArray(parsed)) {
+          // 각 시나리오 객체가 {id, name, scenario} 구조인지 확인
+          const valid = parsed.every(item => item && item.id && item.name && item.scenario && item.scenario.plan);
+          if (!valid) {
+            setValidationError('잘못된 시나리오 파일 형식입니다. (배열 내 각 시나리오의 구조가 올바르지 않음)');
+            return;
+          }
+          // 각 시나리오 validation
+          for (const item of parsed) {
+            if (!validateScenario(item.scenario)) {
+              setValidationError(`시나리오 "${item.name}"의 형식이 올바르지 않습니다.`);
+              return;
+            }
+          }
+          // 모두 유효하면 setScenarios로 등록
+          const scenarioMap: Record<string, Scenario> = {};
+          parsed.forEach((item: {id: string, scenario: Scenario}) => {
+            scenarioMap[item.id] = item.scenario;
+          });
+          setValidationError('');
+          // 첫 번째 시나리오를 활성화
+          onScenarioLoad(parsed[0].scenario, parsed[0].id);
+          // 모든 시나리오 등록
+          if (onAllScenariosLoad) {
+            onAllScenariosLoad(scenarioMap);
+          }
+          setIsLoading(false);
+          setLoadingTime(performance.now() - overallStartTime);
           return;
         }
-        const validationTime = performance.now() - validationStartTime;
-        console.log('⏱️ [TIMING] 시나리오 검증 완료:', validationTime.toFixed(2), 'ms');
 
+        // 단일 시나리오 객체 처리 (기존 로직)
+        if (!validateScenario(parsed)) {
+          setValidationError('잘못된 시나리오 파일 형식입니다.');
+          setIsLoading(false);
+          setLoadingTime(performance.now() - overallStartTime);
+          return;
+        }
         setValidationError('');
-        
-        const totalPreprocessTime = performance.now() - overallStartTime;
-        console.log('⏱️ [TIMING] 전처리 총 시간:', totalPreprocessTime.toFixed(2), 'ms');
-        console.log('📊 [TIMING] 세부 시간 분석:');
-        console.log('  - 파일 읽기:', fileReadTime.toFixed(2), 'ms', `(${(fileReadTime/totalPreprocessTime*100).toFixed(1)}%)`);
-        console.log('  - JSON 파싱:', parseTime.toFixed(2), 'ms', `(${(parseTime/totalPreprocessTime*100).toFixed(1)}%)`);
-        console.log('  - 시나리오 검증:', validationTime.toFixed(2), 'ms', `(${(validationTime/totalPreprocessTime*100).toFixed(1)}%)`);
-        console.log('✅ [TIMING] onScenarioLoad 호출 시작');
-        
-        onScenarioLoad(parsedScenario);
+        onScenarioLoad(parsed);
+        setIsLoading(false);
+        setLoadingTime(performance.now() - overallStartTime);
       } catch (error) {
         console.error('❌ [TIMING] JSON 파싱 에러:', error);
         setValidationError('JSON 파싱 에러: ' + (error as Error).message);
@@ -242,266 +296,695 @@ const Sidebar: React.FC<SidebarProps> = ({
     onScenarioLoad(newScenario);
   };
 
+  // 시나리오 이름 편집 시작
+  const handleStartScenarioNameEdit = (scenarioId: string, currentName: string) => {
+    setEditingScenarioId(scenarioId);
+    setEditingScenarioName(currentName);
+  };
+
+  // 시나리오 이름 편집 완료
+  const handleFinishScenarioNameEdit = () => {
+    if (editingScenarioId && editingScenarioName.trim()) {
+      onUpdateScenarioName?.(editingScenarioId, editingScenarioName.trim());
+    }
+    setEditingScenarioId(null);
+    setEditingScenarioName('');
+  };
+
+  // 시나리오 이름 편집 취소
+  const handleCancelScenarioNameEdit = () => {
+    setEditingScenarioId(null);
+    setEditingScenarioName('');
+  };
+
   return (
     <Box sx={{ height: '100vh', overflow: 'auto', p: 2, bgcolor: '#f5f5f5' }}>
       <Typography variant="h6" gutterBottom>
         StateCanvas Control Panel
       </Typography>
 
-      {/* 파일 업로드/다운로드 섹션 */}
-      <Paper sx={{ p: 2, mb: 2 }}>
-        <Typography variant="subtitle1" gutterBottom>
-          시나리오 파일 관리
-        </Typography>
-        
-        <input
-          type="file"
-          accept=".json"
-          onChange={handleFileUpload}
-          ref={fileInputRef}
-          style={{ display: 'none' }}
-        />
-        
-        {/* 로딩 상태 표시 */}
-        {isLoading && (
-          <Alert 
-            severity="info" 
-            sx={{ 
-              mb: 2, 
-              border: '2px solid #2196f3',
-              backgroundColor: '#e3f2fd',
-              '& .MuiAlert-icon': {
-                color: '#1976d2'
-              }
-            }}
-          >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <CircularProgress size={20} thickness={4} />
-              <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                🚀 시나리오 로딩 중... 잠시만 기다려주세요
-              </Typography>
-            </Box>
-          </Alert>
-        )}
-        
-        {/* 로딩 완료 시간 표시 */}
-        {!isLoading && loadingTime !== null && (
-          <Alert 
-            severity={loadingTime > 10000 ? "warning" : loadingTime > 5000 ? "info" : "success"} 
-            sx={{ mb: 2 }}
-          >
-            <Typography variant="body2">
-              {loadingTime <= 5000 && '✅ 빠른 로딩'}
-              {loadingTime > 5000 && loadingTime <= 10000 && '⏱️ 보통 로딩'}
-              {loadingTime > 10000 && '🐌 느린 로딩'}
-              : {(loadingTime / 1000).toFixed(1)}초
-              {loadingTime > 5000 && ' (대용량 파일)'}
-              {loadingTime > 10000 && ' ⚠️ 성능 최적화 권장'}
-            </Typography>
-            {loadingTime > 10000 && (
-              <Typography variant="caption" display="block" sx={{ mt: 0.5, opacity: 0.8 }}>
-                💡 팁: 큰 시나리오 파일은 로딩에 시간이 걸릴 수 있습니다.
-              </Typography>
-            )}
-          </Alert>
-        )}
-
-        <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
-          <Button
-            variant="contained"
-            onClick={() => fileInputRef.current?.click()}
-            size="small"
-            disabled={isLoading}
-          >
-            {isLoading ? '로딩중...' : '업로드'}
-          </Button>
-          <Button
-            variant="outlined"
-            onClick={handleDownload}
-            disabled={!scenario || isLoading}
-            size="small"
-          >
-            원본 다운로드
-          </Button>
-          <Button
-            variant="outlined"
-            color="secondary"
-            onClick={handleNewScenario}
-            size="small"
-          >
-            새 시나리오
-          </Button>
-          <Badge 
-            badgeContent={hasChanges ? changeCount : 0} 
-            color="warning"
-            sx={{ width: '100%', mt: 1 }}
-          >
-            <Button 
-              variant="contained" 
-              color={hasChanges ? "warning" : "primary"}
-              onClick={onApplyChanges}
-              disabled={!scenario || isLoading}
-              size="small"
-              sx={{ 
-                width: '100%',
-                backgroundColor: hasChanges ? '#ff9800' : undefined,
-                '&:hover': {
-                  backgroundColor: hasChanges ? '#f57c00' : undefined,
-                }
-              }}
-            >
-              {isLoading ? '로딩중...' : hasChanges ? '🔄 변경사항 즉시 반영' : '🚀 변경사항 즉시 반영'}
-            </Button>
-          </Badge>
-          <Button 
-            variant="contained" 
-            color="success"
-            onClick={onScenarioSave}
-            disabled={!scenario || isLoading}
-            size="small"
-            sx={{ width: '100%', mt: 0.5 }}
-          >
-            {isLoading ? '로딩중...' : '📁 편집된 시나리오 저장'}
-          </Button>
-        </Box>
-
-        {hasChanges && (
-          <Alert severity="info" sx={{ mt: 1, mb: 1 }}>
-            {changeCount}개의 변경사항이 있습니다. 위 버튼을 클릭하여 즉시 반영하세요.
-          </Alert>
-        )}
-
-        {hasChanges && (
-          <Paper sx={{ p: 2, mb: 2, bgcolor: '#f8f9fa' }}>
-            <Typography variant="subtitle2" gutterBottom>
-              📋 변경사항 요약
-            </Typography>
-            
-            {changeSummary.added.length > 0 && (
-              <Box sx={{ mb: 1 }}>
-                <Typography variant="caption" color="success.main" sx={{ fontWeight: 'bold' }}>
-                  ✅ 추가된 상태 ({changeSummary.added.length}개):
-                </Typography>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
-                  {changeSummary.added.map(stateName => (
-                    <Chip key={stateName} label={stateName} size="small" color="success" variant="outlined" />
-                  ))}
-                </Box>
-              </Box>
-            )}
-            
-            {changeSummary.modified.length > 0 && (
-              <Box sx={{ mb: 1 }}>
-                <Typography variant="caption" color="warning.main" sx={{ fontWeight: 'bold' }}>
-                  🔄 수정된 상태 ({changeSummary.modified.length}개):
-                </Typography>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
-                  {changeSummary.modified.map(stateName => (
-                    <Chip key={stateName} label={stateName} size="small" color="warning" variant="outlined" />
-                  ))}
-                </Box>
-              </Box>
-            )}
-            
-            {changeSummary.removed.length > 0 && (
-              <Box sx={{ mb: 1 }}>
-                <Typography variant="caption" color="error.main" sx={{ fontWeight: 'bold' }}>
-                  ❌ 삭제된 상태 ({changeSummary.removed.length}개):
-                </Typography>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
-                  {changeSummary.removed.map(stateName => (
-                    <Chip key={stateName} label={stateName} size="small" color="error" variant="outlined" />
-                  ))}
-                </Box>
-              </Box>
-            )}
-          </Paper>
-        )}
-
-        {validationError && (
-          <Alert severity="error" sx={{ mt: 1 }}>
-            {validationError}
-          </Alert>
-        )}
+      {/* 탭 네비게이션 */}
+      <Paper sx={{ mb: 2 }}>
+        <Tabs 
+          value={activeTab} 
+          onChange={(_e: React.SyntheticEvent, newValue: number) => setActiveTab(newValue)}
+          variant="fullWidth"
+        >
+          <Tab label="시나리오 관리" />
+          <Tab label="시나리오 구조" />
+          <Tab label="노드 속성" />
+        </Tabs>
       </Paper>
 
-      {/* 시나리오 정보 */}
-      {scenario && (
-        <Paper sx={{ p: 2, mb: 2 }}>
-          <Typography variant="subtitle1" gutterBottom>
-            시나리오 정보
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            플랜: {scenario.plan[0]?.name}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            상태 수: {scenario.plan[0]?.dialogState?.length || 0}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            웹훅 수: {scenario.webhooks?.length || 0}
-          </Typography>
-        </Paper>
-      )}
+      {/* 시나리오 관리 탭 */}
+      {activeTab === 0 && (
+        <>
+          {/* 파일 업로드 섹션 */}
+          <Paper sx={{ p: 2, mb: 2, bgcolor: '#fafafa', border: '1px solid #e0e0e0' }}>
+            <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold', color: '#1976d2', mb: 2 }}>
+              📁 파일 관리
+            </Typography>
+            
+            <input
+              type="file"
+              accept=".json"
+              onChange={handleFileUpload}
+              ref={fileInputRef}
+              style={{ display: 'none' }}
+            />
+            
+            {/* 로딩 상태 표시 */}
+            {isLoading && (
+              <Box sx={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: 1, 
+                p: 1.5, 
+                mb: 2, 
+                bgcolor: '#e3f2fd', 
+                borderRadius: 1,
+                border: '1px solid #2196f3'
+              }}>
+                <CircularProgress size={16} thickness={4} />
+                <Typography variant="body2" sx={{ fontWeight: 'bold', color: '#1976d2' }}>
+                  로딩 중...
+                </Typography>
+              </Box>
+            )}
+            
+            {/* 로딩 완료 시간 표시 */}
+            {!isLoading && loadingTime !== null && (
+              <Box sx={{ 
+                p: 1, 
+                mb: 2, 
+                bgcolor: loadingTime > 10000 ? '#fff3e0' : loadingTime > 5000 ? '#e8f5e8' : '#f3e5f5',
+                borderRadius: 1,
+                border: `1px solid ${loadingTime > 10000 ? '#ff9800' : loadingTime > 5000 ? '#4caf50' : '#9c27b0'}`
+              }}>
+                <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
+                  {(loadingTime / 1000).toFixed(1)}초 로딩 완료
+                </Typography>
+              </Box>
+            )}
 
-      {scenario && (
-        <Paper sx={{ p: 2, mb: 2 }}>
-          <Typography variant="subtitle1" gutterBottom>
-            시나리오 구조
-          </Typography>
-          <TreeView
-            defaultCollapseIcon={<ExpandMoreIcon />}
-            defaultExpandIcon={<ExpandMoreIcon />}
-            onNodeSelect={(_e, id) => {
-              const found = nodes.find(n => n.id === id);
-              if (found) setTreeSelectedState(found);
-            }}
-          >
-            {scenario.plan.map((plan, pIdx) => (
-              <TreeItem nodeId={plan.name || `plan-${pIdx}`} label={plan.name || `Plan ${pIdx}`}> 
-                {plan.dialogState.map((state, sIdx) => (
-                  <TreeItem key={sIdx} nodeId={state.name} label={state.name} />
-                ))}
-              </TreeItem>
-            ))}
-          </TreeView>
-          {treeSelectedState && (
-            <Box sx={{ mt: 1, p:1, bgcolor:'#fafafa', borderRadius:1 }}>
-              <Typography variant="caption">{JSON.stringify(treeSelectedState.data.dialogState, null, 2)}</Typography>
+            {/* 파일 관리 버튼들 */}
+            <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+              <Button
+                variant="contained"
+                onClick={() => fileInputRef.current?.click()}
+                size="small"
+                disabled={isLoading}
+                sx={{ flex: 1, fontSize: '0.75rem' }}
+              >
+                📂 업로드
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={handleDownload}
+                disabled={!scenario || isLoading}
+                size="small"
+                sx={{ flex: 1, fontSize: '0.75rem' }}
+              >
+                💾 다운로드
+              </Button>
             </Box>
+          </Paper>
+
+          {/* 시나리오 관리 섹션 */}
+          <Paper sx={{ p: 2, mb: 2, bgcolor: '#fafafa', border: '1px solid #e0e0e0' }}>
+            <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold', color: '#1976d2', mb: 2 }}>
+              ⚙️ 시나리오 관리
+            </Typography>
+
+            {/* 새 시나리오 추가 버튼 */}
+            <Button 
+              variant="contained" 
+              color="primary"
+              onClick={onCreateNewScenario}
+              disabled={isLoading}
+              size="small"
+              sx={{ width: '100%', mb: 1, fontSize: '0.75rem' }}
+            >
+              🆕 새 시나리오 추가
+            </Button>
+
+            {/* 변경사항 적용 버튼 */}
+            <Badge 
+              badgeContent={hasChanges ? changeCount : 0} 
+              color="warning"
+              sx={{ width: '100%', mb: 1 }}
+            >
+              <Button 
+                variant="contained" 
+                color={hasChanges ? "warning" : "primary"}
+                onClick={onApplyChanges}
+                disabled={!scenario || isLoading}
+                size="small"
+                sx={{ 
+                  width: '100%',
+                  fontSize: '0.75rem',
+                  backgroundColor: hasChanges ? '#ff9800' : undefined,
+                  '&:hover': {
+                    backgroundColor: hasChanges ? '#f57c00' : undefined,
+                  }
+                }}
+              >
+                {hasChanges ? '🔄 변경사항 적용' : '✅ 변경사항 적용'}
+              </Button>
+            </Badge>
+
+            {/* 저장 버튼들 */}
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button 
+                variant="outlined" 
+                color="success"
+                onClick={onScenarioSave}
+                disabled={!scenario || isLoading}
+                size="small"
+                sx={{ flex: 1, fontSize: '0.75rem' }}
+              >
+                💾 개별 저장
+              </Button>
+              <Button 
+                variant="outlined" 
+                color="secondary"
+                onClick={onSaveAllScenarios}
+                disabled={isLoading}
+                size="small"
+                sx={{ flex: 1, fontSize: '0.75rem' }}
+              >
+                📦 전체 저장
+              </Button>
+            </Box>
+          </Paper>
+
+          {/* 시나리오 목록 */}
+          {Object.keys(scenarios).length > 0 && (
+            <Paper sx={{ p: 2, mb: 2, bgcolor: '#fafafa', border: '1px solid #e0e0e0' }}>
+              <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold', color: '#1976d2', mb: 2 }}>
+                📋 시나리오 목록
+              </Typography>
+              <List dense sx={{ p: 0 }}>
+                {Object.entries(scenarios).map(([id, scenarioData]) => (
+                  <ListItem 
+                    key={id}
+                    sx={{ 
+                      p: 1, 
+                      mb: 0.5, 
+                      borderRadius: 1,
+                      backgroundColor: id === activeScenarioId ? '#e3f2fd' : 'transparent',
+                      border: id === activeScenarioId ? '1px solid #1976d2' : '1px solid #e0e0e0',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      '&:hover': {
+                        backgroundColor: id === activeScenarioId ? '#e3f2fd' : '#f5f5f5'
+                      }
+                    }}
+                    onClick={() => onSwitchScenario?.(id)}
+                  >
+                    <Box sx={{ flex: 1 }}>
+                      <ListItemText
+                        primary={
+                          editingScenarioId === id ? (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <TextField
+                                value={editingScenarioName}
+                                onChange={(e) => setEditingScenarioName(e.target.value)}
+                                size="small"
+                                sx={{ 
+                                  '& .MuiInputBase-root': { 
+                                    fontSize: '0.875rem',
+                                    height: 28
+                                  }
+                                }}
+                                onKeyPress={(e) => {
+                                  if (e.key === 'Enter') {
+                                    handleFinishScenarioNameEdit();
+                                  } else if (e.key === 'Escape') {
+                                    handleCancelScenarioNameEdit();
+                                  }
+                                }}
+                                autoFocus
+                              />
+                              <IconButton
+                                size="small"
+                                onClick={handleFinishScenarioNameEdit}
+                                sx={{ color: '#4caf50', p: 0.5 }}
+                              >
+                                <span style={{ fontSize: '0.8rem' }}>✅</span>
+                              </IconButton>
+                              <IconButton
+                                size="small"
+                                onClick={handleCancelScenarioNameEdit}
+                                sx={{ color: '#f44336', p: 0.5 }}
+                              >
+                                <span style={{ fontSize: '0.8rem' }}>❌</span>
+                              </IconButton>
+                            </Box>
+                          ) : (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Typography variant="body2" sx={{ fontWeight: id === activeScenarioId ? 'bold' : 'normal' }}>
+                                {scenarioData.plan[0]?.name || `Scenario ${id}`}
+                              </Typography>
+                              <IconButton
+                                size="small"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleStartScenarioNameEdit(id, scenarioData.plan[0]?.name || `Scenario ${id}`);
+                                }}
+                                sx={{ color: '#1976d2', p: 0.5, opacity: 0.7 }}
+                              >
+                                <span style={{ fontSize: '0.7rem' }}>✏️</span>
+                              </IconButton>
+                            </Box>
+                          )
+                        }
+                        secondary={
+                          <Typography variant="caption" color="text.secondary">
+                            {scenarioData.plan[0]?.dialogState?.length || 0}개 상태
+                          </Typography>
+                        }
+                      />
+                    </Box>
+                    {/* 삭제 버튼: 항상 보이되, 1개 남았을 때는 비활성화 */}
+                    <IconButton
+                      edge="end"
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (onDeleteScenario && Object.keys(scenarios).length > 1) {
+                          onDeleteScenario(id);
+                        }
+                      }}
+                      sx={{ color: '#f44336', ml: 1 }}
+                      disabled={Object.keys(scenarios).length <= 1}
+                    >
+                      <span style={{ fontSize: '0.8rem' }}>🗑️</span>
+                    </IconButton>
+                  </ListItem>
+                ))}
+              </List>
+            </Paper>
           )}
-        </Paper>
+
+          {/* 변경사항 표시 */}
+          {hasChanges && (
+            <Paper sx={{ p: 2, mb: 2, bgcolor: '#fff3e0', border: '1px solid #ff9800' }}>
+              <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold', color: '#f57c00' }}>
+                🔄 변경사항 ({changeCount}개)
+              </Typography>
+              
+              {changeSummary.added.length > 0 && (
+                <Box sx={{ mb: 1 }}>
+                  <Typography variant="caption" color="success.main" sx={{ fontWeight: 'bold' }}>
+                    ✅ 추가: {changeSummary.added.length}개
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+                    {changeSummary.added.map(stateName => (
+                      <Chip key={stateName} label={stateName} size="small" color="success" variant="outlined" />
+                    ))}
+                  </Box>
+                </Box>
+              )}
+              
+              {changeSummary.modified.length > 0 && (
+                <Box sx={{ mb: 1 }}>
+                  <Typography variant="caption" color="warning.main" sx={{ fontWeight: 'bold' }}>
+                    🔄 수정: {changeSummary.modified.length}개
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+                    {changeSummary.modified.map(stateName => (
+                      <Chip key={stateName} label={stateName} size="small" color="warning" variant="outlined" />
+                    ))}
+                  </Box>
+                </Box>
+              )}
+              
+              {changeSummary.removed.length > 0 && (
+                <Box sx={{ mb: 1 }}>
+                  <Typography variant="caption" color="error.main" sx={{ fontWeight: 'bold' }}>
+                    ❌ 삭제: {changeSummary.removed.length}개
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+                    {changeSummary.removed.map(stateName => (
+                      <Chip key={stateName} label={stateName} size="small" color="error" variant="outlined" />
+                    ))}
+                  </Box>
+                </Box>
+              )}
+            </Paper>
+          )}
+
+          {/* 오류 표시 */}
+          {validationError && (
+            <Alert severity="error" sx={{ mt: 1 }}>
+              {validationError}
+            </Alert>
+          )}
+
+          {/* 시나리오 정보 */}
+          {scenario && (
+            <Paper sx={{ p: 2, mb: 2, bgcolor: '#fafafa', border: '1px solid #e0e0e0' }}>
+              <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold', color: '#1976d2' }}>
+                ℹ️ 시나리오 정보
+              </Typography>
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 1, fontSize: '0.875rem' }}>
+                <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#666' }}>플랜:</Typography>
+                <Typography variant="caption">{scenario.plan[0]?.name}</Typography>
+                <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#666' }}>상태 수:</Typography>
+                <Typography variant="caption">{scenario.plan[0]?.dialogState?.length || 0}개</Typography>
+                <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#666' }}>웹훅 수:</Typography>
+                <Typography variant="caption">{scenario.webhooks?.length || 0}개</Typography>
+              </Box>
+            </Paper>
+          )}
+        </>
       )}
 
-      {/* 선택된 노드 속성 편집 */}
-      {selectedNode && (
+                    {/* 시나리오 구조 탭 */}
+       {activeTab === 1 && (
+         <Paper sx={{ p: 2, mb: 2 }}>
+           <Typography variant="subtitle1" gutterBottom>
+             시나리오 구조
+           </Typography>
+           
+           {/* 디버깅 정보 */}
+           <Box sx={{ mb: 2, p: 1, bgcolor: '#f0f0f0', borderRadius: 1 }}>
+             <Typography variant="caption" display="block">
+               <strong>디버깅 정보:</strong>
+             </Typography>
+             <Typography variant="caption" display="block">
+               scenario: {scenario ? '있음' : '없음'}
+             </Typography>
+             <Typography variant="caption" display="block">
+               scenario.plan: {scenario?.plan ? `${scenario.plan.length}개` : '없음'}
+             </Typography>
+             <Typography variant="caption" display="block">
+               nodes: {nodes.length}개
+             </Typography>
+           </Box>
+           
+           {scenario && scenario.plan && scenario.plan.length > 0 ? (
+             <Box sx={{ maxHeight: '400px', overflow: 'auto' }}>
+               {scenario.plan.map((plan, pIdx) => (
+                 <Accordion 
+                   key={pIdx} 
+                   sx={{ 
+                     mb: 1,
+                     '&:before': {
+                       display: 'none',
+                     },
+                     boxShadow: 'none',
+                     border: '1px solid #e0e0e0',
+                     borderRadius: 1,
+                     overflow: 'hidden'
+                   }}
+                 >
+                   <AccordionSummary 
+                     expandIcon={<ExpandMoreIcon />}
+                     sx={{
+                       backgroundColor: '#fafafa',
+                       borderBottom: '1px solid #e0e0e0',
+                       '&:hover': {
+                         backgroundColor: '#f5f5f5'
+                       },
+                       '&.Mui-expanded': {
+                         backgroundColor: '#f0f0f0',
+                         borderBottom: '1px solid #d0d0d0'
+                       }
+                     }}
+                   >
+                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                       <Box sx={{ 
+                         display: 'flex', 
+                         alignItems: 'center', 
+                         justifyContent: 'center',
+                         width: 24,
+                         height: 24,
+                         borderRadius: '50%',
+                         backgroundColor: '#1976d2',
+                         color: 'white',
+                         fontSize: '0.75rem',
+                         fontWeight: 'bold'
+                       }}>
+                         {pIdx + 1}
+                       </Box>
+                       <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: '#1976d2' }}>
+                         {plan.name || `Plan ${pIdx}`}
+                       </Typography>
+                       <Chip 
+                         label={`${plan.dialogState?.length || 0}개 상태`}
+                         size="small"
+                         variant="outlined"
+                         sx={{ ml: 'auto', fontSize: '0.7rem' }}
+                       />
+                     </Box>
+                   </AccordionSummary>
+                   <AccordionDetails sx={{ pt: 0, pb: 0 }}>
+                     <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                       {plan.dialogState && plan.dialogState.map((state, sIdx) => (
+                         <Box
+                           key={sIdx}
+                           sx={{
+                             display: 'flex',
+                             alignItems: 'center',
+                             p: 1,
+                             borderBottom: sIdx < (plan.dialogState?.length || 0) - 1 ? '1px solid #f0f0f0' : 'none',
+                             cursor: 'pointer',
+                             '&:hover': {
+                               backgroundColor: '#f8f9fa'
+                             },
+                             '&:last-child': {
+                               borderBottom: 'none'
+                             }
+                           }}
+                           onClick={() => {
+                             console.log('State selected:', state.name);
+                             const found = nodes.find(n => n.id === state.name);
+                             if (found) {
+                               console.log('Found node:', found);
+                               setTreeSelectedState(found);
+                             } else {
+                               console.log('Node not found in nodes array');
+                             }
+                           }}
+                         >
+                           <Box sx={{ 
+                             display: 'flex', 
+                             alignItems: 'center', 
+                             justifyContent: 'center',
+                             width: 20,
+                             height: 20,
+                             borderRadius: '50%',
+                             backgroundColor: '#4caf50',
+                             color: 'white',
+                             fontSize: '0.6rem',
+                             fontWeight: 'bold',
+                             mr: 1
+                           }}>
+                             {sIdx + 1}
+                           </Box>
+                           <Typography 
+                             variant="body2" 
+                             sx={{ 
+                               fontSize: '0.875rem',
+                               color: '#333',
+                               fontWeight: 'medium'
+                             }}
+                           >
+                             {state.name}
+                           </Typography>
+                           
+                           {/* 핸들러 개수 표시 */}
+                           <Box sx={{ ml: 'auto', display: 'flex', gap: 0.5 }}>
+                             {state.conditionHandlers && state.conditionHandlers.length > 0 && (
+                               <Chip 
+                                 label={`조건 ${state.conditionHandlers.length}`}
+                                 size="small"
+                                 variant="outlined"
+                                 sx={{ fontSize: '0.6rem', height: 20 }}
+                               />
+                             )}
+                             {state.intentHandlers && state.intentHandlers.length > 0 && (
+                               <Chip 
+                                 label={`인텐트 ${state.intentHandlers.length}`}
+                                 size="small"
+                                 variant="outlined"
+                                 sx={{ fontSize: '0.6rem', height: 20 }}
+                               />
+                             )}
+                             {state.eventHandlers && state.eventHandlers.length > 0 && (
+                               <Chip 
+                                 label={`이벤트 ${state.eventHandlers.length}`}
+                                 size="small"
+                                 variant="outlined"
+                                 sx={{ fontSize: '0.6rem', height: 20 }}
+                               />
+                             )}
+                           </Box>
+                         </Box>
+                       ))}
+                     </Box>
+                   </AccordionDetails>
+                 </Accordion>
+               ))}
+             </Box>
+           ) : (
+             <Typography variant="body2" color="text.secondary">
+               시나리오가 로드되지 않았거나 구조가 없습니다.
+             </Typography>
+           )}
+           
+           {treeSelectedState && (
+             <Box sx={{ mt: 2, p: 2, bgcolor: '#f8f9fa', borderRadius: 2, border: '1px solid #e9ecef' }}>
+               <Typography variant="subtitle2" gutterBottom sx={{ color: '#1976d2', fontWeight: 'bold' }}>
+                 📋 선택된 상태: {treeSelectedState.data.label}
+               </Typography>
+               
+               {/* 기본 정보 */}
+               <Box sx={{ mb: 2 }}>
+                 <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 1 }}>
+                   기본 정보
+                 </Typography>
+                 <Box sx={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 1, fontSize: '0.875rem' }}>
+                   <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#666' }}>상태 이름:</Typography>
+                   <Typography variant="caption">{treeSelectedState.data.dialogState.name}</Typography>
+                   
+                   {treeSelectedState.data.dialogState.conditionHandlers && (
+                     <>
+                       <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#666' }}>조건 핸들러:</Typography>
+                       <Typography variant="caption">{treeSelectedState.data.dialogState.conditionHandlers.length}개</Typography>
+                     </>
+                   )}
+                   
+                   {treeSelectedState.data.dialogState.intentHandlers && (
+                     <>
+                       <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#666' }}>인텐트 핸들러:</Typography>
+                       <Typography variant="caption">{treeSelectedState.data.dialogState.intentHandlers.length}개</Typography>
+                     </>
+                   )}
+                   
+                   {treeSelectedState.data.dialogState.eventHandlers && (
+                     <>
+                       <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#666' }}>이벤트 핸들러:</Typography>
+                       <Typography variant="caption">{treeSelectedState.data.dialogState.eventHandlers.length}개</Typography>
+                     </>
+                   )}
+                   
+                   {treeSelectedState.data.dialogState.apicallHandlers && (
+                     <>
+                       <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#666' }}>API Call 핸들러:</Typography>
+                       <Typography variant="caption">{treeSelectedState.data.dialogState.apicallHandlers.length}개</Typography>
+                     </>
+                   )}
+                   
+                   {treeSelectedState.data.dialogState.webhookActions && (
+                     <>
+                       <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#666' }}>Webhook Actions:</Typography>
+                       <Typography variant="caption">{treeSelectedState.data.dialogState.webhookActions.length}개</Typography>
+                     </>
+                   )}
+                   
+                   {treeSelectedState.data.dialogState.slotFillingForm && (
+                     <>
+                       <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#666' }}>Slot Filling Form:</Typography>
+                       <Typography variant="caption">{treeSelectedState.data.dialogState.slotFillingForm.length}개</Typography>
+                     </>
+                   )}
+                 </Box>
+               </Box>
+               
+               {/* 상세 JSON 정보 */}
+               <Accordion sx={{ bgcolor: 'white', borderRadius: 1 }}>
+                 <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                   <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                     🔍 상세 JSON 정보
+                   </Typography>
+                 </AccordionSummary>
+                 <AccordionDetails sx={{ p: 0 }}>
+                   <Box sx={{ 
+                     maxHeight: '300px',
+                     overflow: 'auto',
+                     bgcolor: '#f8f9fa',
+                     border: '1px solid #e9ecef',
+                     borderRadius: 1,
+                     p: 1
+                   }}>
+                     <pre style={{
+                       margin: 0,
+                       fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace',
+                       fontSize: '0.75rem',
+                       lineHeight: '1.4',
+                       color: '#333',
+                       whiteSpace: 'pre-wrap',
+                       wordBreak: 'break-word'
+                     }}>
+                       {JSON.stringify(treeSelectedState.data.dialogState, null, 2)}
+                     </pre>
+                   </Box>
+                 </AccordionDetails>
+               </Accordion>
+             </Box>
+           )}
+         </Paper>
+       )}
+
+             {/* 노드 속성 탭 */}
+       {activeTab === 2 && (
         <Paper sx={{ p: 2 }}>
           <Typography variant="subtitle1" gutterBottom>
             선택된 노드 속성
           </Typography>
 
-          {/* 기본 정보 */}
-          <Box sx={{ mb: 2 }}>
-            <TextField
-              label="노드 이름"
-              value={editedNodeName}
-              onChange={(e) => setEditedNodeName(e.target.value)}
-              fullWidth
-              size="small"
-              sx={{ mb: 1 }}
-            />
-            <Button 
-              variant="contained" 
-              onClick={handleNodeNameUpdate}
-              size="small"
-            >
-              이름 변경
-            </Button>
-          </Box>
+                     {/* 디버깅 정보 */}
+           <Box sx={{ mb: 2, p: 1, bgcolor: '#f0f0f0', borderRadius: 1 }}>
+             <Typography variant="caption" display="block">
+               <strong>디버깅 정보:</strong>
+             </Typography>
+             <Typography variant="caption" display="block">
+               selectedNode: {selectedNode ? '있음' : '없음'}
+             </Typography>
+             <Typography variant="caption" display="block">
+               selectedNode.id: {selectedNode?.id || 'N/A'}
+             </Typography>
+           </Box>
+
+           {selectedNode ? (
+             <>
+               {/* 기본 정보 */}
+               <Box sx={{ mb: 2 }}>
+                 <TextField
+                   label="노드 이름"
+                   value={editedNodeName}
+                   onChange={(e) => setEditedNodeName(e.target.value)}
+                   fullWidth
+                   size="small"
+                   sx={{ mb: 1 }}
+                 />
+                 <Button 
+                   variant="contained" 
+                   onClick={handleNodeNameUpdate}
+                   size="small"
+                 >
+                   이름 변경
+                 </Button>
+               </Box>
 
           {/* 핸들러 정보 */}
           <Accordion>
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Typography variant="body2">조건 핸들러</Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                <Typography variant="body2">조건 핸들러</Typography>
+                <Chip 
+                  label={selectedNode.data.dialogState.conditionHandlers?.length || 0}
+                  size="small"
+                  color={selectedNode.data.dialogState.conditionHandlers?.length ? "primary" : "default"}
+                  variant={selectedNode.data.dialogState.conditionHandlers?.length ? "filled" : "outlined"}
+                  sx={{ fontSize: '0.7rem', height: 20 }}
+                />
+              </Box>
             </AccordionSummary>
             <AccordionDetails>
               {selectedNode.data.dialogState.conditionHandlers?.map((handler, idx) => (
@@ -519,7 +1002,16 @@ const Sidebar: React.FC<SidebarProps> = ({
 
           <Accordion>
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Typography variant="body2">인텐트 핸들러</Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                <Typography variant="body2">인텐트 핸들러</Typography>
+                <Chip 
+                  label={selectedNode.data.dialogState.intentHandlers?.length || 0}
+                  size="small"
+                  color={selectedNode.data.dialogState.intentHandlers?.length ? "primary" : "default"}
+                  variant={selectedNode.data.dialogState.intentHandlers?.length ? "filled" : "outlined"}
+                  sx={{ fontSize: '0.7rem', height: 20 }}
+                />
+              </Box>
             </AccordionSummary>
             <AccordionDetails>
               {selectedNode.data.dialogState.intentHandlers?.map((handler, idx) => (
@@ -540,7 +1032,16 @@ const Sidebar: React.FC<SidebarProps> = ({
 
           <Accordion>
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Typography variant="body2">이벤트 핸들러</Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                <Typography variant="body2">이벤트 핸들러</Typography>
+                <Chip 
+                  label={selectedNode.data.dialogState.eventHandlers?.length || 0}
+                  size="small"
+                  color={selectedNode.data.dialogState.eventHandlers?.length ? "secondary" : "default"}
+                  variant={selectedNode.data.dialogState.eventHandlers?.length ? "filled" : "outlined"}
+                  sx={{ fontSize: '0.7rem', height: 20 }}
+                />
+              </Box>
             </AccordionSummary>
             <AccordionDetails>
               {selectedNode.data.dialogState.eventHandlers?.map((handler, idx) => (
@@ -561,7 +1062,16 @@ const Sidebar: React.FC<SidebarProps> = ({
 
           <Accordion>
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Typography variant="body2">Entry Action</Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                <Typography variant="body2">Entry Action</Typography>
+                <Chip 
+                  label={selectedNode.data.dialogState.entryAction?.directives?.length || 0}
+                  size="small"
+                  color={selectedNode.data.dialogState.entryAction?.directives?.length ? "success" : "default"}
+                  variant={selectedNode.data.dialogState.entryAction?.directives?.length ? "filled" : "outlined"}
+                  sx={{ fontSize: '0.7rem', height: 20 }}
+                />
+              </Box>
             </AccordionSummary>
             <AccordionDetails>
               {selectedNode.data.dialogState.entryAction ? (
@@ -593,7 +1103,16 @@ const Sidebar: React.FC<SidebarProps> = ({
 
           <Accordion>
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Typography variant="body2">API Call Handlers</Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                <Typography variant="body2">API Call Handlers</Typography>
+                <Chip 
+                  label={selectedNode.data.dialogState.apicallHandlers?.length || 0}
+                  size="small"
+                  color={selectedNode.data.dialogState.apicallHandlers?.length ? "warning" : "default"}
+                  variant={selectedNode.data.dialogState.apicallHandlers?.length ? "filled" : "outlined"}
+                  sx={{ fontSize: '0.7rem', height: 20 }}
+                />
+              </Box>
             </AccordionSummary>
             <AccordionDetails>
               {selectedNode.data.dialogState.apicallHandlers?.map((handler, idx) => (
@@ -683,7 +1202,16 @@ const Sidebar: React.FC<SidebarProps> = ({
 
           <Accordion>
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Typography variant="body2">Webhook Actions</Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                <Typography variant="body2">Webhook Actions</Typography>
+                <Chip 
+                  label={selectedNode.data.dialogState.webhookActions?.length || 0}
+                  size="small"
+                  color={selectedNode.data.dialogState.webhookActions?.length ? "error" : "default"}
+                  variant={selectedNode.data.dialogState.webhookActions?.length ? "filled" : "outlined"}
+                  sx={{ fontSize: '0.7rem', height: 20 }}
+                />
+              </Box>
             </AccordionSummary>
             <AccordionDetails>
               {selectedNode.data.dialogState.webhookActions && selectedNode.data.dialogState.webhookActions.length > 0 ? (
@@ -718,7 +1246,16 @@ const Sidebar: React.FC<SidebarProps> = ({
 
           <Accordion>
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Typography variant="body2">Slot Filling Form</Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                <Typography variant="body2">Slot Filling Form</Typography>
+                <Chip 
+                  label={selectedNode.data.dialogState.slotFillingForm?.length || 0}
+                  size="small"
+                  color={selectedNode.data.dialogState.slotFillingForm?.length ? "info" : "default"}
+                  variant={selectedNode.data.dialogState.slotFillingForm?.length ? "filled" : "outlined"}
+                  sx={{ fontSize: '0.7rem', height: 20 }}
+                />
+              </Box>
             </AccordionSummary>
             <AccordionDetails>
               {selectedNode.data.dialogState.slotFillingForm?.map((slot, idx) => (
@@ -733,6 +1270,12 @@ const Sidebar: React.FC<SidebarProps> = ({
               )) || <Typography variant="caption">없음</Typography>}
             </AccordionDetails>
           </Accordion>
+             </>
+           ) : (
+             <Typography variant="body2" color="text.secondary">
+               선택된 노드가 없습니다. 시나리오 구조를 탐색하여 노드를 선택해주세요.
+             </Typography>
+           )}
         </Paper>
       )}
     </Box>

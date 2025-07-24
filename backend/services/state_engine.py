@@ -83,7 +83,56 @@ class StateEngine:
                 "entryActionExecuted": False,
             }
         ]
+
+    def switch_to_scenario(self, session_id: str, target_scenario_name: str, target_state: str = None):
+        """다른 시나리오로 전이합니다."""
+        stack = self.session_stacks.get(session_id, [])
+        current_scenario = stack[-1] if stack else None
         
+        if current_scenario:
+            # 현재 시나리오 정보를 스택에 저장
+            current_scenario["lastExecutedHandlerIndex"] = -1
+            current_scenario["entryActionExecuted"] = True
+        
+        # 새로운 시나리오 정보를 스택에 추가
+        new_scenario_info = {
+            "scenarioName": target_scenario_name,
+            "dialogStateName": target_state or "Start",
+            "lastExecutedHandlerIndex": -1,
+            "entryActionExecuted": False,
+        }
+        
+        stack.append(new_scenario_info)
+        self.session_stacks[session_id] = stack
+        
+        logger.info(f"🔄 Scenario switch: {current_scenario['scenarioName'] if current_scenario else 'Unknown'} -> {target_scenario_name} (state: {new_scenario_info['dialogStateName']})")
+        
+        return new_scenario_info
+
+    def end_current_scenario(self, session_id: str):
+        """현재 시나리오를 종료하고 이전 시나리오로 돌아갑니다."""
+        stack = self.session_stacks.get(session_id, [])
+        if len(stack) <= 1:
+            logger.warning(f"Cannot end scenario: only one scenario in stack for session {session_id}")
+            return None
+        
+        # 현재 시나리오 제거
+        ended_scenario = stack.pop()
+        previous_scenario = stack[-1]
+        
+        logger.info(f"🔚 Scenario ended: {ended_scenario['scenarioName']} -> returning to {previous_scenario['scenarioName']}")
+        
+        return previous_scenario
+
+    def get_current_scenario_info(self, session_id: str):
+        """현재 시나리오 정보를 반환합니다."""
+        stack = self.session_stacks.get(session_id, [])
+        return stack[-1] if stack else None
+
+    def get_scenario_stack(self, session_id: str):
+        """시나리오 스택을 반환합니다."""
+        return self.session_stacks.get(session_id, [])
+    
     def get_scenario(self, session_id: str) -> Optional[Dict[str, Any]]:
         """세션의 시나리오를 반환합니다."""
         return self.scenario_manager.get_scenario(session_id)
@@ -210,8 +259,31 @@ class StateEngine:
                     "response": "❌ 알 수 없는 상태입니다.",
                     "transitions": []
                 }
-            
-            # 일반 입력 처리
+            # --- inter-scenario transition 지원 ---
+            # 핸들러 평가 후 transitionTarget.scenario가 현재 시나리오와 다르면 시나리오 전이
+            def get_target_scenario_and_state(dialog_state):
+                for handler_type in ["intentHandlers", "conditionHandlers", "eventHandlers"]:
+                    for handler in dialog_state.get(handler_type, []):
+                        target = handler.get("transitionTarget", {})
+                        target_scenario = target.get("scenario")
+                        target_state = target.get("dialogState")
+                        if target_scenario and target_scenario != scenario["plan"][0]["name"]:
+                            return target_scenario, target_state
+                return None, None
+            target_scenario, target_state = get_target_scenario_and_state(current_dialog_state)
+            if target_scenario and target_state:
+                self.switch_to_scenario(session_id, target_scenario, target_state)
+                scenario_obj = self.scenario_manager.get_scenario_by_name(target_scenario)
+                if scenario_obj:
+                    return await self.process_input(session_id, user_input, target_state, scenario_obj, memory, event_type)
+                else:
+                    return {
+                        "error": f"시나리오 '{target_scenario}'를 찾을 수 없습니다.",
+                        "new_state": current_state,
+                        "response": f"❌ 시나리오 전이 실패: {target_scenario}",
+                        "transitions": []
+                    }
+            # --- 기존 로직 ---
             return await self._handle_normal_input(
                 session_id,
                 user_input,
@@ -474,10 +546,11 @@ class StateEngine:
             else:
                 # 일반 Intent/Condition 처리
                 # 1. Intent Handler 확인
+                logger.info(f"[DEBUG] [HANDLER] intentHandlers 평가 시작: {current_dialog_state.get('intentHandlers')}")
                 intent_transition = self.transition_manager.check_intent_handlers(
                     current_dialog_state, intent, memory
                 )
-                logger.info(f"[INTENT HANDLER] intent_transition: {intent_transition}")
+                logger.info(f"[DEBUG] [HANDLER] intent_transition 결과: {intent_transition}")
                 if intent_transition:
                     transitions.append(intent_transition)
                     new_state = intent_transition.toState
@@ -486,10 +559,11 @@ class StateEngine:
                 
                 # 2. Condition Handler 확인 (전이가 없었을 경우)
                 if not intent_transition:
+                    logger.info(f"[DEBUG] [HANDLER] conditionHandlers 평가 시작: {current_dialog_state.get('conditionHandlers')}")
                     condition_transition = self.transition_manager.check_condition_handlers(
                         current_dialog_state, memory
                     )
-                    logger.info(f"[CONDITION HANDLER] condition_transition: {condition_transition}")
+                    logger.info(f"[DEBUG] [HANDLER] condition_transition 결과: {condition_transition}")
                     if condition_transition:
                         transitions.append(condition_transition)
                         new_state = condition_transition.toState
@@ -498,9 +572,11 @@ class StateEngine:
                     else:
                         # 3. 매치되지 않은 경우 NO_MATCH_EVENT 처리
                         if intent == "NO_INTENT_FOUND" or not intent_transition:
+                            logger.info(f"[DEBUG] [HANDLER] NO_MATCH_EVENT 평가 시작")
                             no_match_result = self.reprompt_manager.handle_no_match_event(
                                 current_dialog_state, memory, scenario, current_state
                             )
+                            logger.info(f"[DEBUG] [HANDLER] no_match_result: {no_match_result}")
                             if no_match_result:
                                 new_state = no_match_result.get("new_state", current_state)
                                 response_messages.extend(no_match_result.get("messages", []))
@@ -553,6 +629,55 @@ class StateEngine:
                 stack.pop()
                 prev = stack[-1]
                 new_state = prev.get("dialogStateName", new_state)
+                # 복귀한 노드에서 entryAction을 실행하지 않고, intent/condition/event 핸들러를 모두 평가
+                prev["entryActionExecuted"] = True  # entryAction 재실행 방지
+                max_reentry = 10
+                reentry_count = 0
+                while reentry_count < max_reentry:
+                    reentry_count += 1
+                    # 복귀한 시나리오/상태 정보
+                    scenario_name = prev.get("scenarioName")
+                    dialog_state_name = prev.get("dialogStateName")
+                    if not scenario_name or not dialog_state_name:
+                        break
+                    # 현재 시나리오 객체 찾기
+                    scenario_obj = self.scenario_manager.get_scenario_by_name(scenario_name)
+                    if not scenario_obj:
+                        break
+                    dialog_state = self.scenario_manager.find_dialog_state(scenario_obj, dialog_state_name)
+                    if not dialog_state:
+                        break
+                    # 1. Intent Handler
+                    intent, entities = self.nlu_processor.get_nlu_results(user_input, memory, scenario_obj, str(dialog_state_name))
+                    intent_transition = self.transition_manager.check_intent_handlers(dialog_state, intent, memory)
+                    if intent_transition:
+                        new_state = intent_transition.toState
+                        prev["dialogStateName"] = new_state
+                        continue
+                    # 2. Event Handler
+                    event_handlers = dialog_state.get("eventHandlers", [])
+                    event_transition = None
+                    for handler in event_handlers:
+                        if not isinstance(handler, dict):
+                            continue
+                        event_info = handler.get("event", {})
+                        handler_event_type = event_info.get("type") if isinstance(event_info, dict) else event_info if isinstance(event_info, str) else None
+                        if handler_event_type == memory.get("lastEventType"):
+                            target = handler.get("transitionTarget", {})
+                            event_transition = target.get("dialogState")
+                            break
+                    if event_transition:
+                        new_state = event_transition
+                        prev["dialogStateName"] = new_state
+                        continue
+                    # 3. Condition Handler
+                    condition_transition = self.transition_manager.check_condition_handlers(dialog_state, memory)
+                    if condition_transition:
+                        new_state = condition_transition.toState
+                        prev["dialogStateName"] = new_state
+                        continue
+                    # 전이 없음: 루프 종료
+                    break
             else:
                 new_state = "__END_SESSION__"
 

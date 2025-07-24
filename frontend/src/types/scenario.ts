@@ -170,6 +170,16 @@ export interface IntentHandler {
   transitionTarget: TransitionTarget;
 }
 
+// [추가] 시나리오 간 전이를 위한 핸들러 타입
+export interface ScenarioTransitionHandler {
+  conditionStatement: string;
+  action: Action;
+  transitionTarget: {
+    scenario: string;
+    dialogState: string;
+  };
+}
+
 export interface SlotFillingForm {
   name: string;
   required: string;
@@ -189,6 +199,8 @@ export interface DialogState {
   webhookActions?: { name: string }[];
   apicallHandlers?: ApiCallHandler[];
   slotFillingForm?: SlotFillingForm[];
+  // [추가] 시나리오 간 전이 핸들러
+  scenarioTransitionHandlers?: ScenarioTransitionHandler[];
 }
 
 export interface IntentMapping {
@@ -207,11 +219,14 @@ export interface Webhook {
   retry: number;
 }
 
+export interface ScenarioPlan {
+  name: string;
+  dialogState: DialogState[];
+  scenarioTransitionNodes?: FlowNode[];
+}
+
 export interface Scenario {
-  plan: {
-    name: string;
-    dialogState: DialogState[];
-  }[];
+  plan: ScenarioPlan[];
   botConfig: {
     botType: string;
   };
@@ -232,6 +247,8 @@ export interface FlowNode {
   data: {
     label: string;
     dialogState: DialogState;
+    targetScenario?: string;
+    targetState?: string;
   };
   style?: CSSProperties;
 }

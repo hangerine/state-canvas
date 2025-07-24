@@ -10,14 +10,16 @@ export interface ScenarioChanges {
  * FlowNode 배열을 Scenario JSON 형식으로 변환
  */
 export const convertNodesToScenario = (
-  nodes: FlowNode[], 
-  originalScenario?: Scenario | null
+  nodes: FlowNode[],
+  originalScenario?: Scenario | null,
+  scenarioName?: string,
+  scenarios?: Record<string, Scenario> // 시나리오 ID→객체 맵 추가
 ): Scenario => {
   // 기본 시나리오 구조 생성
   const baseScenario: Scenario = originalScenario ? { ...originalScenario } : {
     plan: [
       {
-        name: "MainPlan",
+        name: scenarioName || "MainPlan",
         dialogState: []
       }
     ],
@@ -31,16 +33,140 @@ export const convertNodesToScenario = (
     dialogResult: "END_SESSION"
   };
 
-  // 노드들을 DialogState로 변환
-  const dialogStates: DialogState[] = nodes.map(node => node.data.dialogState);
+  // scenarioTransition 노드 id 집합
+  const scenarioTransitionNodeIds = new Set(
+    nodes.filter(n => n.type === 'scenarioTransition').map(n => n.id)
+  );
 
-  // 첫 번째 플랜의 dialogState 업데이트
+  // scenarioTransition 노드의 id → 시나리오 이름 맵 생성
+  const scenarioIdToName: Record<string, string> = {};
+  if (scenarios) {
+    Object.entries(scenarios).forEach(([id, scenario]) => {
+      if (scenario.plan && scenario.plan[0]?.name) {
+        scenarioIdToName[id] = scenario.plan[0].name;
+      }
+    });
+  }
+
+  // scenarioTransition 노드의 전이 정보 맵 (id → {scenario, dialogState})
+  const scenarioTransitionMap: Record<string, { scenario: string; dialogState: string }> = {};
+  nodes.forEach(node => {
+    if (node.type === 'scenarioTransition') {
+      if (node.data.targetScenario && node.data.targetState) {
+        scenarioTransitionMap[node.id] = {
+          scenario: node.data.targetScenario,
+          dialogState: node.data.targetState
+        };
+      }
+    }
+  });
+
+  // 일반 상태 노드만 변환
+  const dialogStates: DialogState[] = nodes.filter(node => node.type !== 'scenarioTransition').map(node => {
+    // 모든 핸들러에서 scenarioTransition 노드로 전이하는 경우, 실제 타겟 시나리오/상태로 치환
+    const ds = { ...node.data.dialogState };
+    // conditionHandlers
+    if (ds.conditionHandlers) {
+      ds.conditionHandlers = ds.conditionHandlers.map(handler => {
+        if (handler.transitionTarget && scenarioTransitionNodeIds.has(handler.transitionTarget.dialogState)) {
+          const st = scenarioTransitionMap[handler.transitionTarget.dialogState];
+          if (st) {
+            return {
+              ...handler,
+              transitionTarget: {
+                scenario: st.scenario,
+                dialogState: st.dialogState
+              }
+            };
+          }
+        }
+        return handler;
+      });
+    }
+    // intentHandlers
+    if (ds.intentHandlers) {
+      ds.intentHandlers = ds.intentHandlers.map(handler => {
+        if (handler.transitionTarget && scenarioTransitionNodeIds.has(handler.transitionTarget.dialogState)) {
+          const st = scenarioTransitionMap[handler.transitionTarget.dialogState];
+          if (st) {
+            return {
+              ...handler,
+              transitionTarget: {
+                scenario: st.scenario,
+                dialogState: st.dialogState
+              }
+            };
+          }
+        }
+        return handler;
+      });
+    }
+    // eventHandlers
+    if (ds.eventHandlers) {
+      ds.eventHandlers = ds.eventHandlers.map(handler => {
+        if (handler.transitionTarget && scenarioTransitionNodeIds.has(handler.transitionTarget.dialogState)) {
+          const st = scenarioTransitionMap[handler.transitionTarget.dialogState];
+          if (st) {
+            return {
+              ...handler,
+              transitionTarget: {
+                scenario: st.scenario,
+                dialogState: st.dialogState
+              }
+            };
+          }
+        }
+        return handler;
+      });
+    }
+    // apicallHandlers
+    if (ds.apicallHandlers) {
+      ds.apicallHandlers = ds.apicallHandlers.map(handler => {
+        if (handler.transitionTarget && scenarioTransitionNodeIds.has(handler.transitionTarget.dialogState)) {
+          const st = scenarioTransitionMap[handler.transitionTarget.dialogState];
+          if (st) {
+            return {
+              ...handler,
+              transitionTarget: {
+                scenario: st.scenario,
+                dialogState: st.dialogState
+              }
+            };
+          }
+        }
+        return handler;
+      });
+    }
+    return ds;
+  });
+
+  // scenarioTransition 노드도 별도 저장
+  const scenarioTransitionNodes = nodes.filter(n => n.type === 'scenarioTransition').map(n => ({
+    id: n.id,
+    type: n.type,
+    position: n.position,
+    data: {
+      label: n.data.label,
+      dialogState: n.data.dialogState || {}, // FlowNode 타입에 맞게 추가
+      targetScenario: n.data.targetScenario,
+      targetState: n.data.targetState
+    },
+    style: n.style
+  }));
+
+  // 최신 시나리오 이름을 적용
+  const scenarioNameToUse = scenarioName || (originalScenario?.plan?.[0]?.name) || "MainPlan";
+
+  // 첫 번째 플랜의 dialogState와 name 업데이트
   const updatedScenario: Scenario = {
     ...baseScenario,
     plan: [
       {
         ...baseScenario.plan[0],
-        dialogState: dialogStates
+        name: scenarioNameToUse,
+        dialogState: dialogStates,
+        // scenarioTransition 노드도 dialogState에 별도 필드로 저장
+        scenarioTransitionNodes // 추가
       }
     ]
   };
@@ -79,7 +205,9 @@ export const compareScenarios = (
   }
 
   const originalStates = originalScenario.plan[0].dialogState;
-  const currentStates = currentNodes.map(node => node.data.dialogState);
+  const currentStates = currentNodes
+    .filter(node => node.type !== 'scenarioTransition')
+    .map(node => node.data.dialogState);
 
   // 원본에서 이름으로 매핑 생성
   const originalStateMap = new Map<string, DialogState>();
@@ -110,6 +238,40 @@ export const compareScenarios = (
   originalStates.forEach(originalState => {
     if (!currentStateMap.has(originalState.name)) {
       changes.removed.push(originalState);
+    }
+  });
+
+  // scenarioTransitionNodes 비교 추가
+  const originalTransitionNodes: FlowNode[] = (originalScenario?.plan[0] as any)?.scenarioTransitionNodes || [];
+  const currentTransitionNodes: FlowNode[] = currentNodes.filter(n => n.type === 'scenarioTransition');
+
+  // id로 매핑
+  const originalTransitionMap = new Map<string, FlowNode>();
+  originalTransitionNodes.forEach(n => originalTransitionMap.set(n.id, n));
+  const currentTransitionMap = new Map<string, FlowNode>();
+  currentTransitionNodes.forEach(n => currentTransitionMap.set(n.id, n));
+
+  // 추가/수정된 전이노드
+  currentTransitionNodes.forEach(n => {
+    const orig = originalTransitionMap.get(n.id);
+    if (!orig) {
+      changes.added.push(n.data.dialogState); // 새로 추가된 전이노드
+    } else {
+      // label, targetScenario, targetState, position 등 비교
+      if (
+        n.data.label !== orig.data.label ||
+        n.data.targetScenario !== orig.data.targetScenario ||
+        n.data.targetState !== orig.data.targetState ||
+        JSON.stringify(n.position) !== JSON.stringify(orig.position)
+      ) {
+        changes.modified.push(n.data.dialogState); // 수정된 전이노드
+      }
+    }
+  });
+  // 삭제된 전이노드
+  originalTransitionNodes.forEach(n => {
+    if (!currentTransitionMap.has(n.id)) {
+      changes.removed.push(n.data.dialogState);
     }
   });
 

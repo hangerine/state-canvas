@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { flushSync } from 'react-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { CssBaseline, Box } from '@mui/material';
@@ -22,11 +22,15 @@ const theme = createTheme({
 });
 
 function App() {
+  const [scenarios, setScenarios] = useState<{ [key: string]: Scenario }>({});
+  const [activeScenarioId, setActiveScenarioId] = useState<string>('');
   const [scenario, setScenario] = useState<Scenario | null>(null);
   const [originalScenario, setOriginalScenario] = useState<Scenario | null>(null); // 원본 시나리오 보관
   const [nodes, setNodes] = useState<FlowNode[]>([]);
   const [edges, setEdges] = useState<FlowEdge[]>([]);
   const [selectedNode, setSelectedNode] = useState<FlowNode | null>(null);
+
+
   const [currentState, setCurrentState] = useState<string>('');
   const [isTestMode, setIsTestMode] = useState(false);
   const [testPanelWidth, setTestPanelWidth] = useState(400);
@@ -48,6 +52,160 @@ function App() {
 
   const testPanelResizeRef = useRef<HTMLDivElement>(null);
   const sidebarResizeRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    console.log('전체 시나리오 구조:', scenarios);
+    Object.entries(scenarios).forEach(([id, scenario]) => {
+      console.log(`[${id}] scenarioTransitionNodes`, scenario.plan[0]?.scenarioTransitionNodes);
+    });
+  }, [scenarios]);
+
+  // 새 시나리오 생성 함수
+    const createNewScenario = useCallback(() => {
+    const scenarioId = `scenario-${Date.now()}`;
+    const startDialogState = {
+      name: 'Start',
+      entryAction: {
+        directives: [
+          {
+            name: "speak",
+            content: "새로운 시나리오가 시작되었습니다."
+          }
+        ]
+      },
+      conditionHandlers: [],
+      eventHandlers: [],
+      intentHandlers: [],
+      webhookActions: [],
+      slotFillingForm: []
+    };
+    const newScenario: Scenario = {
+      plan: [{
+        name: `새 시나리오 ${Object.keys(scenarios).length + 1}`,
+        dialogState: [startDialogState]
+      }],
+      botConfig: { botType: 'CONVERSATIONAL' },
+      intentMapping: [],
+      multiIntentMapping: [],
+      handlerGroups: [],
+      webhooks: [],
+      dialogResult: 'END_SESSION'
+    };
+
+    setScenarios(prev => ({
+      ...prev,
+      [scenarioId]: newScenario
+    }));
+    setActiveScenarioId(scenarioId);
+    setScenario(newScenario);
+    setOriginalScenario(JSON.parse(JSON.stringify(newScenario)));
+    
+    // Start node를 FlowNode로 생성
+    setNodes([
+      {
+        id: 'Start',
+        type: 'custom',
+        position: { x: 300, y: 200 },
+        data: {
+          label: 'Start',
+          dialogState: startDialogState
+        }
+      }
+    ]);
+    setEdges([]);
+    setCurrentState('Start');
+    
+    console.log('🆕 새 시나리오 생성됨:', scenarioId);
+  }, [scenarios]);
+
+  // 시나리오 전환 함수
+  const switchScenario = useCallback((scenarioId: string) => {
+    const targetScenario = scenarios[scenarioId];
+    if (targetScenario) {
+      setActiveScenarioId(scenarioId);
+      setScenario(targetScenario);
+      setOriginalScenario(JSON.parse(JSON.stringify(targetScenario)));
+      convertScenarioToFlow(targetScenario);
+      console.log('🔄 시나리오 전환됨:', scenarioId);
+    }
+  }, [scenarios]);
+
+  // 시나리오 이름 변경 함수
+  const updateScenarioName = useCallback((scenarioId: string, newName: string) => {
+    if (!newName.trim()) {
+      alert('시나리오 이름을 입력해주세요.');
+      return;
+    }
+
+    setScenarios(prev => {
+      const newScenarios = { ...prev };
+      const scenario = newScenarios[scenarioId];
+      if (scenario && scenario.plan && scenario.plan.length > 0) {
+        scenario.plan[0].name = newName.trim();
+      }
+      return newScenarios;
+    });
+
+    // 현재 활성 시나리오의 이름이 변경되었다면 현재 시나리오도 업데이트
+    if (activeScenarioId === scenarioId) {
+      setScenario(prev => {
+        if (prev && prev.plan && prev.plan.length > 0) {
+          return {
+            ...prev,
+            plan: [
+              {
+                ...prev.plan[0],
+                name: newName.trim()
+              },
+              ...prev.plan.slice(1)
+            ]
+          };
+        }
+        return prev;
+      });
+      setOriginalScenario(prev => {
+        if (prev && prev.plan && prev.plan.length > 0) {
+          return {
+            ...prev,
+            plan: [
+              {
+                ...prev.plan[0],
+                name: newName.trim()
+              },
+              ...prev.plan.slice(1)
+            ]
+          };
+        }
+        return prev;
+      });
+    }
+
+    console.log('✏️ 시나리오 이름 변경됨:', scenarioId, '→', newName);
+  }, [scenarios, activeScenarioId]);
+
+  // 시나리오 삭제 함수
+  const deleteScenario = useCallback((scenarioId: string) => {
+    if (Object.keys(scenarios).length <= 1) {
+      alert('최소 하나의 시나리오는 유지해야 합니다.');
+      return;
+    }
+
+    setScenarios(prev => {
+      const newScenarios = { ...prev };
+      delete newScenarios[scenarioId];
+      return newScenarios;
+    });
+
+    // 삭제된 시나리오가 현재 활성 시나리오였다면 다른 시나리오로 전환
+    if (activeScenarioId === scenarioId) {
+      const remainingScenarioIds = Object.keys(scenarios).filter(id => id !== scenarioId);
+      if (remainingScenarioIds.length > 0) {
+        switchScenario(remainingScenarioIds[0]);
+      }
+    }
+
+    console.log('🗑️ 시나리오 삭제됨:', scenarioId);
+  }, [scenarios, activeScenarioId, switchScenario]);
 
   // 로딩 시작 함수 (파일 선택 시 즉시 호출)
   const handleLoadingStart = useCallback((startTime?: number) => {
@@ -84,71 +242,30 @@ function App() {
     return dialogStates[0].name;
   }, []);
 
-  const handleScenarioLoad = useCallback((loadedScenario: Scenario) => {
-    const scenarioProcessStartTime = performance.now();
-    console.log('🔄 [TIMING] 시나리오 데이터 처리 시작');
-    
-    // 로딩 상태는 이미 handleLoadingStart에서 설정됨
-    // 다음 프레임에서 실제 처리 시작 (UI 업데이트 보장)
-    requestAnimationFrame(() => {
-      try {
-        const rafStartTime = performance.now();
-        console.log('⏱️ [TIMING] requestAnimationFrame 실행까지:', (rafStartTime - scenarioProcessStartTime).toFixed(2), 'ms');
-        
-        // 시나리오 상태 설정
-        const stateSetStartTime = performance.now();
-        setScenario(loadedScenario);
-        setOriginalScenario(JSON.parse(JSON.stringify(loadedScenario))); // 깊은 복사로 원본 보관
-        const stateSetTime = performance.now() - stateSetStartTime;
-        console.log('⏱️ [TIMING] 시나리오 상태 설정:', stateSetTime.toFixed(2), 'ms');
-        
-        // JSON을 Flow 노드와 엣지로 변환
-        const conversionStartTime = performance.now();
-        convertScenarioToFlow(loadedScenario);
-        const conversionTime = performance.now() - conversionStartTime;
-        console.log('⏱️ [TIMING] Flow 노드/엣지 변환:', conversionTime.toFixed(2), 'ms');
-        
-        // 초기 상태 설정 (개선된 로직)
-        const initialStateStartTime = performance.now();
-        const initialState = getInitialState(loadedScenario);
-        if (initialState) {
-          setCurrentState(initialState);
-          console.log('🎯 초기 상태 설정:', initialState);
-        }
-        const initialStateTime = performance.now() - initialStateStartTime;
-        console.log('⏱️ [TIMING] 초기 상태 설정:', initialStateTime.toFixed(2), 'ms');
-        
-        // 로딩 완료 처리 (최소 800ms는 로딩 상태 유지)
-        const endTime = performance.now();
-        console.log('⏱️ [TIMING] endTime 설정:', endTime.toFixed(2), 'ms');
-        console.log('⏱️ [TIMING] loadingStartTime 설정:', loadingStartTimeRef.current.toFixed(2), 'ms');
-        const totalTime = endTime - loadingStartTimeRef.current; // loadingStartTime 사용
-        const processingTime = endTime - scenarioProcessStartTime;
-        
-        console.log('📊 [TIMING] 시나리오 처리 세부 분석:');
-        console.log('  - 상태 설정:', stateSetTime.toFixed(2), 'ms', `(${(stateSetTime/processingTime*100).toFixed(1)}%)`);
-        console.log('  - Flow 변환:', conversionTime.toFixed(2), 'ms', `(${(conversionTime/processingTime*100).toFixed(1)}%)`);
-        console.log('  - 초기 상태:', initialStateTime.toFixed(2), 'ms', `(${(initialStateTime/processingTime*100).toFixed(1)}%)`);
-        console.log('⏱️ [TIMING] 총 처리 시간:', processingTime.toFixed(2), 'ms');
-        console.log('⏱️ [TIMING] 전체 로딩 시간:', totalTime.toFixed(2), 'ms');
-        
-        const minLoadingTime = 800; // 최소 800ms 로딩 표시
-        const remainingTime = Math.max(0, minLoadingTime - totalTime);
-        
-        setTimeout(() => {
-          setLoadingTime(Math.round(totalTime));
-          setIsLoading(false);
-          console.log(`✅ [TIMING] 시나리오 로딩 완료: ${totalTime.toFixed(0)}ms (표시: ${Math.round(totalTime + remainingTime)}ms)`);
-        }, remainingTime);
-        
-      } catch (error) {
-        console.error('❌ [TIMING] 시나리오 로딩 에러:', error);
-        setIsLoading(false);
-        setLoadingTime(null);
-        alert('❌ 시나리오 로딩 중 오류가 발생했습니다: ' + (error as Error).message);
-      }
-    });
-  }, [getInitialState]);
+  // handleScenarioLoad가 기존 id로만 시나리오를 등록/활성화하도록 개선
+  const handleScenarioLoad = useCallback((loadedScenario: Scenario, loadedId?: string) => {
+    const scenarioId = loadedId || `scenario-${Date.now()}`;
+    setScenarios(prev => ({
+      ...prev,
+      [scenarioId]: loadedScenario
+    }));
+    setActiveScenarioId(scenarioId);
+    setScenario(loadedScenario);
+    setOriginalScenario(JSON.parse(JSON.stringify(loadedScenario)));
+    convertScenarioToFlow(loadedScenario);
+  }, []);
+
+  // 여러 시나리오 업로드 시 모두 등록하고 첫 번째 시나리오만 활성화
+  const handleAllScenariosLoad = useCallback((scenarioMap: Record<string, Scenario>) => {
+    setScenarios(scenarioMap);
+    const firstId = Object.keys(scenarioMap)[0];
+    if (firstId) {
+      setActiveScenarioId(firstId);
+      setScenario(scenarioMap[firstId]);
+      setOriginalScenario(JSON.parse(JSON.stringify(scenarioMap[firstId])));
+      convertScenarioToFlow(scenarioMap[firstId]);
+    }
+  }, []);
 
   const convertScenarioToFlow = (scenario: Scenario) => {
     const convertStartTime = performance.now();
@@ -159,15 +276,20 @@ function App() {
     const dialogStates = scenario.plan[0].dialogState;
     console.log('⏱️ [TIMING] dialogStates 수:', dialogStates.length);
     
-    const newNodes: FlowNode[] = [];
-    const newEdges: FlowEdge[] = [];
+    // 기존 nodes에서 scenarioTransition 노드 보존 제거
+    // const scenarioTransitionNodes = nodes.filter(n => n.type === 'scenarioTransition');
     
-    // 노드 생성
+    // 새로운 방식: 오직 현재 시나리오의 scenarioTransitionNodes만 포함
+    const planAny = scenario.plan[0] as any;
+    const scenarioTransitionNodesFromScenario: FlowNode[] = planAny.scenarioTransitionNodes || [];
+    
+    // 노드 생성 타이밍 측정
     const nodeCreationStartTime = performance.now();
-    dialogStates.forEach((state, index) => {
-      const node: FlowNode = {
+    const newNodes: FlowNode[] = [
+      // dialogState 노드
+      ...dialogStates.map((state, index) => ({
         id: state.name,
-        type: 'default',
+        type: 'custom',
         position: { 
           x: (index % 3) * 250, 
           y: Math.floor(index / 3) * 150 
@@ -176,9 +298,21 @@ function App() {
           label: state.name,
           dialogState: state
         }
-      };
-      newNodes.push(node);
-    });
+      })),
+      // 현재 시나리오의 scenarioTransitionNodes만 추가
+      ...scenarioTransitionNodesFromScenario.map((n, idx) => ({
+        id: n.id,
+        type: n.type,
+        position: n.position || { x: 100 + idx * 100, y: 100 },
+        data: {
+          label: n.data.label || '시나리오 전이',
+          dialogState: n.data.dialogState || {},
+          targetScenario: n.data.targetScenario,
+          targetState: n.data.targetState,
+        },
+        style: n.style
+      }))
+    ];
     const nodeCreationTime = performance.now() - nodeCreationStartTime;
     console.log('⏱️ [TIMING] 노드 생성:', nodeCreationTime.toFixed(2), 'ms');
 
@@ -188,17 +322,20 @@ function App() {
     let intentEdgeCount = 0;
     let eventEdgeCount = 0;
     
+    const newEdges: FlowEdge[] = [];
+
     dialogStates.forEach((state) => {
       // Condition handlers에서 전이 관계 추출
       state.conditionHandlers?.forEach((handler, idx) => {
         if (handler.transitionTarget.dialogState && 
             handler.transitionTarget.dialogState !== '__END_SESSION__') {
+          const condKey = (handler.conditionStatement || '').replace(/\s+/g, '_');
           const edge: FlowEdge = {
-            id: `${state.name}-condition-${idx}`,
+            id: `${state.name}-condition-${condKey}-${handler.transitionTarget.dialogState}`,
             source: state.name,
             target: handler.transitionTarget.dialogState,
             label: `조건: ${handler.conditionStatement}`,
-            type: 'smoothstep'
+            type: 'custom'
           };
           newEdges.push(edge);
           conditionEdgeCount++;
@@ -208,12 +345,13 @@ function App() {
       // Intent handlers에서 전이 관계 추출
       state.intentHandlers?.forEach((handler, idx) => {
         if (handler.transitionTarget.dialogState) {
+          const intentKey = (handler.intent || '').replace(/\s+/g, '_');
           const edge: FlowEdge = {
-            id: `${state.name}-intent-${idx}`,
+            id: `${state.name}-intent-${intentKey}-${handler.transitionTarget.dialogState}`,
             source: state.name,
             target: handler.transitionTarget.dialogState,
             label: `인텐트: ${handler.intent}`,
-            type: 'smoothstep'
+            type: 'custom'
           };
           newEdges.push(edge);
           intentEdgeCount++;
@@ -233,13 +371,13 @@ function App() {
               eventType = handler.event;
             }
           }
-          
+          const eventKey = (eventType || '').replace(/\s+/g, '_');
           const edge: FlowEdge = {
-            id: `${state.name}-event-${idx}`,
+            id: `${state.name}-event-${eventKey}-${handler.transitionTarget.dialogState}`,
             source: state.name,
             target: handler.transitionTarget.dialogState,
             label: `이벤트: ${eventType}`,
-            type: 'smoothstep'
+            type: 'custom'
           };
           newEdges.push(edge);
           eventEdgeCount++;
@@ -257,7 +395,14 @@ function App() {
 
     // 상태 설정
     const stateUpdateStartTime = performance.now();
-    setNodes(newNodes);
+    setNodes(newNodes); // 이전 노드 완전 대체
+    console.log('setNodes called', newNodes.map(n => ({
+      id: n.id,
+      type: n.type,
+      label: n.data.label,
+      targetScenario: n.data.targetScenario,
+      targetState: n.data.targetState
+    })));
     setEdges(newEdges);
     const stateUpdateTime = performance.now() - stateUpdateStartTime;
     
@@ -362,22 +507,16 @@ function App() {
     document.addEventListener('mouseup', handleMouseUp);
   }, [sidebarWidth]);
 
-  // 노드 변경 시 시나리오 업데이트
-  const handleNodesChange = useCallback((newNodes: FlowNode[]) => {
-    setNodes(newNodes);
-    
-    // 시나리오가 있으면 업데이트
+  // FlowCanvas에서 노드가 변경될 때 scenario와 nodes를 동기화
+  const handleNodesChange = useCallback((updatedNodes: FlowNode[]) => {
+    setNodes(updatedNodes);
     if (scenario) {
-      const updatedScenario = { ...scenario };
-      if (updatedScenario.plan && updatedScenario.plan.length > 0) {
-        // 새로운 dialogState 배열 생성
-        const newDialogStates = newNodes.map(node => node.data.dialogState);
-        updatedScenario.plan[0].dialogState = newDialogStates;
-        setScenario(updatedScenario);
-        console.log('🔄 시나리오 업데이트됨:', updatedScenario);
-      }
+      const latestName = scenarios[activeScenarioId]?.plan?.[0]?.name || scenario.plan[0].name;
+      const updatedScenario = convertNodesToScenario(updatedNodes, scenario, latestName, scenarios);
+      setScenario(updatedScenario);
+      setScenarios(prev => activeScenarioId ? { ...prev, [activeScenarioId]: updatedScenario } : prev);
     }
-  }, [scenario]);
+  }, [scenario, activeScenarioId, scenarios]);
 
   // 연결 변경 시 처리 (현재는 UI에서만 관리, 향후 확장 가능)
   const handleEdgesChange = useCallback((newEdges: FlowEdge[]) => {
@@ -393,7 +532,8 @@ function App() {
     }
 
     // 현재 노드들을 시나리오로 변환
-    const convertedScenario = convertNodesToScenario(nodes, originalScenario);
+    const latestName = scenarios[activeScenarioId]?.plan?.[0]?.name || originalScenario?.plan[0].name;
+    const convertedScenario = convertNodesToScenario(nodes, originalScenario, latestName, scenarios);
     
     // 변경사항 비교
     const changes = compareScenarios(nodes, originalScenario);
@@ -401,7 +541,7 @@ function App() {
     setNewScenario(convertedScenario);
     setScenarioChanges(changes);
     setSaveModalOpen(true);
-  }, [nodes, originalScenario]);
+  }, [nodes, originalScenario, scenarios, activeScenarioId]);
 
   // 즉시 반영 저장 처리 (새로운 기능)
   const handleApplyChanges = useCallback(() => {
@@ -412,7 +552,8 @@ function App() {
 
     try {
       // 현재 노드들을 시나리오로 변환
-      const convertedScenario = convertNodesToScenario(nodes, originalScenario);
+      const latestName = scenarios[activeScenarioId]?.plan?.[0]?.name || originalScenario?.plan[0].name;
+      const convertedScenario = convertNodesToScenario(nodes, originalScenario, latestName, scenarios);
       
       // 변경사항 비교
       const changes = compareScenarios(nodes, originalScenario);
@@ -456,7 +597,7 @@ function App() {
       console.error('시나리오 반영 오류:', error);
       alert('❌ 시나리오 반영 중 오류가 발생했습니다: ' + (error as Error).message);
     }
-  }, [nodes, originalScenario, currentState, getInitialState]);
+  }, [nodes, originalScenario, currentState, getInitialState, scenarios, activeScenarioId]);
 
   // 모달에서 최종 저장 처리
   const handleSaveConfirm = useCallback((filename: string) => {
@@ -465,6 +606,31 @@ function App() {
       console.log('📁 시나리오 저장 완료:', filename);
     }
   }, [newScenario]);
+
+  // 전체 시나리오 저장 함수
+  const handleSaveAllScenarios = useCallback(() => {
+    if (Object.keys(scenarios).length === 0) return;
+    
+    // 모든 시나리오를 하나의 배열로 구성
+    const allScenarios = Object.entries(scenarios).map(([id, scenario]) => ({
+      id,
+      name: scenario.plan[0]?.name || `Scenario ${id}`,
+      scenario
+    }));
+    
+    const dataStr = JSON.stringify(allScenarios, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `all_scenarios_${Date.now()}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    
+    console.log('💾 전체 시나리오 저장됨:', allScenarios.length, '개');
+  }, [scenarios]);
 
   // TestPanel에서 시나리오 업데이트 처리
   const handleScenarioUpdate = useCallback((updatedScenario: Scenario) => {
@@ -488,23 +654,33 @@ function App() {
           borderRight: 1,
           borderColor: 'divider'
         }}>
-                    <Sidebar
-            scenario={scenario}
-            selectedNode={selectedNode}
-            onScenarioLoad={handleScenarioLoad}
-            onLoadingStart={handleLoadingStart}
-            onScenarioSave={handleScenarioSave}
-            onApplyChanges={handleApplyChanges}
-            nodes={nodes}
-            originalScenario={originalScenario}
-            onNodeUpdate={(updatedNode) => {
-              setNodes(nodes => 
-                nodes.map(node => node.id === updatedNode.id ? updatedNode : node)
-              );
-            }}
-            isLoading={isLoading}
-            loadingTime={loadingTime}
-          />
+                                <Sidebar
+              scenario={scenario}
+              selectedNode={selectedNode}
+              onScenarioLoad={handleScenarioLoad}
+              onLoadingStart={handleLoadingStart}
+              onScenarioSave={handleScenarioSave}
+              onApplyChanges={handleApplyChanges}
+              onCreateNewScenario={createNewScenario}
+              onSaveAllScenarios={handleSaveAllScenarios}
+              scenarios={scenarios}
+              activeScenarioId={activeScenarioId}
+              onSwitchScenario={switchScenario}
+              onDeleteScenario={deleteScenario}
+              onUpdateScenarioName={updateScenarioName}
+              nodes={nodes}
+              originalScenario={originalScenario}
+              onNodeUpdate={(updatedNode) => {
+                setNodes(nodes => 
+                  nodes.map(node => node.id === updatedNode.id ? updatedNode : node)
+                );
+              }}
+              isLoading={isLoading}
+              loadingTime={loadingTime}
+              onAllScenariosLoad={handleAllScenariosLoad}
+              setIsLoading={setIsLoading}
+              setLoadingTime={setLoadingTime}
+            />
           
           {/* Sidebar Resize Handle */}
           <Box
@@ -551,10 +727,16 @@ function App() {
             height: '100vh'
           }}>
             <FlowCanvas
-              initialNodes={nodes}
-              initialEdges={edges}
+              nodes={nodes}
+              edges={edges}
               currentState={currentState}
               scenario={scenario || undefined}
+              scenarios={scenarios}
+              currentScenarioId={activeScenarioId}
+              onNodeSelect={handleNodeSelect}
+              onNodesChange={handleNodesChange}
+              onEdgesChange={setEdges}
+              isTestMode={isTestMode}
             />
           </Box>
 
