@@ -210,7 +210,7 @@ function App() {
   // 로딩 시작 함수 (파일 선택 시 즉시 호출)
   const handleLoadingStart = useCallback((startTime?: number) => {
     const actualStartTime = startTime || performance.now();
-    console.log('🚀 로딩 시작 - 파일 선택됨, 시작 시간:', actualStartTime);
+    // console.log('🚀 로딩 시작 - 파일 선택됨, 시작 시간:', actualStartTime);
     
     // useRef로 시작 시간 저장
     loadingStartTimeRef.current = actualStartTime;
@@ -220,7 +220,7 @@ function App() {
       setLoadingTime(null);
     });
     
-    console.log('✅ [TIMING] loadingStartTimeRef.current 설정:', loadingStartTimeRef.current);
+    // console.log('✅ [TIMING] loadingStartTimeRef.current 설정:', loadingStartTimeRef.current);
   }, []);
 
   // 초기 상태 결정 함수
@@ -233,12 +233,12 @@ function App() {
     // Start가 있으면 선택
     const startState = dialogStates.find(state => state.name === 'Start');
     if (startState) {
-      console.log('🎯 Start 상태를 초기 상태로 설정');
+      // console.log('🎯 Start 상태를 초기 상태로 설정');
       return 'Start';
     }
     
     // Start가 없으면 첫 번째 상태 선택
-    console.log('🎯 첫 번째 상태를 초기 상태로 설정:', dialogStates[0].name);
+    // console.log('🎯 첫 번째 상태를 초기 상태로 설정:', dialogStates[0].name);
     return dialogStates[0].name;
   }, []);
 
@@ -269,15 +269,12 @@ function App() {
 
   const convertScenarioToFlow = (scenario: Scenario) => {
     const convertStartTime = performance.now();
-    console.log('🔄 [TIMING] convertScenarioToFlow 시작');
+    // console.log('🔄 [TIMING] convertScenarioToFlow 시작');
     
     if (!scenario.plan || scenario.plan.length === 0) return;
     
     const dialogStates = scenario.plan[0].dialogState;
     console.log('⏱️ [TIMING] dialogStates 수:', dialogStates.length);
-    
-    // 기존 nodes에서 scenarioTransition 노드 보존 제거
-    // const scenarioTransitionNodes = nodes.filter(n => n.type === 'scenarioTransition');
     
     // 새로운 방식: 오직 현재 시나리오의 scenarioTransitionNodes만 포함
     const planAny = scenario.plan[0] as any;
@@ -314,7 +311,7 @@ function App() {
       }))
     ];
     const nodeCreationTime = performance.now() - nodeCreationStartTime;
-    console.log('⏱️ [TIMING] 노드 생성:', nodeCreationTime.toFixed(2), 'ms');
+    // console.log('⏱️ [TIMING] 노드 생성:', nodeCreationTime.toFixed(2), 'ms');
 
     // 엣지 생성 (전이 관계 분석)
     const edgeCreationStartTime = performance.now();
@@ -386,12 +383,12 @@ function App() {
     });
     
     const edgeCreationTime = performance.now() - edgeCreationStartTime;
-    console.log('⏱️ [TIMING] 엣지 생성:', edgeCreationTime.toFixed(2), 'ms');
-    console.log('📊 [TIMING] 엣지 종류별 개수:');
-    console.log('  - Condition 엣지:', conditionEdgeCount);
-    console.log('  - Intent 엣지:', intentEdgeCount);
-    console.log('  - Event 엣지:', eventEdgeCount);
-    console.log('  - 총 엣지:', newEdges.length);
+    // console.log('⏱️ [TIMING] 엣지 생성:', edgeCreationTime.toFixed(2), 'ms');
+    // console.log('📊 [TIMING] 엣지 종류별 개수:');
+    // console.log('  - Condition 엣지:', conditionEdgeCount);
+    // console.log('  - Intent 엣지:', intentEdgeCount);
+    // console.log('  - Event 엣지:', eventEdgeCount);
+    // console.log('  - 총 엣지:', newEdges.length);
 
     // 상태 설정
     const stateUpdateStartTime = performance.now();
@@ -407,12 +404,12 @@ function App() {
     const stateUpdateTime = performance.now() - stateUpdateStartTime;
     
     const totalConversionTime = performance.now() - convertStartTime;
-    console.log('⏱️ [TIMING] 상태 업데이트:', stateUpdateTime.toFixed(2), 'ms');
-    console.log('⏱️ [TIMING] convertScenarioToFlow 총 시간:', totalConversionTime.toFixed(2), 'ms');
-    console.log('📊 [TIMING] 변환 세부 분석:');
-    console.log('  - 노드 생성:', nodeCreationTime.toFixed(2), 'ms', `(${(nodeCreationTime/totalConversionTime*100).toFixed(1)}%)`);
-    console.log('  - 엣지 생성:', edgeCreationTime.toFixed(2), 'ms', `(${(edgeCreationTime/totalConversionTime*100).toFixed(1)}%)`);
-    console.log('  - 상태 업데이트:', stateUpdateTime.toFixed(2), 'ms', `(${(stateUpdateTime/totalConversionTime*100).toFixed(1)}%)`);
+    // console.log('⏱️ [TIMING] 상태 업데이트:', stateUpdateTime.toFixed(2), 'ms');
+    // console.log('⏱️ [TIMING] convertScenarioToFlow 총 시간:', totalConversionTime.toFixed(2), 'ms');
+    // console.log('📊 [TIMING] 변환 세부 분석:');
+    // console.log('  - 노드 생성:', nodeCreationTime.toFixed(2), 'ms', `(${(nodeCreationTime/totalConversionTime*100).toFixed(1)}%)`);
+    // console.log('  - 엣지 생성:', edgeCreationTime.toFixed(2), 'ms', `(${(edgeCreationTime/totalConversionTime*100).toFixed(1)}%)`);
+    // console.log('  - 상태 업데이트:', stateUpdateTime.toFixed(2), 'ms', `(${(stateUpdateTime/totalConversionTime*100).toFixed(1)}%)`);
   };
 
   const handleNodeSelect = useCallback((node: FlowNode | null) => {
@@ -432,7 +429,7 @@ function App() {
     }
     
     if (newTestMode && scenario) {
-      console.log('🚀 테스트 모드 시작 - 현재 상태:', currentState);
+      // console.log('🚀 테스트 모드 시작 - 현재 상태:', currentState);
       
       // 현재 상태에서 자동 전이 확인
       const currentDialogState = scenario.plan[0]?.dialogState.find(state => state.name === currentState);
@@ -441,7 +438,7 @@ function App() {
         const hasEventHandlers = currentDialogState.eventHandlers && currentDialogState.eventHandlers.length > 0;
         
         if (hasEventHandlers) {
-          console.log(`🎯 ${currentState} 상태에 이벤트 핸들러가 있습니다. 사용자가 수동으로 트리거해야 합니다.`);
+          // console.log(`🎯 ${currentState} 상태에 이벤트 핸들러가 있습니다. 사용자가 수동으로 트리거해야 합니다.`);
           return; // 자동 전이하지 않고 사용자 이벤트 대기
         }
         
@@ -452,7 +449,7 @@ function App() {
         
         if (trueConditionHandler) {
           const targetState = trueConditionHandler.transitionTarget.dialogState;
-          console.log(`⚡ 조건 전이: ${currentState} → ${targetState}`);
+          // console.log(`⚡ 조건 전이: ${currentState} → ${targetState}`);
           setCurrentState(targetState);
         }
       }
@@ -521,7 +518,7 @@ function App() {
   // 연결 변경 시 처리 (현재는 UI에서만 관리, 향후 확장 가능)
   const handleEdgesChange = useCallback((newEdges: FlowEdge[]) => {
     setEdges(newEdges);
-    console.log('🔗 연결 변경됨:', newEdges);
+    // console.log('🔗 연결 변경됨:', newEdges);
   }, []);
 
   // 시나리오 저장 처리
@@ -575,11 +572,11 @@ function App() {
         if (!currentStateExists) {
           // 현재 상태가 삭제되었다면 새로운 초기 상태로 설정
           setCurrentState(newInitialState);
-          console.log('🔄 현재 상태가 삭제되어 새로운 초기 상태로 변경:', newInitialState);
+          // console.log('🔄 현재 상태가 삭제되어 새로운 초기 상태로 변경:', newInitialState);
         } else if (currentState !== newInitialState && !currentState) {
           // 현재 상태가 없다면 새로운 초기 상태로 설정
           setCurrentState(newInitialState);
-          console.log('🔄 새로운 초기 상태로 변경:', newInitialState);
+          // console.log('🔄 새로운 초기 상태로 변경:', newInitialState);
         }
       }
       
@@ -591,10 +588,10 @@ function App() {
         alert('ℹ️ 변경사항이 없습니다.');
       }
       
-      console.log('🚀 시나리오 즉시 반영 완료:', convertedScenario);
+      // console.log('🚀 시나리오 즉시 반영 완료:', convertedScenario);
       
     } catch (error) {
-      console.error('시나리오 반영 오류:', error);
+      // console.error('시나리오 반영 오류:', error);
       alert('❌ 시나리오 반영 중 오류가 발생했습니다: ' + (error as Error).message);
     }
   }, [nodes, originalScenario, currentState, getInitialState, scenarios, activeScenarioId]);
@@ -603,7 +600,7 @@ function App() {
   const handleSaveConfirm = useCallback((filename: string) => {
     if (newScenario) {
       downloadScenarioAsJSON(newScenario, filename);
-      console.log('📁 시나리오 저장 완료:', filename);
+      // console.log('📁 시나리오 저장 완료:', filename);
     }
   }, [newScenario]);
 
@@ -637,7 +634,7 @@ function App() {
     setScenario(updatedScenario);
     // originalScenario도 업데이트하여 변경사항이 올바르게 반영되도록 함
     setOriginalScenario(JSON.parse(JSON.stringify(updatedScenario)));
-    console.log('🔄 시나리오 업데이트됨 (Intent Mapping 포함):', updatedScenario);
+    // console.log('🔄 시나리오 업데이트됨 (Intent Mapping 포함):', updatedScenario);
   }, []);
 
   return (

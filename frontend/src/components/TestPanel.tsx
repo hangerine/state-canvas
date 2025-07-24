@@ -35,7 +35,7 @@ import {
   Add as AddIcon,
   // Edit as EditIcon, // 사용하지 않음
 } from '@mui/icons-material';
-import { Scenario, UserInput, ProcessInputRequest, EntityInput, NLUEntity, ChatbotProcessRequest, ChatbotResponse, ChatbotDirective } from '../types/scenario';
+import { Scenario, UserInput, ChatbotProcessRequest, ChatbotResponse, ChatbotDirective, EntityInput, NLUEntity } from '../types/scenario';
 import axios from 'axios';
 import ExternalIntegrationManager from './ExternalIntegrationManager';
 

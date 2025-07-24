@@ -2,11 +2,7 @@ import React, { useCallback, useEffect, useState, useRef } from 'react';
 import ReactFlow, {
   Node,
   Edge,
-  addEdge,
-  updateEdge,
   Connection,
-  useNodesState,
-  useEdgesState,
   Controls,
   Background,
   MiniMap,
@@ -347,10 +343,10 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       setEditingNode(nodeToEdit);
       
       // Webhook 디버깅 로그 추가
-      console.log('🔍 [DEBUG] FlowCanvas - scenario:', scenario);
-      console.log('🔍 [DEBUG] FlowCanvas - scenario.webhooks:', scenario?.webhooks);
-      console.log('🔍 [DEBUG] FlowCanvas - nodeToEdit.data.dialogState:', nodeToEdit.data.dialogState);
-      console.log('🔍 [DEBUG] FlowCanvas - webhookActions:', nodeToEdit.data.dialogState.webhookActions);
+      // console.log('🔍 [DEBUG] FlowCanvas - scenario:', scenario);
+      // console.log('🔍 [DEBUG] FlowCanvas - scenario.webhooks:', scenario?.webhooks);
+      // console.log('🔍 [DEBUG] FlowCanvas - nodeToEdit.data.dialogState:', nodeToEdit.data.dialogState);
+      // console.log('🔍 [DEBUG] FlowCanvas - webhookActions:', nodeToEdit.data.dialogState.webhookActions);
     }
   }, [nodes, scenario]);
 

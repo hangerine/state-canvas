@@ -117,13 +117,13 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
       setResponseMappingsStrings(mappingsStrings);
       
       // Webhook 디버깅 로그 추가
-      console.log('🔍 [DEBUG] NodeEditModal - availableWebhooks:', availableWebhooks);
-      console.log('🔍 [DEBUG] NodeEditModal - webhookActions:', clonedState.webhookActions);
+      // console.log('🔍 [DEBUG] NodeEditModal - availableWebhooks:', availableWebhooks);
+      // console.log('🔍 [DEBUG] NodeEditModal - webhookActions:', clonedState.webhookActions);
       if (clonedState.webhookActions && clonedState.webhookActions.length > 0) {
         clonedState.webhookActions.forEach((action: any, index: number) => {
-          console.log(`🔍 [DEBUG] Webhook Action ${index}:`, action);
-          console.log(`🔍 [DEBUG] Webhook Action ${index} name:`, action.name);
-          console.log(`🔍 [DEBUG] Webhook Action ${index} name type:`, typeof action.name);
+          // console.log(`🔍 [DEBUG] Webhook Action ${index}:`, action);
+          // console.log(`🔍 [DEBUG] Webhook Action ${index} name:`, action.name);
+          // console.log(`🔍 [DEBUG] Webhook Action ${index} name type:`, typeof action.name);
         });
       }
       
@@ -135,7 +135,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
         clonedState.webhookActions = clonedState.webhookActions.map((action: any) => {
           const actionName = getWebhookActionName(action);
           if (!availableWebhookNames.includes(actionName)) {
-            console.log(`🔧 [FIX] Invalid webhook name "${actionName}" found, fixing to "${availableWebhookNames[0]}"`);
+            // console.log(`🔧 [FIX] Invalid webhook name "${actionName}" found, fixing to "${availableWebhookNames[0]}"`);
             hasInvalidWebhook = true;
             return { ...action, name: availableWebhookNames[0] };
           }
@@ -172,7 +172,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
       try {
         parsedMappings = JSON.parse(mappingString);
       } catch (e) {
-        console.warn(`Invalid JSON in Response Mappings for handler ${index}:`, mappingString);
+        // console.warn(`Invalid JSON in Response Mappings for handler ${index}:`, mappingString);
         // 유효하지 않은 JSON의 경우 빈 객체 사용
         parsedMappings = {};
       }
@@ -195,8 +195,8 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
       apicallHandlers: updatedApiCallHandlers
     };
     
-    console.log('🔧 Event handlers normalized:', normalizedEventHandlers);
-    console.log('🔧 API Call handlers normalized:', updatedApiCallHandlers);
+    // console.log('🔧 Event handlers normalized:', normalizedEventHandlers);
+    // console.log('🔧 API Call handlers normalized:', updatedApiCallHandlers);
     
     onSave(normalizedState);
     onClose();

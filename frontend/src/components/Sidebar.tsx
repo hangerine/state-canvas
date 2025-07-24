@@ -17,12 +17,10 @@ import {
   List,
   ListItem,
   ListItemText,
-  ListItemSecondaryAction,
   IconButton
 } from '@mui/material';
 
-import { TreeView, TreeItem } from '@mui/lab';
-import { ExpandMore as ExpandMoreIcon, ChevronRight as ChevronRightIcon } from '@mui/icons-material';
+import { ExpandMore as ExpandMoreIcon } from '@mui/icons-material';
 import { Scenario, FlowNode } from '../types/scenario';
 import { compareScenarios } from '../utils/scenarioUtils';
 
@@ -104,7 +102,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           removed: changes.removed.map(state => state.name)
         });
       } catch (error) {
-        console.warn('변경사항 감지 오류:', error);
+        // console.warn('변경사항 감지 오류:', error);
         setHasChanges(false);
         setChangeCount(0);
         setChangeSummary({ added: [], modified: [], removed: [] });
@@ -125,13 +123,13 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   // 로딩 상태 변화 감지 (디버깅용)
   useEffect(() => {
-    console.log('🔄 Sidebar: isLoading 상태 변경됨:', isLoading);
+    // console.log('🔄 Sidebar: isLoading 상태 변경됨:', isLoading);
   }, [isLoading]);
 
   // 로딩 시간 변화 감지 (디버깅용)
   useEffect(() => {
     if (loadingTime !== null) {
-      console.log('⏱️ Sidebar: loadingTime 업데이트됨:', loadingTime);
+      // console.log('⏱️ Sidebar: loadingTime 업데이트됨:', loadingTime);
     }
   }, [loadingTime]);
 
@@ -153,18 +151,18 @@ const Sidebar: React.FC<SidebarProps> = ({
 
     // ⏱️ 시간 측정 시작 - 파일 업로드 처리 시작 시점
     const overallStartTime = performance.now();
-    console.log('🚀 [TIMING] 파일 업로드 시작:', file.name, '크기:', file.size);
+    // console.log('🚀 [TIMING] 파일 업로드 시작:', file.name, '크기:', file.size);
     
     // 파일이 선택되자마자 즉시 로딩 상태 시작 (정확한 시작 시간 전달)
     onLoadingStart(overallStartTime);
-    console.log('⏱️ [TIMING] 로딩 상태 설정 시작 시간:', overallStartTime);
+    // console.log('⏱️ [TIMING] 로딩 상태 설정 시작 시간:', overallStartTime);
 
     const reader = new FileReader();
     const readerStartTime = performance.now();
     
     reader.onload = (e) => {
       const fileReadTime = performance.now() - readerStartTime;
-      console.log('⏱️ [TIMING] 파일 읽기 완료:', fileReadTime.toFixed(2), 'ms');
+      // console.log('⏱️ [TIMING] 파일 읽기 완료:', fileReadTime.toFixed(2), 'ms');
       
       try {
         const parseStartTime = performance.now();
@@ -217,14 +215,14 @@ const Sidebar: React.FC<SidebarProps> = ({
         setIsLoading(false);
         setLoadingTime(performance.now() - overallStartTime);
       } catch (error) {
-        console.error('❌ [TIMING] JSON 파싱 에러:', error);
+        // console.error('❌ [TIMING] JSON 파싱 에러:', error);
         setValidationError('JSON 파싱 에러: ' + (error as Error).message);
       }
     };
     
     // 파일 input 값 초기화 (같은 파일 재선택 가능하도록)
     event.target.value = '';
-    console.log('⏱️ [TIMING] FileReader.readAsText() 호출');
+    // console.log('⏱️ [TIMING] FileReader.readAsText() 호출');
     reader.readAsText(file);
   };
 
@@ -282,19 +280,6 @@ const Sidebar: React.FC<SidebarProps> = ({
       setEditedNodeName(selectedNode.data.dialogState.name);
     }
   }, [selectedNode]);
-
-  const handleNewScenario = () => {
-    const newScenario: Scenario = {
-      plan: [{ name: `Scenario-${Date.now()}`, dialogState: [] }],
-      botConfig: { botType: 'CONVERSATIONAL' },
-      intentMapping: [],
-      multiIntentMapping: [],
-      handlerGroups: [],
-      webhooks: [],
-      dialogResult: 'END_SESSION'
-    };
-    onScenarioLoad(newScenario);
-  };
 
   // 시나리오 이름 편집 시작
   const handleStartScenarioNameEdit = (scenarioId: string, currentName: string) => {
