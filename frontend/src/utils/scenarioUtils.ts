@@ -480,3 +480,31 @@ export const getChangesSummary = (changes: ScenarioChanges): string => {
   
   return parts.length > 0 ? parts.join(', ') : '변경사항 없음';
 }; 
+
+/**
+ * 모든 apicallHandlers의 apicall.url 필드를 삭제 (보안/내보내기용)
+ */
+export function removeApiCallUrlsFromScenario(scenarioOrArray: any) {
+  // 여러 시나리오 배열 지원
+  const scenarios = Array.isArray(scenarioOrArray) ? scenarioOrArray : [scenarioOrArray];
+  scenarios.forEach((scenario) => {
+    if (!scenario?.plan) return;
+    scenario.plan.forEach((plan: any) => {
+      if (!plan?.dialogState) return;
+      plan.dialogState.forEach((state: any) => {
+        if (Array.isArray(state.apicallHandlers)) {
+          state.apicallHandlers.forEach((handler: any) => {
+            if (handler.apicall && handler.apicall.url) {
+              // eslint-disable-next-line no-console
+              console.info(`[REMOVE_URL] state: ${state.name}, handler: ${handler.name} - url 삭제됨 (removed)`);
+              delete handler.apicall.url;
+            } else {
+              // eslint-disable-next-line no-console
+              console.info(`[REMOVE_URL] state: ${state.name}, handler: ${handler.name} - url 없음 (no url field)`);
+            }
+          });
+        }
+      });
+    });
+  });
+} 

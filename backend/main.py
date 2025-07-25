@@ -105,26 +105,48 @@ async def upload_scenario(file: UploadFile = File(...)):
 # 시나리오 파일 다운로드
 @app.get("/api/download-scenario/{session_id}")
 async def download_scenario(session_id: str):
-    """시나리오 JSON 파일 다운로드"""
+    """시나리오 JSON 파일 다운로드 (apicallHandlers의 url 필드 제거)"""
     try:
         scenario_data = state_engine.get_scenario(session_id)
         if not scenario_data:
             raise HTTPException(status_code=404, detail="시나리오를 찾을 수 없습니다.")
-        
+
+        # apicallHandlers의 apicall.url 필드 삭제 함수
+        def remove_apicall_urls(scenario):
+            # 여러 plan, 여러 dialogState 지원
+            plans = scenario.get("plan", [])
+            for plan in plans:
+                dialog_states = plan.get("dialogState", [])
+                for state in dialog_states:
+                    apicall_handlers = state.get("apicallHandlers", [])
+                    for handler in apicall_handlers:
+                        if "apicall" in handler and "url" in handler["apicall"]:
+                            # 한글/영문 주석: 다운로드 시 외부 API URL 정보 제거
+                            # Remove url field from apicall when downloading scenario
+                            logger.info(f"[REMOVE_URL] state: {state.get('name')}, handler: {handler.get('name')} - url 삭제됨 (removed)")
+                            del handler["apicall"]["url"]
+                        else:
+                            # 삭제할 url이 없는 경우도 로그로 남김
+                            logger.info(f"[REMOVE_URL] state: {state.get('name')}, handler: {handler.get('name')} - url 없음 (no url field)")
+
+        # 시나리오가 리스트일 수도 있음
+        if isinstance(scenario_data, list):
+            for scenario in scenario_data:
+                remove_apicall_urls(scenario)
+        else:
+            remove_apicall_urls(scenario_data)
+
         # 임시 파일로 저장 후 반환
         import tempfile
         import os
-        
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp_file:
             json.dump(scenario_data, tmp_file, indent=2, ensure_ascii=False)
             tmp_filename = tmp_file.name
-        
         return FileResponse(
             tmp_filename,
             media_type='application/json',
             filename='scenario.json'
         )
-        
     except Exception as e:
         logger.error(f"Download error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"다운로드 오류: {str(e)}")

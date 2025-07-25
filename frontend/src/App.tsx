@@ -12,7 +12,8 @@ import {
   convertNodesToScenario, 
   compareScenarios, 
   downloadScenarioAsJSON,
-  ScenarioChanges 
+  ScenarioChanges,
+  removeApiCallUrlsFromScenario // 추가
 } from './utils/scenarioUtils';
 
 const theme = createTheme({
@@ -614,6 +615,9 @@ function App() {
       name: scenario.plan[0]?.name || `Scenario ${id}`,
       scenario
     }));
+
+    // apicallHandlers의 url 필드 삭제 (보안)
+    removeApiCallUrlsFromScenario(allScenarios.map(s => s.scenario));
     
     const dataStr = JSON.stringify(allScenarios, null, 2);
     const dataBlob = new Blob([dataStr], { type: 'application/json' });
