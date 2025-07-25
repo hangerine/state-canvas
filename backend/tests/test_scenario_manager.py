@@ -3,7 +3,15 @@ from backend.services.scenario_manager import ScenarioManager
 def test_load_and_get_scenario():
     sm = ScenarioManager()
     session_id = "sess1"
-    scenario_data = {"plan": [], "webhooks": []}
+    scenario_data = {
+        "plan": [
+            {
+                "name": "test_scenario",
+                "dialogState": []
+            }
+        ],
+        "webhooks": []
+    }
     sm.load_scenario(session_id, scenario_data)
     assert sm.get_scenario(session_id) == scenario_data
 

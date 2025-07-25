@@ -632,10 +632,17 @@ function App() {
   // TestPanel에서 시나리오 업데이트 처리
   const handleScenarioUpdate = useCallback((updatedScenario: Scenario) => {
     setScenario(updatedScenario);
-    // originalScenario도 업데이트하여 변경사항이 올바르게 반영되도록 함
     setOriginalScenario(JSON.parse(JSON.stringify(updatedScenario)));
+    // scenarios map도 함께 업데이트
+    setScenarios(prev => {
+      if (!activeScenarioId) return prev;
+      return {
+        ...prev,
+        [activeScenarioId]: updatedScenario
+      };
+    });
     // console.log('🔄 시나리오 업데이트됨 (Intent Mapping 포함):', updatedScenario);
-  }, []);
+  }, [activeScenarioId]);
 
   return (
     <ThemeProvider theme={theme}>

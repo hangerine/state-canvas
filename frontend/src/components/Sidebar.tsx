@@ -80,6 +80,8 @@ const Sidebar: React.FC<SidebarProps> = ({
     added: string[];
     modified: string[];
     removed: string[];
+    webhooks?: boolean;
+    apicalls?: boolean;
   }>({ added: [], modified: [], removed: [] });
   const [treeSelectedState, setTreeSelectedState] = useState<FlowNode | null>(null);
   const [activeTab, setActiveTab] = useState(0);
@@ -93,16 +95,23 @@ const Sidebar: React.FC<SidebarProps> = ({
         // 변경사항 계산
         const changes = compareScenarios(nodes, originalScenario);
         const totalChanges = changes.added.length + changes.modified.length + changes.removed.length;
-        
-        setHasChanges(totalChanges > 0);
-        setChangeCount(totalChanges);
+
+        // webhooks/apicalls 비교
+        const webhooksChanged = JSON.stringify(scenario?.webhooks) !== JSON.stringify(originalScenario.webhooks);
+        const apicallsChanged = JSON.stringify(scenario?.apicalls) !== JSON.stringify(originalScenario.apicalls);
+
+        const hasAnyChange = totalChanges > 0 || webhooksChanged || apicallsChanged;
+
+        setHasChanges(hasAnyChange);
+        setChangeCount(totalChanges + (webhooksChanged ? 1 : 0) + (apicallsChanged ? 1 : 0));
         setChangeSummary({
           added: changes.added.map(state => state.name),
           modified: changes.modified.map(state => state.name),
-          removed: changes.removed.map(state => state.name)
+          removed: changes.removed.map(state => state.name),
+          ...(webhooksChanged ? { webhooks: true } : {}),
+          ...(apicallsChanged ? { apicalls: true } : {}),
         });
       } catch (error) {
-        // console.warn('변경사항 감지 오류:', error);
         setHasChanges(false);
         setChangeCount(0);
         setChangeSummary({ added: [], modified: [], removed: [] });
@@ -112,7 +121,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       setChangeCount(0);
       setChangeSummary({ added: [], modified: [], removed: [] });
     }
-  }, [nodes, originalScenario]);
+  }, [nodes, originalScenario, scenario?.webhooks, scenario?.apicalls]);
 
   // 시나리오 로드 시 초기화
   useEffect(() => {
@@ -619,6 +628,28 @@ const Sidebar: React.FC<SidebarProps> = ({
                   </Box>
                 </Box>
               )}
+
+              {changeSummary.webhooks && (
+                <Box sx={{ mb: 1 }}>
+                  <Typography variant="caption" color="info.main" sx={{ fontWeight: 'bold' }}>
+                    🔄 Webhooks 변경
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    시나리오의 webhooks 구조가 변경되었습니다.
+                  </Typography>
+                </Box>
+              )}
+
+              {changeSummary.apicalls && (
+                <Box sx={{ mb: 1 }}>
+                  <Typography variant="caption" color="info.main" sx={{ fontWeight: 'bold' }}>
+                    🔄 API Calls 변경
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    시나리오의 apicalls 구조가 변경되었습니다.
+                  </Typography>
+                </Box>
+              )}
             </Paper>
           )}
 
@@ -978,7 +1009,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     조건: {handler.conditionStatement}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    → {handler.transitionTarget.dialogState}
+                    → {handler.transitionTarget?.dialogState ?? ''}
                   </Typography>
                 </Box>
               )) || <Typography variant="caption">없음</Typography>}
@@ -1008,7 +1039,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     variant="outlined"
                   />
                   <Typography variant="caption" display="block">
-                    → {handler.transitionTarget.dialogState}
+                    → {handler.transitionTarget?.dialogState ?? ''}
                   </Typography>
                 </Box>
               )) || <Typography variant="caption">없음</Typography>}
@@ -1038,7 +1069,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     variant="outlined"
                   />
                   <Typography variant="caption" display="block">
-                    → {handler.transitionTarget.dialogState}
+                    → {handler.transitionTarget?.dialogState ?? ''}
                   </Typography>
                 </Box>
               )) || <Typography variant="caption">없음</Typography>}
@@ -1100,88 +1131,91 @@ const Sidebar: React.FC<SidebarProps> = ({
               </Box>
             </AccordionSummary>
             <AccordionDetails>
-              {selectedNode.data.dialogState.apicallHandlers?.map((handler, idx) => (
-                <Box key={idx} sx={{ mb: 2, p: 1, bgcolor: '#f9f9f9', borderRadius: 1 }}>
-                  <Typography variant="caption" display="block" sx={{ fontWeight: 'bold', mb: 1 }}>
-                    {handler.name}
-                  </Typography>
-                  <Typography variant="caption" display="block" color="text.secondary">
-                    URL: {handler.apicall.url}
-                  </Typography>
-                  <Typography variant="caption" display="block" color="text.secondary">
-                    Method: {handler.apicall.formats.method}
-                  </Typography>
-                  <Typography variant="caption" display="block" color="text.secondary">
-                    Timeout: {handler.apicall.timeout}ms
-                  </Typography>
-                  {handler.apicall.formats.requestTemplate && (
-                    <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 1 }}>
-                      Request Template:
+              {selectedNode.data.dialogState.apicallHandlers?.map((handler, idx) => {
+                const apicall = scenario?.apicalls?.find(a => a.name === handler.name);
+                return (
+                  <Box key={idx} sx={{ mb: 2, p: 1, bgcolor: '#f9f9f9', borderRadius: 1 }}>
+                    <Typography variant="caption" display="block" sx={{ fontWeight: 'bold', mb: 1 }}>
+                      {handler.name}
                     </Typography>
-                  )}
-                  {handler.apicall.formats.requestTemplate && (
-                    <Typography variant="caption" sx={{ 
-                      display: 'block',
-                      maxHeight: '60px',
-                      overflow: 'auto',
-                      fontSize: '0.65rem',
-                      bgcolor: '#fff',
-                      p: 0.5,
-                      borderRadius: 0.5,
-                      fontFamily: 'monospace'
-                    }}>
-                      {handler.apicall.formats.requestTemplate}
+                    <Typography variant="caption" display="block" color="text.secondary">
+                      URL: {apicall?.url || 'Unknown'}
                     </Typography>
-                  )}
-                  {handler.apicall.formats.responseMappings && Object.keys(handler.apicall.formats.responseMappings).length > 0 && (
-                    <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 1 }}>
-                      Response Mappings:
+                    <Typography variant="caption" display="block" color="text.secondary">
+                      Method: {apicall?.formats?.method || 'Unknown'}
                     </Typography>
-                  )}
-                  {handler.apicall.formats.responseMappings && Object.keys(handler.apicall.formats.responseMappings).length > 0 && (
-                    <Box sx={{ 
-                      maxHeight: '60px',
-                      overflow: 'auto',
-                      fontSize: '0.65rem',
-                      bgcolor: '#fff',
-                      p: 0.5,
-                      borderRadius: 0.5,
-                      fontFamily: 'monospace'
-                    }}>
-                      {Object.entries(handler.apicall.formats.responseMappings).map(([key, value]) => (
-                        <Typography key={key} variant="caption" display="block">
-                          {key}: {value}
-                        </Typography>
-                      ))}
-                    </Box>
-                  )}
-                  {handler.apicall.formats.headers && Object.keys(handler.apicall.formats.headers).length > 0 && (
-                    <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 1 }}>
-                      Headers:
+                    <Typography variant="caption" display="block" color="text.secondary">
+                      Timeout: {apicall?.timeout ?? 'Unknown'}ms
                     </Typography>
-                  )}
-                  {handler.apicall.formats.headers && Object.keys(handler.apicall.formats.headers).length > 0 && (
-                    <Box sx={{ 
-                      maxHeight: '60px',
-                      overflow: 'auto',
-                      fontSize: '0.65rem',
-                      bgcolor: '#fff',
-                      p: 0.5,
-                      borderRadius: 0.5,
-                      fontFamily: 'monospace'
-                    }}>
-                      {Object.entries(handler.apicall.formats.headers).map(([key, value]) => (
-                        <Typography key={key} variant="caption" display="block">
-                          {key}: {value}
-                        </Typography>
-                      ))}
-                    </Box>
-                  )}
-                  <Typography variant="caption" display="block" color="primary.main" sx={{ mt: 1 }}>
-                    → {handler.transitionTarget.dialogState}
-                  </Typography>
-                </Box>
-              )) || <Typography variant="caption">없음</Typography>}
+                    {apicall?.formats?.requestTemplate && (
+                      <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 1 }}>
+                        Request Template:
+                      </Typography>
+                    )}
+                    {apicall?.formats?.requestTemplate && (
+                      <Typography variant="caption" sx={{ 
+                        display: 'block',
+                        maxHeight: '60px',
+                        overflow: 'auto',
+                        fontSize: '0.65rem',
+                        bgcolor: '#fff',
+                        p: 0.5,
+                        borderRadius: 0.5,
+                        fontFamily: 'monospace'
+                      }}>
+                        {apicall.formats.requestTemplate}
+                      </Typography>
+                    )}
+                    {apicall?.formats?.responseMappings && Object.keys(apicall.formats.responseMappings).length > 0 && (
+                      <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 1 }}>
+                        Response Mappings:
+                      </Typography>
+                    )}
+                    {apicall?.formats?.responseMappings && Object.keys(apicall.formats.responseMappings).length > 0 && (
+                      <Box sx={{ 
+                        maxHeight: '60px',
+                        overflow: 'auto',
+                        fontSize: '0.65rem',
+                        bgcolor: '#fff',
+                        p: 0.5,
+                        borderRadius: 0.5,
+                        fontFamily: 'monospace'
+                      }}>
+                        {Object.entries(apicall.formats.responseMappings).map(([key, value]) => (
+                          <Typography key={key} variant="caption" display="block">
+                            {key}: {value}
+                          </Typography>
+                        ))}
+                      </Box>
+                    )}
+                    {apicall?.formats?.headers && Object.keys(apicall.formats.headers).length > 0 && (
+                      <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 1 }}>
+                        Headers:
+                      </Typography>
+                    )}
+                    {apicall?.formats?.headers && Object.keys(apicall.formats.headers).length > 0 && (
+                      <Box sx={{ 
+                        maxHeight: '60px',
+                        overflow: 'auto',
+                        fontSize: '0.65rem',
+                        bgcolor: '#fff',
+                        p: 0.5,
+                        borderRadius: 0.5,
+                        fontFamily: 'monospace'
+                      }}>
+                        {Object.entries(apicall.formats.headers).map(([key, value]) => (
+                          <Typography key={key} variant="caption" display="block">
+                            {key}: {value}
+                          </Typography>
+                        ))}
+                      </Box>
+                    )}
+                    <Typography variant="caption" display="block" color="primary.main" sx={{ mt: 1 }}>
+                      → {handler.transitionTarget?.dialogState ?? ''}
+                    </Typography>
+                  </Box>
+                );
+              }) || <Typography variant="caption">없음</Typography>}
             </AccordionDetails>
           </Accordion>
 

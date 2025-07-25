@@ -12,6 +12,8 @@ import requests
 from models.scenario import Scenario, ProcessInputRequest, LegacyProcessInputRequest, StateTransition, UserInput, TextContent, CustomEventContent, ChatbotInputRequest, ChatbotProcessRequest
 from services.state_engine import StateEngine
 from services.websocket_manager import WebSocketManager
+from nlu.router import router as nlu_router
+from webhook.handler import webhook_router, apicall_router
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -27,11 +29,16 @@ app = FastAPI(
 # CORS 설정
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # React 개발 서버
+    allow_origins=["http://localhost:3000", "http://localhost:5173"],  # React 개발 서버
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 라우터 등록
+app.include_router(nlu_router)
+app.include_router(webhook_router)
+app.include_router(apicall_router)
 
 # 전역 상태
 state_engine = StateEngine()

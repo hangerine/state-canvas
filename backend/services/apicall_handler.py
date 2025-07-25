@@ -40,9 +40,14 @@ class ApiCallHandler(BaseHandler):
                 logger.warning(f"Apicall handler is not a dict: {handler}")
                 continue
             try:
-                apicall_config = handler.get("apicall", {})
+                apicall_name = handler.get("name")
+                apicall_config = None
+                for apicall in scenario.get("apicalls", []):
+                    if apicall.get("name") == apicall_name:
+                        apicall_config = apicall
+                        break
                 if not apicall_config:
-                    logger.warning(f"No apicall config found in handler: {handler}")
+                    logger.warning(f"No apicall config found for name: {apicall_name}")
                     continue
                 logger.info(f"🚀 Executing API call: {handler.get('name', 'Unknown')}")
                 logger.info(f"📋 Memory before API call: {memory}")
@@ -184,15 +189,21 @@ class ApiCallHandler(BaseHandler):
                     processed_headers[key] = processed_value
                     logger.info(f"🔧 Header processed: {key}: {value} -> {processed_value}")
                 headers.update(processed_headers)
-            logger.info(f"📡 Final headers: {headers}")
+            logger.info(f"[APICALL] 📡 URL: {url}")
+            logger.info(f"[APICALL] 📦 Method: {method}")
+            logger.info(f"[APICALL] 📋 Headers: {headers}")
+            logger.info(f"[APICALL] 📤 Request body: {json.dumps(request_data, ensure_ascii=False) if request_data else None}")
             for attempt in range(retry_count + 1):
                 try:
                     timeout_config = aiohttp.ClientTimeout(total=timeout)
                     async with aiohttp.ClientSession(timeout=timeout_config) as session:
                         if method == "GET":
                             async with session.get(url, headers=headers) as response:
+                                logger.info(f"[APICALL] ⏳ Status: {response.status}")
                                 if response.status == 200:
-                                    return await response.json()
+                                    resp_json = await response.json()
+                                    logger.info(f"[APICALL] ✅ Response: {resp_json}")
+                                    return resp_json
                         elif method in ["POST", "PUT", "PATCH"]:
                             async with session.request(
                                 method.lower(), 
@@ -200,21 +211,27 @@ class ApiCallHandler(BaseHandler):
                                 headers=headers, 
                                 json=request_data
                             ) as response:
+                                logger.info(f"[APICALL] ⏳ Status: {response.status}")
                                 if response.status in [200, 201]:
-                                    return await response.json()
+                                    resp_json = await response.json()
+                                    logger.info(f"[APICALL] ✅ Response: {resp_json}")
+                                    return resp_json
                         elif method == "DELETE":
                             async with session.delete(url, headers=headers) as response:
+                                logger.info(f"[APICALL] ⏳ Status: {response.status}")
                                 if response.status in [200, 204]:
-                                    return await response.json() if response.content_length else {}
-                        logger.warning(f"API call failed with status {response.status}, attempt {attempt + 1}")
+                                    resp_json = await response.json() if response.content_length else {}
+                                    logger.info(f"[APICALL] ✅ Response: {resp_json}")
+                                    return resp_json
+                        logger.warning(f"[APICALL] ❌ API call failed with status {response.status}, attempt {attempt + 1}")
                 except asyncio.TimeoutError:
-                    logger.warning(f"API call timeout, attempt {attempt + 1}")
+                    logger.warning(f"[APICALL] ❌ API call timeout, attempt {attempt + 1}")
                 except Exception as e:
-                    logger.warning(f"API call error: {e}, attempt {attempt + 1}")
+                    logger.warning(f"[APICALL] ❌ API call error: {e}, attempt {attempt + 1}")
                 if attempt < retry_count:
                     await asyncio.sleep(1)
-            logger.error(f"API call failed after {retry_count + 1} attempts")
+            logger.error(f"[APICALL] ❌ API call failed after {retry_count + 1} attempts")
             return None
         except Exception as e:
-            logger.error(f"Error executing API call: {e}")
+            logger.error(f"[APICALL] ❌ Error executing API call: {e}")
             return None 

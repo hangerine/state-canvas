@@ -35,7 +35,7 @@ import {
   Add as AddIcon,
   // Edit as EditIcon, // 사용하지 않음
 } from '@mui/icons-material';
-import { Scenario, UserInput, ChatbotProcessRequest, ChatbotResponse, ChatbotDirective, EntityInput, NLUEntity } from '../types/scenario';
+import { Scenario, UserInput, ChatbotProcessRequest, ChatbotResponse, ChatbotDirective, EntityInput, NLUEntity, DialogState, ApiCallHandler } from '../types/scenario';
 import axios from 'axios';
 import ExternalIntegrationManager from './ExternalIntegrationManager';
 
@@ -71,6 +71,25 @@ interface TestMessage {
   type: 'user' | 'system' | 'transition' | 'info';
   content: string;
   timestamp: Date;
+}
+
+// 시나리오의 apicallHandlers에서 apicall 필드를 제거하는 함수
+function cleanScenarioApiCallHandlers(scenario: Scenario): Scenario {
+  const newScenario = JSON.parse(JSON.stringify(scenario));
+  newScenario.plan.forEach((plan: { dialogState: DialogState[] }) => {
+    plan.dialogState.forEach((state: DialogState) => {
+      if (state.apicallHandlers) {
+        state.apicallHandlers = state.apicallHandlers.map((handler: ApiCallHandler & { apicall?: any }) => {
+          if ('apicall' in handler) {
+            const { apicall, ...rest } = handler;
+            return rest as ApiCallHandler;
+          }
+          return handler;
+        });
+      }
+    });
+  });
+  return newScenario;
 }
 
 const TestPanel: React.FC<TestPanelProps> = ({
@@ -193,7 +212,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
   // NLU API 함수들
   const checkNluConnection = async () => {
     try {
-      const response = await axios.get('http://localhost:8001/health');
+      const response = await axios.get('http://localhost:8000/api/nlu/health');
       setNluConnected(response.status === 200);
       return true;
     } catch (error) {
@@ -204,7 +223,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
 
   const fetchNluUtterances = async () => {
     try {
-      const response = await axios.get('http://localhost:8001/api/training/utterances');
+      const response = await axios.get('http://localhost:8000/api/nlu/training/utterances');
       setNluUtterances(response.data);
     } catch (error) {
       console.error('NLU 발화 목록 조회 실패:', error);
@@ -213,7 +232,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
 
   const fetchNluIntents = async () => {
     try {
-      const response = await axios.get('http://localhost:8001/api/intents');
+      const response = await axios.get('http://localhost:8000/api/nlu/intents');
       setNluIntents(response.data.intents || []);
     } catch (error) {
       console.error('NLU Intent 목록 조회 실패:', error);
@@ -222,7 +241,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
 
   const fetchNluEntityTypes = async () => {
     try {
-      const response = await axios.get('http://localhost:8001/api/entity-types');
+      const response = await axios.get('http://localhost:8000/api/nlu/entity-types');
       setNluEntityTypes(response.data.entity_types || []);
     } catch (error) {
       console.error('NLU Entity 타입 목록 조회 실패:', error);
@@ -231,7 +250,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
 
   const createNluUtterance = async (utterance: TrainingUtterance) => {
     try {
-      const response = await axios.post('http://localhost:8001/api/training/utterances', utterance);
+      const response = await axios.post('http://localhost:8000/api/nlu/training/utterances', utterance);
       await fetchNluUtterances();
       await fetchNluIntents();
       return response.data;
@@ -243,7 +262,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
 
   // const updateNluUtterance = async (id: number, utterance: TrainingUtterance) => {
   //   try {
-  //     const response = await axios.put(`http://localhost:8001/api/training/utterances/${id}`, utterance);
+  //     const response = await axios.put(`http://localhost:8000/api/nlu/training/utterances/${id}`, utterance);
   //     await fetchNluUtterances();
   //     await fetchNluIntents();
   //     return response.data;
@@ -256,7 +275,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
 
   const deleteNluUtterance = async (id: number) => {
     try {
-      await axios.delete(`http://localhost:8001/api/training/utterances/${id}`);
+      await axios.delete(`http://localhost:8000/api/nlu/training/utterances/${id}`);
       await fetchNluUtterances();
       await fetchNluIntents();
     } catch (error) {
@@ -722,9 +741,14 @@ const TestPanel: React.FC<TestPanelProps> = ({
       addMessage('info', `🎯 이벤트 상태입니다. 다음 이벤트들을 트리거할 수 있습니다:\n- ${eventTypes}`);
     } else if (apiCallState) {
       const apiCallHandlers = getApiCallHandlers();
+      // 항상 scenario.apicalls에서 최신 apicall 객체를 찾아서 사용
       const apiCallNames = apiCallHandlers.map(handler => {
-        const url = handler.apicall?.url || 'Unknown URL';
-        const method = handler.apicall?.formats?.method || 'POST';
+        let apicall = null;
+        if (scenario && scenario.apicalls && handler.name) {
+          apicall = scenario.apicalls.find(a => a.name === handler.name);
+        }
+        const url = apicall?.url || 'Unknown URL';
+        const method = apicall?.formats?.method || 'POST';
         return `${handler.name} (${method} ${url})`;
       }).join('\n- ');
       addMessage('info', `🔄 API Call 상태입니다. 다음 API들이 자동으로 호출됩니다:\n- ${apiCallNames}`);
@@ -780,7 +804,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
   // NLU API 호출 함수
   const callNluApi = async (text: string) => {
     try {
-      const response = await axios.post('http://localhost:8001/api/infer', {
+      const response = await axios.post('http://localhost:8000/api/nlu/infer', {
         text: text,
         session_id: sessionId,
         context: {}
@@ -1026,8 +1050,9 @@ const TestPanel: React.FC<TestPanelProps> = ({
       // 챗봇 포맷으로 Backend API 호출 (기본값)
       const newRequestId = 'chatbot-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
       
+      const cleanedScenario = scenario ? cleanScenarioApiCallHandlers(scenario) : scenario;
+      const cleanedScenarios = scenarios ? Object.fromEntries(Object.entries(scenarios).map(([k, v]) => [k, cleanScenarioApiCallHandlers(v)])) : scenarios;
       const chatbotRequestData: ChatbotProcessRequest = {
-        // 기본 챗봇 요청 필드들
         userId,
         botId,
         botVersion,
@@ -1035,13 +1060,11 @@ const TestPanel: React.FC<TestPanelProps> = ({
         botResourcePath: `${botId}-${botVersion}.json`,
         sessionId,
         requestId: newRequestId,
-        userInput: userInput, // NLU 결과가 포함된 userInput 사용
+        userInput: userInput,
         context: defaultContext,
         headers: defaultHeaders,
-        
-        // 추가 처리 필드들
         currentState,
-        scenario: scenarios && Object.values(scenarios).length > 0 ? Object.values(scenarios) as Scenario[] : [scenario!]
+        scenario: cleanedScenarios && Object.values(cleanedScenarios).length > 0 ? Object.values(cleanedScenarios) as Scenario[] : [cleanedScenario!]
       };
 
       // === 추가: 백엔드로 전송되는 시나리오 배열 로그 ===
@@ -1699,6 +1722,9 @@ const TestPanel: React.FC<TestPanelProps> = ({
     'X-Transaction-Id': ['test-transaction-id']
   };
 
+  // Base Intents 입력값을 위한 별도 상태 추가
+  const [rawIntentsInput, setRawIntentsInput] = useState('');
+
   return (
     <Box
       id="test-panel-container"
@@ -1927,8 +1953,12 @@ const TestPanel: React.FC<TestPanelProps> = ({
                     </Typography>
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 1 }}>
                       {getApiCallHandlers().map((handler, index) => {
-                        const url = handler.apicall?.url || 'Unknown URL';
-                        const method = handler.apicall?.formats?.method || 'POST';
+                        let apicall = null;
+                        if (scenario && scenario.apicalls && handler.name) {
+                          apicall = scenario.apicalls.find(a => a.name === handler.name);
+                        }
+                        const url = apicall?.url || 'Unknown URL';
+                        const method = apicall?.formats?.method || 'POST';
                         return (
                           <Box 
                             key={`${currentState}-${handler.name}-${index}`}
@@ -3063,13 +3093,11 @@ const TestPanel: React.FC<TestPanelProps> = ({
                         <TextField
                           fullWidth
                           label="Base Intents (쉼표 구분)"
-                          value={newIntentMapping.intents.join(', ')}
-                          onChange={(e) => setNewIntentMapping(prev => ({ 
-                            ...prev, 
-                            intents: e.target.value.split(',').map(s => s.trim()).filter(s => s) 
-                          }))}
+                          value={rawIntentsInput}
+                          onChange={(e) => setRawIntentsInput(e.target.value)}
                           placeholder="say.yes, say.no"
                           helperText="매핑 대상 Intent들"
+                          inputProps={{ inputMode: 'text', autoComplete: 'off' }}
                         />
                       </Grid>
                     </Grid>
@@ -3088,7 +3116,12 @@ const TestPanel: React.FC<TestPanelProps> = ({
                       <Button
                         variant="contained"
                         onClick={async () => {
-                          await saveIntentMappingToScenario(newIntentMapping);
+                          const intents = rawIntentsInput.split(',').map(s => s.trim()).filter(s => s);
+                          await saveIntentMappingToScenario({
+                            ...newIntentMapping,
+                            intents,
+                          });
+                          setRawIntentsInput('');
                           setNewIntentMapping({
                             scenario: 'Main',
                             dialogState: '',
@@ -3097,7 +3130,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
                             dmIntent: ''
                           });
                         }}
-                        disabled={!newIntentMapping.dialogState || !newIntentMapping.dmIntent || newIntentMapping.intents.length === 0}
+                        disabled={!newIntentMapping.dialogState || !newIntentMapping.dmIntent || rawIntentsInput.trim().length === 0}
                       >
                         매핑 추가
                       </Button>
@@ -3105,7 +3138,6 @@ const TestPanel: React.FC<TestPanelProps> = ({
                       <Button
                         variant="outlined"
                         onClick={() => {
-                          // 예시 데이터로 폼 채우기
                           setNewIntentMapping({
                             scenario: 'Main',
                             dialogState: 'slot_filled_response',
@@ -3113,6 +3145,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
                             conditionStatement: '{$negInterSentence} == "True"',
                             dmIntent: 'Positive'
                           });
+                          setRawIntentsInput('say.yes, say.no');
                         }}
                       >
                         예시 로드

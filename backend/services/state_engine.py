@@ -1086,9 +1086,15 @@ class StateEngine:
             
             try:
                 # API 호출 실행
-                apicall_config = handler.get("apicall", {})
+                apicall_name = handler.get("name")
+                apicall_config = None
+                if apicall_name:
+                    for apicall in scenario.get("apicalls", []):
+                        if apicall.get("name") == apicall_name:
+                            apicall_config = apicall
+                            break
                 if not apicall_config:
-                    logger.warning(f"No apicall config found in handler: {handler}")
+                    logger.warning(f"No apicall config found for name: {apicall_name} (handler: {handler})")
                     continue
                 
                 logger.info(f"🚀 Executing API call: {handler.get('name', 'Unknown')}")

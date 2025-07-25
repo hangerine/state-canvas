@@ -144,9 +144,10 @@ export interface ApiCallWithName extends ApiCall {
 
 export interface ApiCallHandler {
   name: string;
-  apicall: ApiCall;
-  action?: Action;
-  transitionTarget: TransitionTarget;
+  transitionTarget?: {
+    scenario: string;
+    dialogState: string;
+  };
 }
 
 export interface ConditionHandler {

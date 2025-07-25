@@ -82,7 +82,7 @@ export const convertNodesToScenario = (
           const st = scenarios?.[t.dialogState];
           if (st) {
             const scenarioName = st?.plan?.[0]?.name;
-            const stateObj = st?.plan?.[0]?.dialogState?.find((ds: any) => ds.name === t.dialogState);
+            const stateObj = st?.plan?.[0]?.dialogState?.find((ds: any) => ds.name === t?.dialogState);
             if (stateObj && scenarioName) {
               t = { scenario: scenarioName, dialogState: stateObj.name };
             }
@@ -103,7 +103,7 @@ export const convertNodesToScenario = (
           const st = scenarios?.[t.dialogState];
           if (st) {
             const scenarioName = st?.plan?.[0]?.name;
-            const stateObj = st?.plan?.[0]?.dialogState?.find((ds: any) => ds.name === t.dialogState);
+            const stateObj = st?.plan?.[0]?.dialogState?.find((ds: any) => ds.name === t?.dialogState);
             if (stateObj && scenarioName) {
               t = { scenario: scenarioName, dialogState: stateObj.name };
             }
@@ -124,7 +124,7 @@ export const convertNodesToScenario = (
           const st = scenarios?.[t.dialogState];
           if (st) {
             const scenarioName = st?.plan?.[0]?.name;
-            const stateObj = st?.plan?.[0]?.dialogState?.find((ds: any) => ds.name === t.dialogState);
+            const stateObj = st?.plan?.[0]?.dialogState?.find((ds: any) => ds.name === t?.dialogState);
             if (stateObj && scenarioName) {
               t = { scenario: scenarioName, dialogState: stateObj.name };
             }
@@ -145,7 +145,7 @@ export const convertNodesToScenario = (
           const st = scenarios?.[t.dialogState];
           if (st) {
             const scenarioName = st?.plan?.[0]?.name;
-            const stateObj = st?.plan?.[0]?.dialogState?.find((ds: any) => ds.name === t.dialogState);
+            const stateObj = st?.plan?.[0]?.dialogState?.find((ds: any) => ds.name === t?.dialogState);
             if (stateObj && scenarioName) {
               t = { scenario: scenarioName, dialogState: stateObj.name };
             }
@@ -186,7 +186,7 @@ export const convertNodesToScenario = (
           if (t && t.dialogState && scenarios && (scenarios as any)[t.scenario]) {
             const st = (scenarios as any)[t.scenario];
             const scenarioName = st?.scenario?.plan?.[0]?.name;
-            const stateObj = st?.scenario?.plan?.[0]?.dialogState?.find((ds: any) => ds.name === t.dialogState);
+            const stateObj = st?.scenario?.plan?.[0]?.dialogState?.find((ds: any) => ds.name === t?.dialogState);
             if (stateObj && scenarioName) {
               t = { scenario: scenarioName, dialogState: stateObj.name };
             }
@@ -201,7 +201,7 @@ export const convertNodesToScenario = (
           if (t && t.dialogState && scenarios && (scenarios as any)[t.scenario]) {
             const st = (scenarios as any)[t.scenario];
             const scenarioName = st?.scenario?.plan?.[0]?.name;
-            const stateObj = st?.scenario?.plan?.[0]?.dialogState?.find((ds: any) => ds.name === t.dialogState);
+            const stateObj = st?.scenario?.plan?.[0]?.dialogState?.find((ds: any) => ds.name === t?.dialogState);
             if (stateObj && scenarioName) {
               t = { scenario: scenarioName, dialogState: stateObj.name };
             }
@@ -216,7 +216,7 @@ export const convertNodesToScenario = (
           if (t && t.dialogState && scenarios && (scenarios as any)[t.scenario]) {
             const st = (scenarios as any)[t.scenario];
             const scenarioName = st?.scenario?.plan?.[0]?.name;
-            const stateObj = st?.scenario?.plan?.[0]?.dialogState?.find((ds: any) => ds.name === t.dialogState);
+            const stateObj = st?.scenario?.plan?.[0]?.dialogState?.find((ds: any) => ds.name === t?.dialogState);
             if (stateObj && scenarioName) {
               t = { scenario: scenarioName, dialogState: stateObj.name };
             }
@@ -231,7 +231,7 @@ export const convertNodesToScenario = (
           if (t && t.dialogState && scenarios && (scenarios as any)[t.scenario]) {
             const st = (scenarios as any)[t.scenario];
             const scenarioName = st?.scenario?.plan?.[0]?.name;
-            const stateObj = st?.scenario?.plan?.[0]?.dialogState?.find((ds: any) => ds.name === t.dialogState);
+            const stateObj = st?.scenario?.plan?.[0]?.dialogState?.find((ds: any) => ds.name === t?.dialogState);
             if (stateObj && scenarioName) {
               t = { scenario: scenarioName, dialogState: stateObj.name };
             }
