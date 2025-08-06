@@ -356,16 +356,23 @@ const TestPanel: React.FC<TestPanelProps> = ({
   };
 
   const getDialogStatesFromScenario = (): string[] => {
-    if (!scenario) return [];
-    
     const states: string[] = [];
-    scenario.plan.forEach(plan => {
-      plan.dialogState.forEach(state => {
-        if (state.name) {
-          states.push(state.name);
-        }
+    
+    // scenarios 배열이 있으면 모든 시나리오에서 검색, 없으면 단일 scenario 사용
+    const scenariosToSearch = scenarios && Object.values(scenarios).length > 0 
+      ? Object.values(scenarios) 
+      : scenario ? [scenario] : [];
+    
+    scenariosToSearch.forEach(scenarioItem => {
+      scenarioItem.plan.forEach(plan => {
+        plan.dialogState.forEach(state => {
+          if (state.name) {
+            states.push(state.name);
+          }
+        });
       });
     });
+    
     return states;
   };
 
@@ -649,25 +656,47 @@ const TestPanel: React.FC<TestPanelProps> = ({
 
   // 현재 상태가 webhook 상태인지 확인
   const isWebhookState = useCallback(() => {
-    if (!scenario || !currentState) return false;
+    if (!currentState) return false;
     
-    const dialogState = scenario.plan[0]?.dialogState.find(
-      state => state.name === currentState
-    );
+    // scenarios 배열이 있으면 모든 시나리오에서 검색, 없으면 단일 scenario 사용
+    const scenariosToSearch = scenarios && Object.values(scenarios).length > 0 
+      ? Object.values(scenarios) 
+      : scenario ? [scenario] : [];
     
-    return dialogState?.webhookActions && dialogState.webhookActions.length > 0;
-  }, [scenario, currentState]);
+    for (const scenarioItem of scenariosToSearch) {
+      const dialogState = scenarioItem.plan[0]?.dialogState.find(
+        state => state.name === currentState
+      );
+      
+      if (dialogState?.webhookActions && dialogState.webhookActions.length > 0) {
+        return true;
+      }
+    }
+    
+    return false;
+  }, [scenario, scenarios, currentState]);
 
   // 현재 상태가 이벤트 핸들러를 가지고 있는지 확인
   const getEventHandlers = useCallback(() => {
-    if (!scenario || !currentState) return [];
+    if (!currentState) return [];
     
-    const dialogState = scenario.plan[0]?.dialogState.find(
-      state => state.name === currentState
-    );
+    // scenarios 배열이 있으면 모든 시나리오에서 검색, 없으면 단일 scenario 사용
+    const scenariosToSearch = scenarios && Object.values(scenarios).length > 0 
+      ? Object.values(scenarios) 
+      : scenario ? [scenario] : [];
     
-    return dialogState?.eventHandlers || [];
-  }, [scenario, currentState]);
+    for (const scenarioItem of scenariosToSearch) {
+      const dialogState = scenarioItem.plan[0]?.dialogState.find(
+        state => state.name === currentState
+      );
+      
+      if (dialogState?.eventHandlers && dialogState.eventHandlers.length > 0) {
+        return dialogState.eventHandlers;
+      }
+    }
+    
+    return [];
+  }, [scenario, scenarios, currentState]);
 
   // 이벤트 핸들러가 있는 상태인지 확인
   const isEventState = useCallback(() => {
@@ -676,25 +705,47 @@ const TestPanel: React.FC<TestPanelProps> = ({
 
   // 현재 상태가 API Call 핸들러를 가지고 있는지 확인
   const getApiCallHandlers = useCallback(() => {
-    if (!scenario || !currentState) return [];
+    if (!currentState) return [];
     
-    const dialogState = scenario.plan[0]?.dialogState.find(
-      state => state.name === currentState
-    );
+    // scenarios 배열이 있으면 모든 시나리오에서 검색, 없으면 단일 scenario 사용
+    const scenariosToSearch = scenarios && Object.values(scenarios).length > 0 
+      ? Object.values(scenarios) 
+      : scenario ? [scenario] : [];
     
-    return dialogState?.apicallHandlers || [];
-  }, [scenario, currentState]);
+    for (const scenarioItem of scenariosToSearch) {
+      const dialogState = scenarioItem.plan[0]?.dialogState.find(
+        state => state.name === currentState
+      );
+      
+      if (dialogState?.apicallHandlers && dialogState.apicallHandlers.length > 0) {
+        return dialogState.apicallHandlers;
+      }
+    }
+    
+    return [];
+  }, [scenario, scenarios, currentState]);
 
   // 현재 상태가 Webhook 액션을 가지고 있는지 확인
   const getWebhookActions = useCallback(() => {
-    if (!scenario || !currentState) return [];
+    if (!currentState) return [];
     
-    const dialogState = scenario.plan[0]?.dialogState.find(
-      state => state.name === currentState
-    );
+    // scenarios 배열이 있으면 모든 시나리오에서 검색, 없으면 단일 scenario 사용
+    const scenariosToSearch = scenarios && Object.values(scenarios).length > 0 
+      ? Object.values(scenarios) 
+      : scenario ? [scenario] : [];
     
-    return dialogState?.webhookActions || [];
-  }, [scenario, currentState]);
+    for (const scenarioItem of scenariosToSearch) {
+      const dialogState = scenarioItem.plan[0]?.dialogState.find(
+        state => state.name === currentState
+      );
+      
+      if (dialogState?.webhookActions && dialogState.webhookActions.length > 0) {
+        return dialogState.webhookActions;
+      }
+    }
+    
+    return [];
+  }, [scenario, scenarios, currentState]);
 
   // API Call 핸들러가 있는 상태인지 확인
   const isApiCallState = useCallback(() => {
@@ -703,14 +754,25 @@ const TestPanel: React.FC<TestPanelProps> = ({
 
   // Intent 핸들러가 있는 상태인지 확인
   const getIntentHandlers = useCallback(() => {
-    if (!scenario || !currentState) return [];
+    if (!currentState) return [];
     
-    const dialogState = scenario.plan[0]?.dialogState.find(
-      state => state.name === currentState
-    );
+    // scenarios 배열이 있으면 모든 시나리오에서 검색, 없으면 단일 scenario 사용
+    const scenariosToSearch = scenarios && Object.values(scenarios).length > 0 
+      ? Object.values(scenarios) 
+      : scenario ? [scenario] : [];
     
-    return dialogState?.intentHandlers || [];
-  }, [scenario, currentState]);
+    for (const scenarioItem of scenariosToSearch) {
+      const dialogState = scenarioItem.plan[0]?.dialogState.find(
+        state => state.name === currentState
+      );
+      
+      if (dialogState?.intentHandlers && dialogState.intentHandlers.length > 0) {
+        return dialogState.intentHandlers;
+      }
+    }
+    
+    return [];
+  }, [scenario, scenarios, currentState]);
 
   // Intent 핸들러가 있는 상태인지 확인
   const isIntentState = useCallback(() => {
