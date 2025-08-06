@@ -424,7 +424,11 @@ export const compareScenarios = (
  * 시나리오를 JSON 파일로 다운로드
  */
 export const downloadScenarioAsJSON = (scenario: Scenario, filename: string) => {
-  const dataStr = JSON.stringify(scenario, null, 2);
+  // 보안을 위해 apicall.url 필드 제거
+  const scenarioForDownload = JSON.parse(JSON.stringify(scenario));
+  removeApiCallUrlsFromScenario(scenarioForDownload);
+  
+  const dataStr = JSON.stringify(scenarioForDownload, null, 2);
   const dataBlob = new Blob([dataStr], { type: 'application/json' });
   const url = URL.createObjectURL(dataBlob);
   
