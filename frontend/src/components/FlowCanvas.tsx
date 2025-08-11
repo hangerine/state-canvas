@@ -1235,6 +1235,24 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
     }
   }, [currentScenarioId, internalNodes, edges.length, fitView]);
 
+  // 테스트 모드 토글 시 화면 자동 맞춤 (패널 폭 변화 반영)
+  useEffect(() => {
+    // 패널 열림/닫힘 이후 레이아웃이 바뀌므로 두 번 호출로 보장
+    requestAnimationFrame(() => {
+      try { fitView({ padding: 0.2, includeHiddenNodes: true }); } catch {}
+      if (rfInstanceRef.current) {
+        rfInstanceRef.current.fitView({ padding: 0.2, includeHiddenNodes: true });
+      }
+    });
+    const t = setTimeout(() => {
+      try { fitView({ padding: 0.2, includeHiddenNodes: true }); } catch {}
+      if (rfInstanceRef.current) {
+        rfInstanceRef.current.fitView({ padding: 0.2, includeHiddenNodes: true });
+      }
+    }, 120);
+    return () => clearTimeout(t);
+  }, [isTestMode, fitView]);
+
   return (
     <>
       <Box ref={containerRef} sx={{ position: 'relative', width: '100%', height: '100%' }}>
