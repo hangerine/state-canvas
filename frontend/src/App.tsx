@@ -139,7 +139,6 @@ function App() {
       
       setActiveScenarioId(scenarioId);
       setScenario(targetScenario);
-      setOriginalScenario(JSON.parse(JSON.stringify(targetScenario)));
       
       // 기존 노드와 엣지를 완전히 초기화 (동기 플러시)
       console.log('🧹 [INFO] 기존 상태 초기화 시작 (flushSync)');
@@ -150,6 +149,10 @@ function App() {
       
       // 새 시나리오를 플로우로 변환 (기존 상태 무시)
       convertScenarioToFlow(targetScenario);
+      
+      // convertScenarioToFlow 완료 후 originalScenario 설정
+      // 원본 시나리오만 설정 (자동 생성된 종료 노드는 포함하지 않음)
+      setOriginalScenario(JSON.parse(JSON.stringify(targetScenario)));
       
       console.log('🔄 시나리오 전환됨:', scenarioId);
       console.log('📊 새 시나리오 노드 수:', targetScenario.plan[0]?.dialogState?.length || 0);
@@ -477,15 +480,34 @@ function App() {
     const baseX = Math.max(...newNodes.map(n => n.position.x)) + 300;
     const baseY = 100;
     
+    const getTransition = (tt: any): { dialogState?: string; scenario?: string } => {
+      if (!tt) return {};
+      if (typeof tt === 'string') return { dialogState: tt };
+      if (typeof tt === 'object') return { dialogState: (tt as any).dialogState, scenario: (tt as any).scenario };
+      return {};
+    };
+
+    const getEndNodeVisual = (special: string) => {
+      if (special === '__END_SCENARIO__') {
+        return { bg: '#e8f5e9', border: '#4CAF50', stroke: '#4CAF50' };
+      }
+      if (special === '__END_SESSION__' || special === '__END_PROCESS__') {
+        return { bg: '#eeeeee', border: '#9e9e9e', stroke: '#9e9e9e' };
+      }
+      // fallback
+      return { bg: '#f5f5f5', border: '#9e9e9e', stroke: '#9e9e9e' };
+    };
+
     dialogStates.forEach((state) => {
       // Condition handlers에서 종료 전이 분석
       state.conditionHandlers?.forEach((handler) => {
-        const targetState = handler.transitionTarget.dialogState;
-        if (targetState === '__END_SCENARIO__' || targetState === '__END_SESSION__') {
+        const { dialogState: targetState } = getTransition(handler.transitionTarget);
+        if (targetState === '__END_SCENARIO__' || targetState === '__END_SESSION__' || targetState === '__END_PROCESS__') {
           const endNodeId = `end-${targetState.toLowerCase().replace(/__/g, '')}-${state.name}`;
           
           // 이미 생성된 종료 노드인지 확인
           if (!endNodes.find(n => n.id === endNodeId)) {
+            const v = getEndNodeVisual(targetState);
             const endNode: FlowNode = {
               id: endNodeId,
               type: 'custom',
@@ -505,8 +527,8 @@ function App() {
                 }
               },
               style: {
-                backgroundColor: targetState === '__END_SCENARIO__' ? '#f44336' : '#4CAF50',
-                border: targetState === '__END_SCENARIO__' ? '2px solid #d32f2f' : '2px solid #388E3C',
+                backgroundColor: v.bg,
+                border: `2px dashed ${v.border}`,
                 borderRadius: '8px',
               }
             };
@@ -519,11 +541,12 @@ function App() {
       
       // Intent handlers에서 종료 전이 분석
       state.intentHandlers?.forEach((handler) => {
-        const targetState = handler.transitionTarget.dialogState;
-        if (targetState === '__END_SCENARIO__' || targetState === '__END_SESSION__') {
+        const { dialogState: targetState } = getTransition(handler.transitionTarget);
+        if (targetState === '__END_SCENARIO__' || targetState === '__END_SESSION__' || targetState === '__END_PROCESS__') {
           const endNodeId = `end-${targetState.toLowerCase().replace(/__/g, '')}-${state.name}`;
           
           if (!endNodes.find(n => n.id === endNodeId)) {
+            const v = getEndNodeVisual(targetState);
             const endNode: FlowNode = {
               id: endNodeId,
               type: 'custom',
@@ -543,8 +566,8 @@ function App() {
                 }
               },
               style: {
-                backgroundColor: targetState === '__END_SCENARIO__' ? '#f44336' : '#4CAF50',
-                border: targetState === '__END_SCENARIO__' ? '2px solid #d32f2f' : '2px solid #388E3C',
+                backgroundColor: v.bg,
+                border: `2px dashed ${v.border}`,
                 borderRadius: '8px',
               }
             };
@@ -557,11 +580,12 @@ function App() {
       
       // Event handlers에서 종료 전이 분석
       state.eventHandlers?.forEach((handler) => {
-        const targetState = handler.transitionTarget.dialogState;
-        if (targetState === '__END_SCENARIO__' || targetState === '__END_SESSION__') {
+        const { dialogState: targetState } = getTransition(handler.transitionTarget);
+        if (targetState === '__END_SCENARIO__' || targetState === '__END_SESSION__' || targetState === '__END_PROCESS__') {
           const endNodeId = `end-${targetState.toLowerCase().replace(/__/g, '')}-${state.name}`;
           
           if (!endNodes.find(n => n.id === endNodeId)) {
+            const v = getEndNodeVisual(targetState);
             const endNode: FlowNode = {
               id: endNodeId,
               type: 'custom',
@@ -581,8 +605,8 @@ function App() {
                 }
               },
               style: {
-                backgroundColor: targetState === '__END_SCENARIO__' ? '#f44336' : '#4CAF50',
-                border: targetState === '__END_SCENARIO__' ? '2px solid #d32f2f' : '2px solid #388E3C',
+                backgroundColor: v.bg,
+                border: `2px dashed ${v.border}`,
                 borderRadius: '8px',
               }
             };
@@ -616,11 +640,10 @@ function App() {
     dialogStates.forEach((state) => {
       // Condition handlers에서 전이 관계 추출
       state.conditionHandlers?.forEach((handler, idx) => {
-        if (handler.transitionTarget.dialogState && 
-            handler.transitionTarget.dialogState !== '__END_SESSION__') {
+        const { dialogState: targetState, scenario: targetScenario } = getTransition(handler.transitionTarget);
+        if (targetState && targetState !== '__END_SESSION__' && targetState !== '__END_SCENARIO__' && targetState !== '__END_PROCESS__') {
           
           const currentScenarioName = scenario.plan[0].name;
-          const targetScenario = handler.transitionTarget.scenario;
           
           // 시나리오 간 전이인 경우
           if (targetScenario && targetScenario !== currentScenarioName) {
@@ -695,7 +718,7 @@ function App() {
             
             // 소스 노드와 타겟 노드 찾기
             const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
-            const targetNode = newNodes.find(n => n.data.dialogState.name === handler.transitionTarget.dialogState);
+            const targetNode = newNodes.find(n => n.data.dialogState.name === targetState);
             
             let sourceHandle: string | undefined;
             let targetHandle: string | undefined;
@@ -707,9 +730,9 @@ function App() {
             }
             
             const edge: FlowEdge = {
-              id: `${state.name}-condition-${idx}-${handler.transitionTarget.dialogState}`,
+              id: `${state.name}-condition-${idx}-${targetState}`,
               source: state.name,
-              target: handler.transitionTarget.dialogState,
+              target: targetState,
               sourceHandle,
               targetHandle,
               label: `조건: ${handler.conditionStatement}`,
@@ -720,10 +743,9 @@ function App() {
           }
         }
         // 종료 노드로의 전이 처리
-        else if (handler.transitionTarget.dialogState === '__END_SCENARIO__' || 
-                 handler.transitionTarget.dialogState === '__END_SESSION__') {
+        else if (targetState === '__END_SCENARIO__' || targetState === '__END_SESSION__' || targetState === '__END_PROCESS__') {
           
-          const endNodeId = `end-${handler.transitionTarget.dialogState.toLowerCase().replace(/__/g, '')}-${state.name}`;
+          const endNodeId = `end-${targetState.toLowerCase().replace(/__/g, '')}-${state.name}`;
           
           // 소스 노드와 종료 노드 찾기
           const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
@@ -746,7 +768,7 @@ function App() {
               label: `조건: ${handler.conditionStatement}`,
               type: 'custom',
               style: { 
-                stroke: handler.transitionTarget.dialogState === '__END_SCENARIO__' ? '#f44336' : '#4CAF50', 
+                stroke: getEndNodeVisual(targetState!).stroke,
                 strokeWidth: 2 
               }
             };
@@ -759,9 +781,9 @@ function App() {
 
       // Intent handlers에서 전이 관계 추출
       state.intentHandlers?.forEach((handler, idx) => {
-        if (handler.transitionTarget.dialogState) {
+        const { dialogState: targetState, scenario: targetScenario } = getTransition(handler.transitionTarget);
+        if (targetState && targetState !== '__END_SESSION__' && targetState !== '__END_SCENARIO__' && targetState !== '__END_PROCESS__') {
           const currentScenarioName = scenario.plan[0].name;
-          const targetScenario = handler.transitionTarget.scenario;
           
           // 시나리오 간 전이인 경우
           if (targetScenario && targetScenario !== currentScenarioName) {
@@ -831,9 +853,9 @@ function App() {
           else if (!targetScenario || targetScenario === currentScenarioName) {
             const intentKey = (handler.intent || '').replace(/\s+/g, '_');
             const edge: FlowEdge = {
-              id: `${state.name}-intent-${idx}-${handler.transitionTarget.dialogState}`,
+              id: `${state.name}-intent-${idx}-${targetState}`,
               source: state.name,
-              target: handler.transitionTarget.dialogState,
+              target: targetState,
               label: `인텐트: ${handler.intent}`,
               type: 'custom'
             };
@@ -842,10 +864,9 @@ function App() {
           }
         }
         // 종료 노드로의 전이 처리
-        else if (handler.transitionTarget.dialogState === '__END_SCENARIO__' || 
-                 handler.transitionTarget.dialogState === '__END_SESSION__') {
+        else if (targetState === '__END_SCENARIO__' || targetState === '__END_SESSION__' || targetState === '__END_PROCESS__') {
           
-          const endNodeId = `end-${handler.transitionTarget.dialogState.toLowerCase().replace(/__/g, '')}-${state.name}`;
+          const endNodeId = `end-${targetState.toLowerCase().replace(/__/g, '')}-${state.name}`;
           
           // 소스 노드와 종료 노드 찾기
           const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
@@ -868,7 +889,7 @@ function App() {
               label: `인텐트: ${handler.intent}`,
               type: 'custom',
               style: { 
-                stroke: handler.transitionTarget.dialogState === '__END_SCENARIO__' ? '#f44336' : '#4CAF50', 
+                stroke: getEndNodeVisual(targetState!).stroke,
                 strokeWidth: 2 
               }
             };
@@ -881,8 +902,8 @@ function App() {
 
       // Event handlers에서 전이 관계 추출
       state.eventHandlers?.forEach((handler, idx) => {
-        if (handler.transitionTarget.dialogState && 
-            handler.transitionTarget.dialogState !== '__CURRENT_DIALOG_STATE__') {
+        const { dialogState: targetState, scenario: targetScenario } = getTransition(handler.transitionTarget);
+        if (targetState && targetState !== '__CURRENT_DIALOG_STATE__' && targetState !== '__END_SESSION__' && targetState !== '__END_SCENARIO__' && targetState !== '__END_PROCESS__') {
           // event 필드 안전하게 처리
           let eventType = '';
           if (handler.event) {
@@ -894,7 +915,6 @@ function App() {
           }
           
           const currentScenarioName = scenario.plan[0].name;
-          const targetScenario = handler.transitionTarget.scenario;
           
           // 시나리오 간 전이인 경우
           if (targetScenario && targetScenario !== currentScenarioName) {
@@ -966,7 +986,7 @@ function App() {
             
             // 소스 노드와 타겟 노드 찾기
             const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
-            const targetNode = newNodes.find(n => n.data.dialogState.name === handler.transitionTarget.dialogState);
+            const targetNode = newNodes.find(n => n.data.dialogState.name === targetState);
             
             let sourceHandle: string | undefined;
             let targetHandle: string | undefined;
@@ -978,9 +998,9 @@ function App() {
             }
             
             const edge: FlowEdge = {
-              id: `${state.name}-event-${idx}-${handler.transitionTarget.dialogState}`,
+              id: `${state.name}-event-${idx}-${targetState}`,
               source: state.name,
-              target: handler.transitionTarget.dialogState,
+              target: targetState,
               sourceHandle,
               targetHandle,
               label: `이벤트: ${eventType}`,
@@ -991,8 +1011,7 @@ function App() {
           }
         }
         // 종료 노드로의 전이 처리
-        else if (handler.transitionTarget.dialogState === '__END_SCENARIO__' || 
-                 handler.transitionTarget.dialogState === '__END_SESSION__') {
+        else if (targetState === '__END_SCENARIO__' || targetState === '__END_SESSION__' || targetState === '__END_PROCESS__') {
           
           // event 필드 안전하게 처리
           let eventType = '';
@@ -1004,7 +1023,7 @@ function App() {
             }
           }
           
-          const endNodeId = `end-${handler.transitionTarget.dialogState.toLowerCase().replace(/__/g, '')}-${state.name}`;
+          const endNodeId = `end-${targetState!.toLowerCase().replace(/__/g, '')}-${state.name}`;
           
           // 소스 노드와 종료 노드 찾기
           const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
@@ -1027,7 +1046,7 @@ function App() {
               label: `이벤트: ${eventType}`,
               type: 'custom',
               style: { 
-                stroke: handler.transitionTarget.dialogState === '__END_SCENARIO__' ? '#f44336' : '#4CAF50', 
+                stroke: getEndNodeVisual(targetState!).stroke,
                 strokeWidth: 2 
               }
             };

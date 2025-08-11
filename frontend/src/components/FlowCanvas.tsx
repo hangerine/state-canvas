@@ -826,16 +826,16 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
         border: '2px solid #ff9800',
         borderRadius: '8px',
       };
-    } else if (node?.type === 'custom' && node.data.label === '__END_SCENARIO__') {
+    } else if (node?.type === 'custom' && (node.data.label === '__END_SCENARIO__' || node.data.label === '__END_SESSION__')) {
       baseStyle = {
-        backgroundColor: '#f44336',
-        border: '2px solid #d32f2f',
+        backgroundColor: '#e8f5e9',
+        border: '2px dashed #4CAF50',
         borderRadius: '8px',
       };
-    } else if (node?.type === 'custom' && node.data.label === '__END_SESSION__') {
+    } else if (node?.type === 'custom' && node.data.label === '__END_PROCESS__') {
       baseStyle = {
-        backgroundColor: '#4CAF50',
-        border: '2px solid #388E3C',
+        backgroundColor: '#eeeeee',
+        border: '2px dashed #9e9e9e',
         borderRadius: '8px',
       };
     } else {
@@ -945,7 +945,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
   }));
 
   // 새 노드 추가 함수
-  const handleAddNewNode = useCallback((x: number, y: number, nodeType: 'state' | 'scenarioTransition' | 'endScenario' | 'endSession' = 'state') => {
+  const handleAddNewNode = useCallback((x: number, y: number, nodeType: 'state' | 'scenarioTransition' | 'endScenario' | 'endSession' | 'endProcess' = 'state') => {
     const timestamp = Date.now();
     let newNode: FlowNode;
     
@@ -1057,6 +1057,33 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
         },
       };
       console.log('🔚 세션 종료 노드 생성:', newNodeId, newNode);
+    } else if (nodeType === 'endProcess') {
+      // 프로세스 종료 노드 생성
+      const newNodeId = `end-process-${timestamp}`;
+      newNode = {
+        id: newNodeId,
+        type: 'custom', // 특별한 노드 타입
+        position: { x, y },
+        data: {
+          label: '__END_PROCESS__',
+          dialogState: {
+            name: '__END_PROCESS__',
+            conditionHandlers: [],
+            eventHandlers: [],
+            intentHandlers: [],
+            webhookActions: [],
+            slotFillingForm: []
+          },
+          onEdit: handleNodeEdit,
+          handleRefs: {},
+        },
+        style: {
+          backgroundColor: '#eeeeee', // 회색으로 표시
+          border: '2px dashed #9e9e9e',
+          borderRadius: '8px',
+        },
+      };
+      console.log('🔚 프로세스 종료 노드 생성:', newNodeId, newNode);
     } else {
       // 기본 상태 노드 생성 (fallback)
       const newNodeId = `state-node-${timestamp}`;
@@ -1315,6 +1342,12 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
                 handleCloseContextMenu();
               }}>
                 세션 종료 노드 추가
+              </MenuItem>
+              <MenuItem onClick={() => {
+                handleAddNewNode(contextMenu.x, contextMenu.y, 'endProcess');
+                handleCloseContextMenu();
+              }}>
+                프로세스 종료 노드 추가
               </MenuItem>
             </>
           )}

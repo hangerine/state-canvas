@@ -19,6 +19,16 @@ interface CustomNodeData {
 const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id }) => {
   const { dialogState, onEdit, handleRefs, currentState } = data;
   
+  // 종료 노드 여부 및 스타일 결정
+  const isEndScenario = data.label === '__END_SCENARIO__';
+  const isEndSession = data.label === '__END_SESSION__';
+  const isEndProcess = data.label === '__END_PROCESS__';
+  const isEndNode = isEndScenario || isEndSession || isEndProcess;
+
+  const endColors = isEndScenario
+    ? { bg: '#e8f5e9', border: '#4CAF50' } // green tone
+    : { bg: '#eeeeee', border: '#9e9e9e' }; // gray tone for session/process
+
   // 핸들러 개수 계산
   const conditionCount = dialogState.conditionHandlers?.length || 0;
   const intentCount = dialogState.intentHandlers?.length || 0;
@@ -39,16 +49,22 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
     <Box
       onDoubleClick={handleDoubleClick}
       sx={{
-        width: 220,
-        height: 120,
+        width: isEndNode ? 120 : 220,
+        height: isEndNode ? 60 : 120,
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'center',
         alignItems: 'center',
         padding: 1.5,
-        border: selected ? '2px solid #1976d2' : isCurrent ? '2.5px solid #1976d2' : '1px solid #ccc',
+        border: isEndNode
+          ? `2px dashed ${endColors.border}`
+          : selected
+          ? '2px solid #1976d2'
+          : isCurrent
+          ? '2.5px solid #1976d2'
+          : '1px solid #000000',
         borderRadius: 2,
-        backgroundColor: 'white',
+        backgroundColor: isEndNode ? endColors.bg : 'white',
         boxShadow: isCurrent ? '0 0 16px 4px #1976d2aa' : selected ? 3 : 1,
         cursor: 'pointer',
         position: 'relative',
@@ -103,9 +119,9 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
         sx={{ 
           fontWeight: 'bold',
           textAlign: 'center',
-          mb: 0.5,
-          color: selected ? '#1976d2' : 'inherit',
-          fontSize: '1.1rem',
+          mb: isEndNode ? 0 : 0.5,
+          color: isEndNode ? (isEndScenario ? '#2e7d32' : '#616161') : selected ? '#1976d2' : 'inherit',
+          fontSize: isEndNode ? '0.65rem' : '1.1rem',
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
@@ -115,8 +131,7 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
         {data.label}
       </Typography>
 
-      {/* Entry Action 표시 */}
-      {dialogState.entryAction && (
+      {!isEndNode && dialogState.entryAction && (
         <Chip
           label="Entry Action"
           size="small"
@@ -126,39 +141,39 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
         />
       )}
 
-      {/* 핸들러 정보 */}
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: 0.5, justifyContent: 'center', width: '100%' }}>
-        {conditionCount > 0 && (
-          <Chip
-            label={`조건 ${conditionCount}`}
-            size="small"
-            color="primary"
-            variant="outlined"
-            sx={{ fontSize: '0.6rem', height: 18, maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis' }}
-          />
-        )}
-        {intentCount > 0 && (
-          <Chip
-            label={`인텐트 ${intentCount}`}
-            size="small"
-            color="secondary"
-            variant="outlined"
-            sx={{ fontSize: '0.6rem', height: 18, maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis' }}
-          />
-        )}
-        {eventCount > 0 && (
-          <Chip
-            label={`이벤트 ${eventCount}`}
-            size="small"
-            color="warning"
-            variant="outlined"
-            sx={{ fontSize: '0.6rem', height: 18, maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis' }}
-          />
-        )}
-      </Box>
+      {!isEndNode && (
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: 0.5, justifyContent: 'center', width: '100%' }}>
+          {conditionCount > 0 && (
+            <Chip
+              label={`조건 ${conditionCount}`}
+              size="small"
+              color="primary"
+              variant="outlined"
+              sx={{ fontSize: '0.6rem', height: 18, maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis' }}
+            />
+          )}
+          {intentCount > 0 && (
+            <Chip
+              label={`인텐트 ${intentCount}`}
+              size="small"
+              color="secondary"
+              variant="outlined"
+              sx={{ fontSize: '0.6rem', height: 18, maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis' }}
+            />
+          )}
+          {eventCount > 0 && (
+            <Chip
+              label={`이벤트 ${eventCount}`}
+              size="small"
+              color="warning"
+              variant="outlined"
+              sx={{ fontSize: '0.6rem', height: 18, maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis' }}
+            />
+          )}
+        </Box>
+      )}
 
-      {/* Slot Filling 표시 */}
-      {dialogState.slotFillingForm && dialogState.slotFillingForm.length > 0 && (
+      {!isEndNode && dialogState.slotFillingForm && dialogState.slotFillingForm.length > 0 && (
         <Chip
           label="Slot Filling"
           size="small"
@@ -168,27 +183,28 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
         />
       )}
 
-      {/* Actions 표시 */}
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5, justifyContent: 'center', width: '100%' }}>
-        {dialogState.webhookActions && dialogState.webhookActions.length > 0 && (
-          <Chip
-            label="Webhook"
-            size="small"
-            color="error"
-            variant="outlined"
-            sx={{ fontSize: '0.6rem', height: 18, maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis' }}
-          />
-        )}
-        {apicallCount > 0 && (
-          <Chip
-            label={`API Call ${apicallCount}`}
-            size="small"
-            color="success"
-            variant="outlined"
-            sx={{ fontSize: '0.6rem', height: 18, maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis' }}
-          />
-        )}
-      </Box>
+      {!isEndNode && (
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5, justifyContent: 'center', width: '100%' }}>
+          {dialogState.webhookActions && dialogState.webhookActions.length > 0 && (
+            <Chip
+              label="Webhook"
+              size="small"
+              color="error"
+              variant="outlined"
+              sx={{ fontSize: '0.6rem', height: 18, maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis' }}
+            />
+          )}
+          {apicallCount > 0 && (
+            <Chip
+              label={`API Call ${apicallCount}`}
+              size="small"
+              color="success"
+              variant="outlined"
+              sx={{ fontSize: '0.6rem', height: 18, maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis' }}
+            />
+          )}
+        </Box>
+      )}
 
       {/* Handle (Right) - source & target */}
       <Handle
