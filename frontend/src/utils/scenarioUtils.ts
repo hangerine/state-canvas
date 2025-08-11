@@ -261,8 +261,20 @@ export const convertNodesToScenario = (
     const sourceNode = nodeMap[sourceEdge.source];
     if (!sourceNode || !sourceNode.data || !sourceNode.data.dialogState) return;
     
+    // 원본 핸들러 타입을 유지하기 위해 edge의 label을 분석하여 핸들러 타입 결정
+    const edgeLabel = edges.find(e => e.source === sourceNode.id && e.target === stNode.id)?.label || '';
+    let handlerType: 'conditionHandler' | 'intentHandler' | 'eventHandler' = 'conditionHandler';
+    
+    if (edgeLabel.includes('인텐트:')) {
+      handlerType = 'intentHandler';
+    } else if (edgeLabel.includes('이벤트:')) {
+      handlerType = 'eventHandler';
+    } else if (edgeLabel.includes('조건:')) {
+      handlerType = 'conditionHandler';
+    }
+    
     // 중복 체크: 이미 동일한 transitionTarget을 가진 핸들러가 있는지 확인
-    const existingHandler = sourceNode.data.dialogState.conditionHandlers?.find(handler => 
+    const existingHandler = (sourceNode.data.dialogState as any)[handlerType + 's']?.find((handler: any) => 
       handler.transitionTarget?.scenario === stNode.data.targetScenario &&
       handler.transitionTarget?.dialogState === stNode.data.targetState
     );
@@ -272,20 +284,48 @@ export const convertNodesToScenario = (
       return;
     }
     
-    // handler 추가 (여기서는 conditionHandler로 추가, 필요시 intentHandler 등으로 확장 가능)
-    const handler = {
-      conditionStatement: 'True',
-      action: {},
-      transitionTarget: {
-        scenario: stNode.data.targetScenario || '',
-        dialogState: stNode.data.targetState || ''
-      }
-    };
-    // 기존 conditionHandlers에 추가
-    if (!sourceNode.data.dialogState.conditionHandlers) {
-      sourceNode.data.dialogState.conditionHandlers = [];
+    // 핸들러 타입에 따라 적절한 핸들러 생성
+    let handler: any;
+    
+    if (handlerType === 'intentHandler') {
+      handler = {
+        intent: edgeLabel.replace('인텐트: ', '') || 'default_intent',
+        action: {},
+        transitionTarget: {
+          scenario: stNode.data.targetScenario || '',
+          dialogState: stNode.data.targetState || ''
+        }
+      };
+    } else if (handlerType === 'eventHandler') {
+      handler = {
+        event: {
+          type: edgeLabel.replace('이벤트: ', '') || 'default_event',
+          count: "1"
+        },
+        action: {},
+        transitionTarget: {
+          scenario: stNode.data.targetScenario || '',
+          dialogState: stNode.data.targetState || ''
+        }
+      };
+    } else {
+      // conditionHandler (기본값)
+      handler = {
+        conditionStatement: edgeLabel.replace('조건: ', '') || 'True',
+        action: {},
+        transitionTarget: {
+          scenario: stNode.data.targetScenario || '',
+          dialogState: stNode.data.targetState || ''
+        }
+      };
     }
-    sourceNode.data.dialogState.conditionHandlers.push(handler);
+    
+    // 해당 타입의 핸들러 배열에 추가
+    const handlerArrayKey = handlerType + 's';
+    if (!(sourceNode.data.dialogState as any)[handlerArrayKey]) {
+      (sourceNode.data.dialogState as any)[handlerArrayKey] = [];
+    }
+    (sourceNode.data.dialogState as any)[handlerArrayKey].push(handler);
   });
 
   // scenarioTransitionNodes의 targetScenario도 name으로 변환
