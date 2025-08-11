@@ -116,10 +116,69 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
 
   useEffect(() => {
     if (nodeType === 'scenarioTransition') {
-      setSelectedScenario(initialTargetScenario || Object.keys(scenarios)[0] || '');
-      setSelectedState(initialTargetState || (scenarios[initialTargetScenario]?.plan[0]?.dialogState[0]?.name || ''));
+      console.log('🔍 [DEBUG] NodeEditModal - 시나리오 전이 노드 편집 모드');
+      console.log('🔍 [DEBUG] NodeEditModal - initialTargetScenario:', initialTargetScenario);
+      console.log('🔍 [DEBUG] NodeEditModal - initialTargetState:', initialTargetState);
+      console.log('🔍 [DEBUG] NodeEditModal - scenarios:', scenarios);
+      
+      // 시나리오 전이 노드의 경우 targetScenario와 targetState를 직접 사용
+      // initialTargetScenario와 initialTargetState가 비어있으면 dialogState에서 추출 시도
+      let targetScenarioValue = initialTargetScenario;
+      let targetStateValue = initialTargetState;
+      
+      // dialogState에서 targetScenario와 targetState를 추출 시도
+      if (!targetScenarioValue && dialogState) {
+        // dialogState가 시나리오 전이 노드의 경우 targetScenario와 targetState를 포함할 수 있음
+        const dialogStateAny = dialogState as any; // 타입 단언 사용
+        if (dialogStateAny.targetScenario) {
+          targetScenarioValue = dialogStateAny.targetScenario;
+        }
+        if (dialogStateAny.targetState) {
+          targetStateValue = dialogStateAny.targetState;
+        }
+      }
+      
+      // targetScenario가 시나리오 이름인 경우 해당하는 시나리오 ID를 찾기
+      let targetScenarioId = targetScenarioValue;
+      if (targetScenarioValue && !scenarios[targetScenarioValue]) {
+        // 시나리오 이름으로 ID 찾기
+        const foundScenarioId = Object.entries(scenarios).find(([id, scenario]) => 
+          scenario.plan[0]?.name === targetScenarioValue
+        )?.[0];
+        
+        if (foundScenarioId) {
+          targetScenarioId = foundScenarioId;
+          console.log('🔍 [DEBUG] NodeEditModal - 시나리오 이름을 ID로 변환:', targetScenarioValue, '→', targetScenarioId);
+        } else {
+          console.warn('⚠️ [WARNING] NodeEditModal - 시나리오 이름에 해당하는 ID를 찾을 수 없음:', targetScenarioValue);
+          targetScenarioId = Object.keys(scenarios)[0] || '';
+        }
+      }
+      
+      // 여전히 값이 없으면 기본값 사용
+      if (!targetScenarioId) {
+        targetScenarioId = Object.keys(scenarios)[0] || '';
+      }
+      
+      console.log('🔍 [DEBUG] NodeEditModal - targetScenarioValue:', targetScenarioValue);
+      console.log('🔍 [DEBUG] NodeEditModal - targetStateValue:', targetStateValue);
+      console.log('🔍 [DEBUG] NodeEditModal - targetScenarioId:', targetScenarioId);
+      
+      setSelectedScenario(targetScenarioId);
+      
+      // targetState가 있으면 해당 시나리오의 상태 목록에서 첫 번째 상태를 기본값으로 설정
+      if (targetStateValue && scenarios[targetScenarioId]) {
+        setSelectedState(targetStateValue);
+      } else if (scenarios[targetScenarioId]) {
+        setSelectedState(scenarios[targetScenarioId].plan[0]?.dialogState[0]?.name || '');
+      } else {
+        setSelectedState('');
+      }
+      
+      console.log('🔍 [DEBUG] NodeEditModal - selectedScenario:', targetScenarioId);
+      console.log('🔍 [DEBUG] NodeEditModal - selectedState:', targetStateValue || scenarios[targetScenarioId]?.plan[0]?.dialogState[0]?.name || '');
     }
-  }, [open, nodeType, scenarios, initialTargetScenario, initialTargetState]);
+  }, [nodeType, scenarios, initialTargetScenario, initialTargetState, dialogState]); // dialogState 의존성 추가
 
   useEffect(() => {
     if (dialogState) {

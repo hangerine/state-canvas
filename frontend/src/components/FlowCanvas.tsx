@@ -516,6 +516,15 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       event.stopPropagation();
       const flowNode = nodes.find(n => n.id === node.id);
       if (flowNode) {
+        console.log('🔍 [DEBUG] FlowCanvas - 노드 더블클릭:', flowNode);
+        console.log('🔍 [DEBUG] FlowCanvas - 노드 타입:', flowNode.type);
+        console.log('🔍 [DEBUG] FlowCanvas - 노드 데이터:', flowNode.data);
+        if (flowNode.type === 'scenarioTransition') {
+          console.log('🔍 [DEBUG] FlowCanvas - 시나리오 전이 노드 데이터:', {
+            targetScenario: flowNode.data.targetScenario,
+            targetState: flowNode.data.targetState
+          });
+        }
         setEditingNode({ ...flowNode, type: flowNode.type || 'custom' });
       }
     },
