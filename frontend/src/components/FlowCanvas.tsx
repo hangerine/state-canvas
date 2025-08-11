@@ -164,6 +164,7 @@ interface FlowCanvasProps {
   onNodesChange?: (nodes: FlowNode[]) => void;
   onEdgesChange?: (edges: FlowEdge[]) => void;
   isTestMode?: boolean;
+  onLayoutReset?: () => void;
 }
 
 const getLayoutedElements = (nodes: Node[], edges: Edge[]) => {
@@ -215,6 +216,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
   onNodesChange,
   onEdgesChange,
   isTestMode,
+  onLayoutReset,
   ...rest
 }) => {
   const { project, screenToFlowPosition, getNodes: rfGetNodes, fitView } = useReactFlow();
@@ -406,7 +408,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
     // 최적 핸들 조합 선택
     const { sourceHandle, targetHandle } = getHandlesWithConnectionCount(sourceNode, targetNode);
     
-    setUndoStack(stack => [...stack, { nodes: internalNodes, edges }]);
+    setUndoStack(stack => [...stack, { nodes, edges }]);
     setRedoStack([]);
     const newEdge: FlowEdge = {
       id: `${params.source}-${params.target}-${Date.now()}`,
@@ -543,6 +545,9 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
 
   // 노드 편집 완료 핸들러
   const handleNodeEditSave = useCallback((updated: DialogState | { targetScenario: string; targetState: string }) => {
+    // 스냅샷 저장
+    setUndoStack(stack => [...stack, { nodes, edges }]);
+    setRedoStack([]);
     if (editingNode?.type === 'scenarioTransition' && 'targetScenario' in updated && 'targetState' in updated) {
       const updatedNode = {
         ...editingNode,
@@ -732,13 +737,16 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
 
   const handleNodeDragStop = useCallback((evt: React.MouseEvent, node: Node) => {
     if (!onNodesChange) return;
+    // 스냅샷 저장
+    setUndoStack(stack => [...stack, { nodes, edges }]);
+    setRedoStack([]);
     const rfNodes = rfGetNodes();
     const updatedNodes = internalNodes.map(n => {
       const rn = rfNodes.find(r => r.id === n.id);
       return rn ? { ...n, position: rn.position } : n;
     }) as FlowNode[];
     onNodesChange(updatedNodes);
-  }, [internalNodes, onNodesChange, rfGetNodes]);
+  }, [internalNodes, onNodesChange, rfGetNodes, edges, nodes]);
 
   // 엣지 더블클릭 처리
   const onEdgeDoubleClick = useCallback((event: React.MouseEvent, edge: Edge) => {
@@ -812,12 +820,14 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
   const handleEdgeDeleteClick = useCallback((e: React.MouseEvent) => {
     const selectedEdgesList = selectedEdges.length > 0 ? selectedEdges : [];
     if (selectedEdgesList.length > 0) {
+      setUndoStack(stack => [...stack, { nodes, edges }]);
+      setRedoStack([]);
       const updatedEdges = edges.filter(edge => !selectedEdgesList.includes(edge.id));
       onEdgesChange?.(updatedEdges);
       setSelectedEdges([]);
       setEdgeButtonAnchor(null);
     }
-  }, [edges, selectedEdges, onEdgesChange]);
+  }, [edges, nodes, selectedEdges, onEdgesChange]);
 
   // 엣지 버튼 위치 계산
   const getEdgeButtonPosition = () => {
@@ -946,8 +956,10 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
   const handleReset = useCallback(() => {
     setUndoStack([]);
     setRedoStack([]);
-    // 필요시 노드/엣지 초기화
-  }, []);
+    if (typeof onLayoutReset === 'function') {
+      onLayoutReset();
+    }
+  }, [onLayoutReset]);
 
   // 노드들을 렌더링용으로 변환 (스타일 적용)
   const styledNodes = internalNodes.map(node => ({
@@ -965,6 +977,9 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
 
   // 새 노드 추가 함수
   const handleAddNewNode = useCallback((x: number, y: number, nodeType: 'state' | 'scenarioTransition' | 'endScenario' | 'endSession' | 'endProcess' = 'state') => {
+    // 스냅샷 저장
+    setUndoStack(stack => [...stack, { nodes, edges }]);
+    setRedoStack([]);
     const timestamp = Date.now();
     let newNode: FlowNode;
     
@@ -1167,6 +1182,29 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       });
     }, 100);
   }, [nodes, onNodesChange, handleNodeEdit]);
+
+  // Undo/Redo 단축키
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const isInput = (e.target as HTMLElement)?.closest('input, textarea, [contenteditable="true"]');
+      if (isInput) return;
+      const meta = e.metaKey || e.ctrlKey;
+      if (!meta) return;
+      if (e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
+      } else if (e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [handleUndo, handleRedo]);
 
   // 시나리오 전환 시 로컬 상태 초기화 (undo/redo 등)
   useEffect(() => {

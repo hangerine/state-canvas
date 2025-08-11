@@ -60,6 +60,8 @@ function App() {
       convertScenarioToFlowRef.current(scenario);
     }
   }, []);
+  // 최초 레이아웃 위치 기억용
+  const initialPositionsRef = useRef<Record<string, { x: number; y: number }>>({});
 
   useEffect(() => {
     // scenarios가 변경될 때마다 로그 출력 (디버깅용)
@@ -1098,11 +1100,23 @@ function App() {
     // console.log('  - 노드 생성:', nodeCreationTime.toFixed(2), 'ms', `(${(nodeCreationTime/totalConversionTime*100).toFixed(1)}%)`);
     // console.log('  - 엣지 생성:', edgeCreationTime.toFixed(2), 'ms', `(${(edgeCreationTime/totalConversionTime*100).toFixed(1)}%)`);
     // console.log('  - 상태 업데이트:', stateUpdateTime.toFixed(2), 'ms', `(${(stateUpdateTime/totalConversionTime*100).toFixed(1)}%)`);
+    // 최초 업로드 레이아웃 좌표 저장 (노드 id 기준)
+    const posMap: Record<string, { x: number; y: number }> = {};
+    newNodes.forEach(n => { posMap[n.id] = { x: n.position.x, y: n.position.y }; });
+    initialPositionsRef.current = posMap;
   }, [getHandlesWithConnectionCount, getOptimalHandles]);
 
   useEffect(() => {
     convertScenarioToFlowRef.current = convertScenarioToFlowImpl;
   }, [convertScenarioToFlowImpl]);
+
+  // 레이아웃 리셋: 초기 업로드 시 좌표로만 복원
+  const handleLayoutReset = useCallback(() => {
+    setNodes(prev => prev.map(n => {
+      const pos = initialPositionsRef.current[n.id];
+      return pos ? { ...n, position: { x: pos.x, y: pos.y } } : n;
+    }));
+  }, []);
 
   const handleNodeSelect = useCallback((nodeName: string | null) => {
     const node = nodeName ? nodes.find(n => n.id === nodeName) || null : null;
@@ -1487,6 +1501,7 @@ function App() {
               onNodesChange={handleNodesChange}
               onEdgesChange={handleEdgesChange}
               isTestMode={isTestMode}
+              onLayoutReset={handleLayoutReset}
             />
           </Box>
 
