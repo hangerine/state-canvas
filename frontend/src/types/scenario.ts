@@ -251,6 +251,14 @@ export interface FlowNode {
     dialogState: DialogState;
     targetScenario?: string;
     targetState?: string;
+    onEdit?: (nodeId: string) => void;
+    handleRefs?: {
+      top?: React.Ref<HTMLDivElement>;
+      bottom?: React.Ref<HTMLDivElement>;
+      left?: React.Ref<HTMLDivElement>;
+      right?: React.Ref<HTMLDivElement>;
+    };
+    currentState?: string;
   };
   style?: CSSProperties;
 }

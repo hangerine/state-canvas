@@ -810,14 +810,41 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
 
   // 노드 스타일 계산
   const getNodeStyle = (nodeId: string) => {
-    if (currentState === nodeId) {
-      return {
+    const node = nodes.find(n => n.id === nodeId);
+    let baseStyle = {};
+    
+    // 노드 타입에 따른 기본 스타일
+    if (node?.type === 'state') {
+      baseStyle = {
         backgroundColor: '#e3f2fd',
-        border: '2px solid #1976d2',
-        boxShadow: '0 4px 8px rgba(25, 118, 210, 0.3)',
+        border: '2px solid #2196f3',
+        borderRadius: '8px',
+      };
+    } else if (node?.type === 'scenarioTransition') {
+      baseStyle = {
+        backgroundColor: '#fff3e0',
+        border: '2px solid #ff9800',
+        borderRadius: '8px',
+      };
+    } else {
+      // custom 타입 (기본)
+      baseStyle = {
+        backgroundColor: '#ffffff',
+        border: '1px solid #ccc',
+        borderRadius: '4px',
       };
     }
-    return {};
+    
+    // 현재 상태인 경우 강조 스타일 추가
+    if (currentState === nodeId) {
+      return {
+        ...baseStyle,
+        boxShadow: '0 4px 8px rgba(25, 118, 210, 0.3)',
+        border: '2px solid #1976d2',
+      };
+    }
+    
+    return baseStyle;
   };
 
   // 자동 레이아웃 함수 (초기 렌더링 시)
@@ -899,8 +926,83 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       onEdit: handleNodeEdit,
       currentState,
     },
-    style: getNodeStyle(node.id),
+    style: {
+      ...node.style, // 노드의 기본 스타일 유지
+      ...getNodeStyle(node.id), // 타입별 스타일과 현재 상태 강조 스타일 적용
+    },
   }));
+
+  // 새 노드 추가 함수
+  const handleAddNewNode = useCallback((x: number, y: number, nodeType: 'state' | 'scenarioTransition' = 'state') => {
+    const timestamp = Date.now();
+    let newNode: FlowNode;
+    
+    if (nodeType === 'state') {
+      // State 노드 생성
+      const newNodeId = `state-node-${timestamp}`;
+      newNode = {
+        id: newNodeId,
+        type: 'state',
+        position: { x, y },
+        data: {
+          label: '새 상태',
+          dialogState: {
+            name: '새 상태',
+            conditionHandlers: [],
+            eventHandlers: [],
+            intentHandlers: [],
+            webhookActions: [],
+            slotFillingForm: []
+          },
+          onEdit: handleNodeEdit,
+          handleRefs: {},
+        },
+        style: {
+          backgroundColor: '#e3f2fd',
+          border: '2px solid #2196f3',
+          borderRadius: '8px',
+        },
+      };
+      console.log('🆕 상태 노드 생성:', newNodeId, newNode);
+    } else {
+      // Scenario 전이 노드 생성
+      const newNodeId = `scenario-transition-${timestamp}`;
+      newNode = {
+        id: newNodeId,
+        type: 'scenarioTransition',
+        position: { x, y },
+        data: {
+          label: '시나리오 전이',
+          dialogState: {
+            name: '시나리오 전이',
+            conditionHandlers: [],
+            eventHandlers: [],
+            intentHandlers: [],
+            webhookActions: [],
+            slotFillingForm: []
+          },
+          onEdit: handleNodeEdit,
+          handleRefs: {},
+        },
+        style: {
+          backgroundColor: '#fff3e0',
+          border: '2px solid #ff9800',
+          borderRadius: '8px',
+        },
+      };
+      console.log('🔄 시나리오 전이 노드 생성:', newNodeId, newNode);
+    }
+    
+    onNodesChange?.(nodes.concat(newNode));
+    
+    // 새로 생성된 노드 정보 요약
+    console.log('📊 노드 생성 완료:', {
+      타입: nodeType,
+      ID: newNode.id,
+      위치: { x: newNode.position.x, y: newNode.position.y },
+      총노드수: nodes.length + 1
+    });
+  }, [nodes, onNodesChange, handleNodeEdit]);
 
   return (
     <>
@@ -1064,9 +1166,20 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
             </>
           )}
           {contextMenu?.type === 'pane' && (
-            <MenuItem disabled>
-              여기에 새 노드 추가 (구현 예정)
-            </MenuItem>
+            <>
+              <MenuItem onClick={() => {
+                handleAddNewNode(contextMenu.x, contextMenu.y, 'state');
+                handleCloseContextMenu();
+              }}>
+                상태 노드 추가
+              </MenuItem>
+              <MenuItem onClick={() => {
+                handleAddNewNode(contextMenu.x, contextMenu.y, 'scenarioTransition');
+                handleCloseContextMenu();
+              }}>
+                시나리오 전이 노드 추가
+              </MenuItem>
+            </>
           )}
         </Menu>
 

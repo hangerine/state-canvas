@@ -1109,10 +1109,25 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
 
   if (nodeType === 'scenarioTransition') {
     return (
-      <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
         <DialogTitle>시나리오 전이 노드 편집</DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+            <TextField
+              label="노드 이름"
+              value={editedState?.name || '시나리오 전이'}
+              onChange={(e) => {
+                if (editedState) {
+                  setEditedState({
+                    ...editedState,
+                    name: e.target.value
+                  });
+                }
+              }}
+              fullWidth
+              sx={{ mb: 2 }}
+            />
+            
             <FormControl fullWidth sx={{ mb: 2 }}>
               <InputLabel>전이할 시나리오</InputLabel>
               <Select
@@ -1120,16 +1135,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                 value={selectedScenario}
                 onChange={e => {
                   const scenarioId = e.target.value;
-                  // 시나리오 이름으로 변환
-                  let scenarioName = scenarioId;
-                  if (scenarios && scenarios[scenarioId]) {
-                    scenarioName = scenarios[scenarioId].plan[0]?.name || scenarioId;
-                  }
-                  setSelectedScenario(scenarioId); // UI용
-                  setEditedState(prev => ({
-                    ...prev,
-                    targetScenario: scenarioName // 항상 이름으로 저장
-                  }));
+                  setSelectedScenario(scenarioId);
                 }}
               >
                 {Object.entries(scenarios).map(([id, s]) => (
@@ -1137,6 +1143,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                 ))}
               </Select>
             </FormControl>
+            
             <FormControl fullWidth>
               <InputLabel>전이할 상태</InputLabel>
               <Select
@@ -1149,6 +1156,11 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                 ))}
               </Select>
             </FormControl>
+            
+            <Alert severity="info" sx={{ mt: 2 }}>
+              시나리오 전이 노드는 다른 시나리오로의 전환을 담당합니다.
+              조건 핸들러나 이벤트 핸들러는 연결된 엣지에서 설정할 수 있습니다.
+            </Alert>
           </Box>
         </DialogContent>
         <DialogActions>
@@ -1159,6 +1171,24 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
             if (scenarios && scenarios[selectedScenario]) {
               scenarioName = scenarios[selectedScenario].plan[0]?.name || selectedScenario;
             }
+            
+            // 시나리오 전이 노드 정보 검증
+            if (!scenarioName || !selectedState) {
+              console.error('❌ 시나리오 전이 노드 정보 누락:', {
+                targetScenario: scenarioName,
+                targetState: selectedState
+              });
+              alert('시나리오와 상태를 모두 선택해주세요.');
+              return;
+            }
+            
+            console.log('💾 시나리오 전이 노드 저장:', {
+              노드이름: editedState?.name || '시나리오 전이',
+              전환시나리오: scenarioName,
+              전환상태: selectedState,
+              시나리오ID: selectedScenario
+            });
+            
             onSave({ targetScenario: scenarioName, targetState: selectedState });
           }} variant="contained" color="primary" disabled={!selectedScenario || !selectedState}>저장</Button>
         </DialogActions>
@@ -1169,7 +1199,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle>
-        State 편집: {editedState.name}
+        {nodeType === 'state' ? 'State 편집' : '노드 편집'}: {editedState.name}
       </DialogTitle>
       
       <DialogContent>
@@ -1191,190 +1221,193 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
             fullWidth
           />
 
-          {/* 조건 핸들러 */}
-          <Accordion>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Typography variant="h6">
-                조건 핸들러 ({editedState.conditionHandlers?.length || 0})
-              </Typography>
-            </AccordionSummary>
-            <AccordionDetails>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {editedState.conditionHandlers?.map((handler, index) => (
-                  <Box key={index} sx={{ border: 1, borderColor: 'divider', p: 2, borderRadius: 1 }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                      <Typography variant="subtitle2">조건 {index + 1}</Typography>
-                      <IconButton onClick={() => removeConditionHandler(index)} size="small">
-                        <DeleteIcon />
-                      </IconButton>
-                    </Box>
-                    <TextField
-                      label="조건문"
-                      value={String(handler.conditionStatement ?? '')}
-                      onChange={(e) => updateConditionHandler(index, 'conditionStatement', e.target.value)}
-                      fullWidth
-                      sx={{ mb: 1 }}
-                    />
-                    <FormControl fullWidth sx={{ mb: 2 }}>
-                      <InputLabel>전이 대상 State</InputLabel>
-                      <Select
-                        label="전이 대상 State"
-                        value={(() => {
-                          const t = handler.transitionTarget;
-                          if (t && typeof t === 'object' && t.scenario && t.dialogState) {
-                            return `${t.scenario}::${t.dialogState}`;
-                          }
-                          if (typeof t === 'string' && t) return t;
-                          return '';
-                        })()}
-                        onChange={e => {
-                          const value = e.target.value;
-                          // scenarioTransition 노드 id는 nodes에서 type이 scenarioTransition인 노드의 id와 일치
-                          const isScenarioTransitionId = nodes?.some((n: any) => n.type === 'scenarioTransition' && n.id === value);
-                          if (isScenarioTransitionId) {
-                            // scenarioTransition 노드 선택 시 id(string)로 저장
-                            updateConditionHandler(index, 'transitionTarget', value);
-                          } else if (typeof value === 'string' && value.includes('::')) {
-                            // 일반 state 선택 시 {scenario, dialogState}로 저장
-                            const [scenario, dialogState] = value.split('::');
-                            updateConditionHandler(index, 'transitionTarget', { scenario, dialogState });
-                          } else {
-                            // 특수값 (__END_SESSION__ 등)
-                            updateConditionHandler(index, 'transitionTarget', value);
-                          }
-                        }}
-                      >
-                        <MenuItem value="__END_SESSION__">__END_SESSION__</MenuItem>
-                        <MenuItem value="__END_SCENARIO__">__END_SCENARIO__</MenuItem>
-                        {stateAndTransitionOptions.map(opt => (
-                          <MenuItem key={opt.key} value={opt.key}>{opt.label || opt.key}</MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-
-                    {/* 조건 핸들러 Accordion 내 전이 대상 State 표시 부분 */}
-                    <Grid container spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
-                    <Grid item xs={6}>
-                      <Typography variant="caption" display="block">
-                        {(() => {
-                          const t = handler.transitionTarget;
-                          if (t && typeof t === 'object' && t.dialogState) {
-                            return t.dialogState;
-                          }
-                          return typeof t === 'string' ? t : '';
-                        })()}
-                      </Typography>
-                    </Grid>
-                    <Grid item xs={6}>
-                      {(() => {
-                        const t = handler.transitionTarget;
-                        if (t && typeof t === 'object' && t.scenario) {
-                          let scenarioName = t.scenario;
-                          if (scenarios && scenarios[t.scenario]) {
-                            scenarioName = scenarios[t.scenario].plan[0]?.name || t.scenario;
-                          }
-                          return <Chip label={scenarioName} size="small" color="warning" sx={{ fontWeight: 600 }} />;
-                        }
-                        return null;
-                      })()}
-                    </Grid>
-                  </Grid>
-                    
-                    {/* Memory Actions */}
-                    <Typography variant="subtitle2" sx={{ mb: 1 }}>Memory Actions</Typography>
-                    {handler.action.memoryActions?.map((memoryAction, memoryIndex) => (
-                      <Box key={memoryIndex} sx={{ border: 1, borderColor: 'grey.300', p: 1, borderRadius: 1, mb: 1 }}>
-                        <Grid container spacing={1} alignItems="center">
-                          <Grid item xs={2}>
-                            <FormControl fullWidth size="small">
-                              <InputLabel>Type</InputLabel>
-                              <Select
-                                value={String(memoryAction.actionType ?? '')}
-                                onChange={(e) => updateMemoryActionInConditionHandler(index, memoryIndex, 'actionType', e.target.value)}
-                                label="Type"
-                              >
-                                <MenuItem value="ADD">ADD</MenuItem>
-                                <MenuItem value="UPDATE">UPDATE</MenuItem>
-                                <MenuItem value="DELETE">DELETE</MenuItem>
-                              </Select>
-                            </FormControl>
-                          </Grid>
-                          <Grid item xs={3}>
-                            <TextField
-                              label="Memory Key"
-                              value={String(memoryAction.memorySlotKey ?? '')}
-                              onChange={(e) => updateMemoryActionInConditionHandler(index, memoryIndex, 'memorySlotKey', e.target.value)}
-                              size="small"
-                              fullWidth
-                            />
-                          </Grid>
-                          <Grid item xs={3}>
-                            <TextField
-                              label="Memory Value"
-                              value={String(memoryAction.memorySlotValue ?? '')}
-                              onChange={(e) => updateMemoryActionInConditionHandler(index, memoryIndex, 'memorySlotValue', e.target.value)}
-                              size="small"
-                              fullWidth
-                            />
-                          </Grid>
-                                                     <Grid item xs={2}>
-                             <FormControl fullWidth size="small">
-                               <InputLabel>Scope</InputLabel>
-                               <Select
-                                 value={String(memoryAction.actionScope ?? '')}
-                                 onChange={(e) => updateMemoryActionInConditionHandler(index, memoryIndex, 'actionScope', e.target.value)}
-                                 label="Scope"
-                               >
-                                 <MenuItem value="SESSION">SESSION</MenuItem>
-                                 <MenuItem value="GLOBAL">GLOBAL</MenuItem>
-                                 <MenuItem value="SCENARIO">SCENARIO</MenuItem>
-                                 <MenuItem value="STATE">STATE</MenuItem>
-                               </Select>
-                             </FormControl>
-                           </Grid>
-                          <Grid item xs={2}>
-                            <IconButton 
-                              onClick={() => removeMemoryActionFromConditionHandler(index, memoryIndex)} 
-                              size="small"
-                              color="error"
-                            >
-                              <DeleteIcon />
-                            </IconButton>
-                          </Grid>
-                        </Grid>
+          {/* 조건 핸들러 - 시나리오 전이 노드가 아닌 경우에만 표시 */}
+          {nodeType !== 'scenarioTransition' && (
+            <Accordion>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Typography variant="h6">
+                  조건 핸들러 ({editedState.conditionHandlers?.length || 0})
+                </Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {editedState.conditionHandlers?.map((handler, index) => (
+                    <Box key={index} sx={{ border: 1, borderColor: 'divider', p: 2, borderRadius: 1 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                        <Typography variant="subtitle2">조건 {index + 1}</Typography>
+                        <IconButton onClick={() => removeConditionHandler(index)} size="small">
+                          <DeleteIcon />
+                        </IconButton>
                       </Box>
-                    )) || []}
-                    <Button
-                      onClick={() => addMemoryActionToConditionHandler(index)}
-                      startIcon={<AddIcon />}
-                      variant="text"
-                      size="small"
-                    >
-                      Memory Action 추가
-                    </Button>
-                  </Box>
-                ))}
-                <Button
-                  onClick={addConditionHandler}
-                  startIcon={<AddIcon />}
-                  variant="outlined"
-                  fullWidth
-                >
-                  조건 핸들러 추가
-                </Button>
-              </Box>
-            </AccordionDetails>
-          </Accordion>
+                      <TextField
+                        label="조건문"
+                        value={String(handler.conditionStatement ?? '')}
+                        onChange={(e) => updateConditionHandler(index, 'conditionStatement', e.target.value)}
+                        fullWidth
+                        sx={{ mb: 1 }}
+                      />
+                      <FormControl fullWidth sx={{ mb: 2 }}>
+                        <InputLabel>전이 대상 State</InputLabel>
+                        <Select
+                          label="전이 대상 State"
+                          value={(() => {
+                            const t = handler.transitionTarget;
+                            if (t && typeof t === 'object' && t.scenario && t.dialogState) {
+                              return `${t.scenario}::${t.dialogState}`;
+                            }
+                            if (typeof t === 'string' && t) return t;
+                            return '';
+                          })()}
+                          onChange={e => {
+                            const value = e.target.value;
+                            // scenarioTransition 노드 id는 nodes에서 type이 scenarioTransition인 노드의 id와 일치
+                            const isScenarioTransitionId = nodes?.some((n: any) => n.type === 'scenarioTransition' && n.id === value);
+                            if (isScenarioTransitionId) {
+                              // scenarioTransition 노드 선택 시 id(string)로 저장
+                              updateConditionHandler(index, 'transitionTarget', value);
+                            } else if (typeof value === 'string' && value.includes('::')) {
+                              // 일반 state 선택 시 {scenario, dialogState}로 저장
+                              const [scenario, dialogState] = value.split('::');
+                              updateConditionHandler(index, 'transitionTarget', { scenario, dialogState });
+                            } else {
+                              // 특수값 (__END_SESSION__ 등)
+                              updateConditionHandler(index, 'transitionTarget', value);
+                            }
+                          }}
+                        >
+                          <MenuItem value="__END_SESSION__">__END_SESSION__</MenuItem>
+                          <MenuItem value="__END_SCENARIO__">__END_SCENARIO__</MenuItem>
+                          {stateAndTransitionOptions.map(opt => (
+                            <MenuItem key={opt.key} value={opt.key}>{opt.label || opt.key}</MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
 
-          {/* 인텐트 핸들러 */}
-          <Accordion>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Typography variant="h6">
-                인텐트 핸들러 ({editedState.intentHandlers?.length || 0})
-              </Typography>
-            </AccordionSummary>
-            <AccordionDetails>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      {/* 조건 핸들러 Accordion 내 전이 대상 State 표시 부분 */}
+                      <Grid container spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                        <Grid item xs={6}>
+                          <Typography variant="caption" display="block">
+                            {(() => {
+                              const t = handler.transitionTarget;
+                              if (t && typeof t === 'object' && t.dialogState) {
+                                return t.dialogState;
+                              }
+                              return typeof t === 'string' ? t : '';
+                            })()}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={6}>
+                          {(() => {
+                            const t = handler.transitionTarget;
+                            if (t && typeof t === 'object' && t.scenario) {
+                              let scenarioName = t.scenario;
+                              if (scenarios && scenarios[t.scenario]) {
+                                scenarioName = scenarios[t.scenario].plan[0]?.name || t.scenario;
+                              }
+                              return <Chip label={scenarioName} size="small" color="warning" sx={{ fontWeight: 600 }} />;
+                            }
+                            return null;
+                          })()}
+                        </Grid>
+                      </Grid>
+                      
+                      {/* Memory Actions */}
+                      <Typography variant="subtitle2" sx={{ mb: 1 }}>Memory Actions</Typography>
+                      {handler.action.memoryActions?.map((memoryAction, memoryIndex) => (
+                        <Box key={memoryIndex} sx={{ border: 1, borderColor: 'grey.300', p: 1, borderRadius: 1, mb: 1 }}>
+                          <Grid container spacing={1} alignItems="center">
+                            <Grid item xs={2}>
+                              <FormControl fullWidth size="small">
+                                <InputLabel>Type</InputLabel>
+                                <Select
+                                  value={String(memoryAction.actionType ?? '')}
+                                  onChange={(e) => updateMemoryActionInConditionHandler(index, memoryIndex, 'actionType', e.target.value)}
+                                  label="Type"
+                                >
+                                  <MenuItem value="ADD">ADD</MenuItem>
+                                  <MenuItem value="UPDATE">UPDATE</MenuItem>
+                                  <MenuItem value="DELETE">DELETE</MenuItem>
+                                </Select>
+                              </FormControl>
+                            </Grid>
+                            <Grid item xs={3}>
+                              <TextField
+                                label="Memory Key"
+                                value={String(memoryAction.memorySlotKey ?? '')}
+                                onChange={(e) => updateMemoryActionInConditionHandler(index, memoryIndex, 'memorySlotKey', e.target.value)}
+                                size="small"
+                                fullWidth
+                              />
+                            </Grid>
+                            <Grid item xs={3}>
+                              <TextField
+                                label="Memory Value"
+                                value={String(memoryAction.memorySlotValue ?? '')}
+                                onChange={(e) => updateMemoryActionInConditionHandler(index, memoryIndex, 'memorySlotValue', e.target.value)}
+                                size="small"
+                                fullWidth
+                              />
+                            </Grid>
+                            <Grid item xs={2}>
+                              <FormControl fullWidth size="small">
+                                <InputLabel>Scope</InputLabel>
+                                <Select
+                                  value={String(memoryAction.actionScope ?? '')}
+                                  onChange={(e) => updateMemoryActionInConditionHandler(index, memoryIndex, 'actionScope', e.target.value)}
+                                  label="Scope"
+                                >
+                                  <MenuItem value="SESSION">SESSION</MenuItem>
+                                  <MenuItem value="GLOBAL">GLOBAL</MenuItem>
+                                  <MenuItem value="SCENARIO">SCENARIO</MenuItem>
+                                  <MenuItem value="STATE">STATE</MenuItem>
+                                </Select>
+                              </FormControl>
+                            </Grid>
+                            <Grid item xs={2}>
+                              <IconButton 
+                                onClick={() => removeMemoryActionFromConditionHandler(index, memoryIndex)} 
+                                size="small"
+                                color="error"
+                              >
+                                <DeleteIcon />
+                              </IconButton>
+                            </Grid>
+                          </Grid>
+                        </Box>
+                      )) || []}
+                      <Button
+                        onClick={() => addMemoryActionToConditionHandler(index)}
+                        startIcon={<AddIcon />}
+                        variant="text"
+                        size="small"
+                      >
+                        Memory Action 추가
+                      </Button>
+                    </Box>
+                  ))}
+                  <Button
+                    onClick={addConditionHandler}
+                    startIcon={<AddIcon />}
+                    variant="outlined"
+                    fullWidth
+                  >
+                    조건 핸들러 추가
+                  </Button>
+                </Box>
+              </AccordionDetails>
+            </Accordion>
+          )}
+
+          {/* 인텐트 핸들러 - 시나리오 전이 노드가 아닌 경우에만 표시 */}
+          {nodeType !== 'scenarioTransition' && (
+            <Accordion>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Typography variant="h6">
+                  인텐트 핸들러 ({editedState.intentHandlers?.length || 0})
+                </Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {editedState.intentHandlers?.map((handler, index) => (
                   <Box key={index} sx={{ border: 1, borderColor: 'divider', p: 2, borderRadius: 1 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
@@ -1511,16 +1544,18 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                 </Button>
               </Box>
             </AccordionDetails>
-          </Accordion>
+            </Accordion>
+          )}
 
-          {/* 이벤트 핸들러 */}
-          <Accordion>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Typography variant="h6">
-                이벤트 핸들러 ({editedState.eventHandlers?.length || 0})
-              </Typography>
-            </AccordionSummary>
-            <AccordionDetails>
+          {/* 이벤트 핸들러 - 시나리오 전이 노드가 아닌 경우에만 표시 */}
+          {nodeType !== 'scenarioTransition' && (
+            <Accordion>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Typography variant="h6">
+                  이벤트 핸들러 ({editedState.eventHandlers?.length || 0})
+                </Typography>
+              </AccordionSummary>
+              <AccordionDetails>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {editedState.eventHandlers?.map((handler, index) => (
                   <Box key={index} sx={{ border: 1, borderColor: 'divider', p: 2, borderRadius: 1 }}>
@@ -1659,7 +1694,8 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                 </Button>
               </Box>
             </AccordionDetails>
-          </Accordion>
+            </Accordion>
+          )}
 
           {/* API Call 핸들러 */}
           <Accordion>
@@ -2173,7 +2209,32 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
       
       <DialogActions>
         <Button onClick={onClose}>취소</Button>
-        <Button onClick={handleSave} variant="contained">저장</Button>
+        <Button onClick={() => {
+          // 저장 시에도 항상 이름으로 변환
+          let scenarioName = selectedScenario;
+          if (scenarios && scenarios[selectedScenario]) {
+            scenarioName = scenarios[selectedScenario].plan[0]?.name || selectedScenario;
+          }
+          
+          // 시나리오 전이 노드 정보 검증
+          if (!scenarioName || !selectedState) {
+            console.error('❌ 시나리오 전이 노드 정보 누락:', {
+              targetScenario: scenarioName,
+              targetState: selectedState
+            });
+            alert('시나리오와 상태를 모두 선택해주세요.');
+            return;
+          }
+          
+          console.log('💾 시나리오 전이 노드 저장:', {
+            노드이름: editedState?.name || '시나리오 전이',
+            전환시나리오: scenarioName,
+            전환상태: selectedState,
+            시나리오ID: selectedScenario
+          });
+          
+          onSave({ targetScenario: scenarioName, targetState: selectedState });
+        }} variant="contained" color="primary" disabled={!selectedScenario || !selectedState}>저장</Button>
       </DialogActions>
     </Dialog>
   );

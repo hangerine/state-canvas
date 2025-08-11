@@ -126,15 +126,38 @@ function App() {
   const switchScenario = useCallback((scenarioId: string) => {
     const targetScenario = scenarios[scenarioId];
     if (targetScenario && activeScenarioId !== scenarioId) {
+      // 현재 시나리오의 변경사항을 임시 저장
+      let currentChanges = null;
+      if (activeScenarioId && nodes.length > 0) {
+        try {
+          currentChanges = convertNodesToScenario(nodes, edges, originalScenario, scenarios[activeScenarioId]?.plan[0]?.name, scenarios);
+          console.log('💾 현재 시나리오 변경사항 임시 저장:', currentChanges);
+        } catch (error) {
+          console.warn('⚠️ 현재 시나리오 변경사항 저장 실패:', error);
+        }
+      }
+      
       setActiveScenarioId(scenarioId);
       setScenario(targetScenario);
       setOriginalScenario(JSON.parse(JSON.stringify(targetScenario)));
+      
+      // 새 시나리오를 플로우로 변환
       convertScenarioToFlow(targetScenario);
+      
       console.log('🔄 시나리오 전환됨:', scenarioId);
+      console.log('📊 새 시나리오 노드 수:', targetScenario.plan[0]?.dialogState?.length || 0);
+      
+      // 이전 시나리오의 변경사항이 있었다면 경고
+      if (currentChanges) {
+        const changeCount = (currentChanges.plan[0]?.dialogState?.length || 0) - (originalScenario?.plan[0]?.dialogState?.length || 0);
+        if (changeCount > 0) {
+          console.warn(`⚠️ 이전 시나리오에 ${changeCount}개의 변경사항이 있었습니다. 저장 후 전환하는 것을 권장합니다.`);
+        }
+      }
     } else {
       console.log('⚠️ 이미 활성화된 시나리오이거나 시나리오를 찾을 수 없습니다:', scenarioId);
     }
-  }, [scenarios, activeScenarioId]);
+  }, [scenarios, activeScenarioId, nodes, edges, originalScenario]);
 
   // 시나리오 이름 변경 함수
   const updateScenarioName = useCallback((scenarioId: string, newName: string) => {
@@ -893,15 +916,47 @@ function App() {
     }
 
     // 현재 노드들을 시나리오로 변환
-    const latestName = scenarios[activeScenarioId]?.plan?.[0]?.name || originalScenario?.plan[0].name;
+    const latestName = scenarios[activeScenarioId]?.plan[0]?.name || originalScenario?.plan[0].name;
     const convertedScenario = convertNodesToScenario(nodes, edges, originalScenario, latestName, scenarios);
+    
+    // 시나리오 전이 노드 검증
+    const scenarioTransitionNodes = nodes.filter(node => node.type === 'scenarioTransition');
+    if (scenarioTransitionNodes.length > 0) {
+      console.log('🔍 시나리오 전이 노드 검증:', scenarioTransitionNodes.length, '개');
+      scenarioTransitionNodes.forEach((node, index) => {
+        console.log(`  [${index}] ${node.id}: ${node.data.targetScenario} → ${node.data.targetState}`);
+        
+        // targetScenario와 targetState가 제대로 설정되었는지 확인
+        if (!node.data.targetScenario || !node.data.targetState) {
+          console.warn(`⚠️ 시나리오 전이 노드 ${node.id}에 누락된 정보가 있습니다:`, {
+            targetScenario: node.data.targetScenario,
+            targetState: node.data.targetState
+          });
+        }
+      });
+    }
     
     // 변경사항 비교
     const changes = compareScenarios(nodes, originalScenario);
     
+    // 새로 추가된 노드 정보 확인
+    if (changes.added.length > 0) {
+      console.log('🆕 새로 추가된 노드:', changes.added.length, '개');
+      changes.added.forEach((node, index) => {
+        console.log(`  [${index}] ${node.name} (타입: ${node.conditionHandlers ? '상태' : '전이'})`);
+      });
+    }
+    
     setNewScenario(convertedScenario);
     setScenarioChanges(changes);
     setSaveModalOpen(true);
+    
+    console.log('💾 시나리오 저장 준비 완료:', {
+      총노드수: nodes.length,
+      상태노드수: nodes.filter(n => n.type !== 'scenarioTransition').length,
+      전이노드수: scenarioTransitionNodes.length,
+      변경사항: changes
+    });
   }, [nodes, originalScenario, scenarios, activeScenarioId, edges]);
 
   // 즉시 반영 저장 처리 (새로운 기능)
@@ -913,11 +968,28 @@ function App() {
 
     try {
       // 현재 노드들을 시나리오로 변환
-      const latestName = scenarios[activeScenarioId]?.plan?.[0]?.name || originalScenario?.plan[0].name;
+      const latestName = scenarios[activeScenarioId]?.plan[0]?.name || originalScenario?.plan[0].name;
       const convertedScenario = convertNodesToScenario(nodes, edges, originalScenario, latestName, scenarios);
+      
+      // 시나리오 전이 노드 검증
+      const scenarioTransitionNodes = nodes.filter(node => node.type === 'scenarioTransition');
+      if (scenarioTransitionNodes.length > 0) {
+        console.log('🔍 즉시 반영 - 시나리오 전이 노드 검증:', scenarioTransitionNodes.length, '개');
+        scenarioTransitionNodes.forEach((node, index) => {
+          console.log(`  [${index}] ${node.id}: ${node.data.targetScenario} → ${node.data.targetState}`);
+        });
+      }
       
       // 변경사항 비교
       const changes = compareScenarios(nodes, originalScenario);
+      
+      // 새로 추가된 노드 정보 확인
+      if (changes.added.length > 0) {
+        console.log('🆕 즉시 반영 - 새로 추가된 노드:', changes.added.length, '개');
+        changes.added.forEach((node, index) => {
+          console.log(`  [${index}] ${node.name} (타입: ${node.conditionHandlers ? '상태' : '전이'})`);
+        });
+      }
       
       // 즉시 현재 시나리오에 반영
       setScenario(convertedScenario);
@@ -952,7 +1024,13 @@ function App() {
         alert('ℹ️ 변경사항이 없습니다.');
       }
       
-      // console.log('🚀 시나리오 즉시 반영 완료:', convertedScenario);
+      console.log('🚀 시나리오 즉시 반영 완료:', {
+        총노드수: nodes.length,
+        상태노드수: nodes.filter(n => n.type !== 'scenarioTransition').length,
+        전이노드수: scenarioTransitionNodes.length,
+        변경사항: changes,
+        변환된시나리오: convertedScenario
+      });
       
     } catch (error) {
       // console.error('시나리오 반영 오류:', error);
