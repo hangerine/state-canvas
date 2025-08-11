@@ -55,10 +55,13 @@ function App() {
   const sidebarResizeRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    console.log('전체 시나리오 구조:', scenarios);
-    Object.entries(scenarios).forEach(([id, scenario]) => {
-      console.log(`[${id}] scenarioTransitionNodes`, scenario.plan[0]?.scenarioTransitionNodes);
-    });
+    // scenarios가 변경될 때마다 로그 출력 (디버깅용)
+    if (Object.keys(scenarios).length > 0) {
+      console.log('전체 시나리오 구조:', scenarios);
+      Object.entries(scenarios).forEach(([id, scenario]) => {
+        console.log(`[${id}] scenarioTransitionNodes`, scenario.plan[0]?.scenarioTransitionNodes);
+      });
+    }
   }, [scenarios]);
 
   // 새 시나리오 생성 함수
@@ -122,14 +125,16 @@ function App() {
   // 시나리오 전환 함수
   const switchScenario = useCallback((scenarioId: string) => {
     const targetScenario = scenarios[scenarioId];
-    if (targetScenario) {
+    if (targetScenario && activeScenarioId !== scenarioId) {
       setActiveScenarioId(scenarioId);
       setScenario(targetScenario);
       setOriginalScenario(JSON.parse(JSON.stringify(targetScenario)));
       convertScenarioToFlow(targetScenario);
       console.log('🔄 시나리오 전환됨:', scenarioId);
+    } else {
+      console.log('⚠️ 이미 활성화된 시나리오이거나 시나리오를 찾을 수 없습니다:', scenarioId);
     }
-  }, [scenarios]);
+  }, [scenarios, activeScenarioId]);
 
   // 시나리오 이름 변경 함수
   const updateScenarioName = useCallback((scenarioId: string, newName: string) => {
@@ -246,6 +251,13 @@ function App() {
   // handleScenarioLoad가 기존 id로만 시나리오를 등록/활성화하도록 개선
   const handleScenarioLoad = useCallback((loadedScenario: Scenario, loadedId?: string) => {
     const scenarioId = loadedId || `scenario-${Date.now()}`;
+    
+    // 이미 존재하는 시나리오인지 확인
+    if (scenarios[scenarioId]) {
+      console.log('⚠️ 이미 존재하는 시나리오입니다:', scenarioId);
+      return;
+    }
+    
     setScenarios(prev => ({
       ...prev,
       [scenarioId]: loadedScenario
@@ -254,10 +266,17 @@ function App() {
     setScenario(loadedScenario);
     setOriginalScenario(JSON.parse(JSON.stringify(loadedScenario)));
     convertScenarioToFlow(loadedScenario);
-  }, []);
+  }, [scenarios]);
 
   // 여러 시나리오 업로드 시 모두 등록하고 첫 번째 시나리오만 활성화
   const handleAllScenariosLoad = useCallback((scenarioMap: Record<string, Scenario>) => {
+    // 기존 시나리오와 중복되지 않는지 확인
+    const hasOverlap = Object.keys(scenarioMap).some(id => scenarios[id]);
+    if (hasOverlap) {
+      console.log('⚠️ 일부 시나리오가 이미 존재합니다. 중복을 방지합니다.');
+      return;
+    }
+    
     setScenarios(scenarioMap);
     const firstId = Object.keys(scenarioMap)[0];
     if (firstId) {
@@ -266,25 +285,31 @@ function App() {
       setOriginalScenario(JSON.parse(JSON.stringify(scenarioMap[firstId])));
       convertScenarioToFlow(scenarioMap[firstId]);
     }
-  }, []);
+  }, [scenarios]);
 
   const convertScenarioToFlow = (scenario: Scenario) => {
     const convertStartTime = performance.now();
-    // console.log('🔄 [TIMING] convertScenarioToFlow 시작');
+    console.log('🔄 [TIMING] convertScenarioToFlow 시작 - 시나리오:', scenario.plan[0]?.name);
     
     if (!scenario.plan || scenario.plan.length === 0) return;
+    
+    // 중복 실행 방지: 이미 처리된 시나리오인지 확인
+    if (nodes.length > 0 && activeScenarioId) {
+      const currentScenario = scenarios[activeScenarioId];
+      if (currentScenario && currentScenario.plan[0]?.name === scenario.plan[0]?.name) {
+        console.log('🔄 [INFO] 이미 처리된 시나리오입니다. 중복 실행 방지.');
+        return;
+      }
+    }
     
     const dialogStates = scenario.plan[0].dialogState;
     console.log('⏱️ [TIMING] dialogStates 수:', dialogStates.length);
     
-    // 새로운 방식: 오직 현재 시나리오의 scenarioTransitionNodes만 포함
-    const planAny = scenario.plan[0] as any;
-    const scenarioTransitionNodesFromScenario: FlowNode[] = planAny.scenarioTransitionNodes || [];
-    
     // 노드 생성 타이밍 측정
     const nodeCreationStartTime = performance.now();
+    
     const newNodes: FlowNode[] = [
-      // dialogState 노드
+      // dialogState 노드만 생성 (시나리오 전이 노드는 아래에서 동적으로 생성)
       ...dialogStates.map((state, index) => ({
         id: state.name,
         type: 'custom',
@@ -296,19 +321,6 @@ function App() {
           label: state.name,
           dialogState: state
         }
-      })),
-      // 현재 시나리오의 scenarioTransitionNodes만 추가
-      ...scenarioTransitionNodesFromScenario.map((n, idx) => ({
-        id: n.id,
-        type: n.type,
-        position: n.position || { x: 100 + idx * 100, y: 100 },
-        data: {
-          label: n.data.label || '시나리오 전이',
-          dialogState: n.data.dialogState || {},
-          targetScenario: n.data.targetScenario,
-          targetState: n.data.targetState,
-        },
-        style: n.style
       }))
     ];
     const nodeCreationTime = performance.now() - nodeCreationStartTime;
@@ -327,32 +339,144 @@ function App() {
       state.conditionHandlers?.forEach((handler, idx) => {
         if (handler.transitionTarget.dialogState && 
             handler.transitionTarget.dialogState !== '__END_SESSION__') {
-          const condKey = (handler.conditionStatement || '').replace(/\s+/g, '_');
-          const edge: FlowEdge = {
-            id: `${state.name}-condition-${condKey}-${handler.transitionTarget.dialogState}`,
-            source: state.name,
-            target: handler.transitionTarget.dialogState,
-            label: `조건: ${handler.conditionStatement}`,
-            type: 'custom'
-          };
-          newEdges.push(edge);
-          conditionEdgeCount++;
+          
+          const currentScenarioName = scenario.plan[0].name;
+          const targetScenario = handler.transitionTarget.scenario;
+          
+          // 시나리오 간 전이인 경우
+          if (targetScenario && targetScenario !== currentScenarioName) {
+            // 시나리오 전이 노드로의 엣지 생성 (안정적인 ID 사용)
+            let scenarioTransitionNodeId = `scenario-transition-${state.name}-${targetScenario}-${handler.transitionTarget.dialogState}`;
+            const condKey = (handler.conditionStatement || '').replace(/\s+/g, '_');
+            const edge: FlowEdge = {
+              id: `${state.name}-condition-${idx}-${scenarioTransitionNodeId}`,
+              source: state.name,
+              target: scenarioTransitionNodeId,
+              label: `조건: ${handler.conditionStatement}`,
+              type: 'custom',
+              style: { stroke: '#ff6b35', strokeWidth: 2 } // 시나리오 전이 색상
+            };
+            newEdges.push(edge);
+            conditionEdgeCount++;
+            
+            // 시나리오 전이 노드 생성 (중복 체크 강화)
+            const existingTransitionNode = newNodes.find(n => 
+              n.type === 'scenarioTransition' && 
+              n.data.targetScenario === targetScenario && 
+              n.data.targetState === handler.transitionTarget.dialogState
+            );
+            
+            if (!existingTransitionNode) {
+              const transitionNode: FlowNode = {
+                id: scenarioTransitionNodeId,
+                type: 'scenarioTransition',
+                position: { 
+                  x: (dialogStates.length % 3) * 250 + 100, 
+                  y: Math.floor(dialogStates.length / 3) * 150 + 100 
+                }, // 시나리오 전이 노드 위치를 적절하게 배치
+                data: {
+                  label: `→ ${targetScenario}:${handler.transitionTarget.dialogState}`,
+                  dialogState: {
+                    name: '시나리오 전이',
+                    conditionHandlers: [],
+                    eventHandlers: [],
+                    intentHandlers: [],
+                    webhookActions: [],
+                    slotFillingForm: []
+                  },
+                  targetScenario: targetScenario,
+                  targetState: handler.transitionTarget.dialogState
+                }
+              };
+              newNodes.push(transitionNode);
+            } else {
+              // 기존 노드의 ID를 사용하여 엣지 수정
+              scenarioTransitionNodeId = existingTransitionNode.id;
+            }
+          } 
+          // 같은 시나리오 내 전이
+          else if (!targetScenario || targetScenario === currentScenarioName) {
+            const condKey = (handler.conditionStatement || '').replace(/\s+/g, '_');
+            const edge: FlowEdge = {
+              id: `${state.name}-condition-${idx}-${handler.transitionTarget.dialogState}`,
+              source: state.name,
+              target: handler.transitionTarget.dialogState,
+              label: `조건: ${handler.conditionStatement}`,
+              type: 'custom'
+            };
+            newEdges.push(edge);
+            conditionEdgeCount++;
+          }
         }
       });
 
       // Intent handlers에서 전이 관계 추출
       state.intentHandlers?.forEach((handler, idx) => {
         if (handler.transitionTarget.dialogState) {
-          const intentKey = (handler.intent || '').replace(/\s+/g, '_');
-          const edge: FlowEdge = {
-            id: `${state.name}-intent-${intentKey}-${handler.transitionTarget.dialogState}`,
-            source: state.name,
-            target: handler.transitionTarget.dialogState,
-            label: `인텐트: ${handler.intent}`,
-            type: 'custom'
-          };
-          newEdges.push(edge);
-          intentEdgeCount++;
+          const currentScenarioName = scenario.plan[0].name;
+          const targetScenario = handler.transitionTarget.scenario;
+          
+          // 시나리오 간 전이인 경우
+          if (targetScenario && targetScenario !== currentScenarioName) {
+            // 시나리오 전이 노드로의 엣지 생성 (안정적인 ID 사용)
+            let scenarioTransitionNodeId = `scenario-transition-${state.name}-${targetScenario}-${handler.transitionTarget.dialogState}`;
+            const intentKey = (handler.intent || '').replace(/\s+/g, '_');
+            const edge: FlowEdge = {
+              id: `${state.name}-intent-${idx}-${scenarioTransitionNodeId}`,
+              source: state.name,
+              target: scenarioTransitionNodeId,
+              label: `인텐트: ${handler.intent}`,
+              type: 'custom',
+              style: { stroke: '#ff6b35', strokeWidth: 2 } // 시나리오 전이 색상
+            };
+            newEdges.push(edge);
+            intentEdgeCount++;
+            
+            // 시나리오 전이 노드 생성 (중복 체크 강화)
+            const existingTransitionNode = newNodes.find(n => 
+              n.type === 'scenarioTransition' && 
+              n.data.targetScenario === targetScenario && 
+              n.data.targetState === handler.transitionTarget.dialogState
+            );
+            
+            if (!existingTransitionNode) {
+              const transitionNode: FlowNode = {
+                id: scenarioTransitionNodeId,
+                type: 'scenarioTransition',
+                position: { x: 0, y: 0 },
+                data: {
+                  label: `→ ${targetScenario}:${handler.transitionTarget.dialogState}`,
+                  dialogState: {
+                    name: '시나리오 전이',
+                    conditionHandlers: [],
+                    eventHandlers: [],
+                    intentHandlers: [],
+                    webhookActions: [],
+                    slotFillingForm: []
+                  },
+                  targetScenario: targetScenario,
+                  targetState: handler.transitionTarget.dialogState
+                }
+              };
+              newNodes.push(transitionNode);
+            } else {
+              // 기존 노드의 ID를 사용하여 엣지 수정
+              scenarioTransitionNodeId = existingTransitionNode.id;
+            }
+          }
+          // 같은 시나리오 내 전이
+          else if (!targetScenario || targetScenario === currentScenarioName) {
+            const intentKey = (handler.intent || '').replace(/\s+/g, '_');
+            const edge: FlowEdge = {
+              id: `${state.name}-intent-${idx}-${handler.transitionTarget.dialogState}`,
+              source: state.name,
+              target: handler.transitionTarget.dialogState,
+              label: `인텐트: ${handler.intent}`,
+              type: 'custom'
+            };
+            newEdges.push(edge);
+            intentEdgeCount++;
+          }
         }
       });
 
@@ -369,16 +493,71 @@ function App() {
               eventType = handler.event;
             }
           }
-          const eventKey = (eventType || '').replace(/\s+/g, '_');
-          const edge: FlowEdge = {
-            id: `${state.name}-event-${eventKey}-${handler.transitionTarget.dialogState}`,
-            source: state.name,
-            target: handler.transitionTarget.dialogState,
-            label: `이벤트: ${eventType}`,
-            type: 'custom'
-          };
-          newEdges.push(edge);
-          eventEdgeCount++;
+          
+          const currentScenarioName = scenario.plan[0].name;
+          const targetScenario = handler.transitionTarget.scenario;
+          
+          // 시나리오 간 전이인 경우
+          if (targetScenario && targetScenario !== currentScenarioName) {
+            // 시나리오 전이 노드로의 엣지 생성 (안정적인 ID 사용)
+            let scenarioTransitionNodeId = `scenario-transition-${state.name}-${targetScenario}-${handler.transitionTarget.dialogState}`;
+            const eventKey = (eventType || '').replace(/\s+/g, '_');
+            const edge: FlowEdge = {
+              id: `${state.name}-event-${idx}-${scenarioTransitionNodeId}`,
+              source: state.name,
+              target: scenarioTransitionNodeId,
+              label: `이벤트: ${eventType}`,
+              type: 'custom',
+              style: { stroke: '#ff6b35', strokeWidth: 2 } // 시나리오 전이 색상
+            };
+            newEdges.push(edge);
+            eventEdgeCount++;
+            
+            // 시나리오 전이 노드 생성 (중복 체크 강화)
+            const existingTransitionNode = newNodes.find(n => 
+              n.type === 'scenarioTransition' && 
+              n.data.targetScenario === targetScenario && 
+              n.data.targetState === handler.transitionTarget.dialogState
+            );
+            
+            if (!existingTransitionNode) {
+              const transitionNode: FlowNode = {
+                id: scenarioTransitionNodeId,
+                type: 'scenarioTransition',
+                position: { x: 0, y: 0 },
+                data: {
+                  label: `→ ${targetScenario}:${handler.transitionTarget.dialogState}`,
+                  dialogState: {
+                    name: '시나리오 전이',
+                    conditionHandlers: [],
+                    eventHandlers: [],
+                    intentHandlers: [],
+                    webhookActions: [],
+                    slotFillingForm: []
+                  },
+                  targetScenario: targetScenario,
+                  targetState: handler.transitionTarget.dialogState
+                }
+              };
+              newNodes.push(transitionNode);
+            } else {
+              // 기존 노드의 ID를 사용하여 엣지 수정
+              scenarioTransitionNodeId = existingTransitionNode.id;
+            }
+          }
+          // 같은 시나리오 내 전이
+          else if (!handler.transitionTarget.scenario || handler.transitionTarget.scenario === currentScenarioName) {
+            const eventKey = (eventType || '').replace(/\s+/g, '_');
+            const edge: FlowEdge = {
+              id: `${state.name}-event-${idx}-${handler.transitionTarget.dialogState}`,
+              source: state.name,
+              target: handler.transitionTarget.dialogState,
+              label: `이벤트: ${eventType}`,
+              type: 'custom'
+            };
+            newEdges.push(edge);
+            eventEdgeCount++;
+          }
         }
       });
     });
@@ -413,9 +592,10 @@ function App() {
     // console.log('  - 상태 업데이트:', stateUpdateTime.toFixed(2), 'ms', `(${(stateUpdateTime/totalConversionTime*100).toFixed(1)}%)`);
   };
 
-  const handleNodeSelect = useCallback((node: FlowNode | null) => {
+  const handleNodeSelect = useCallback((nodeName: string | null) => {
+    const node = nodeName ? nodes.find(n => n.id === nodeName) || null : null;
     setSelectedNode(node);
-  }, []);
+  }, [nodes]);
 
   // 테스트 모드 토글 및 자동 전이 처리
   const handleTestModeToggle = useCallback(async () => {
@@ -738,7 +918,7 @@ function App() {
               nodes={nodes}
               edges={edges}
               currentState={currentState}
-              scenario={scenario || undefined}
+              scenario={scenario || null}
               scenarios={scenarios}
               currentScenarioId={activeScenarioId}
               onNodeSelect={handleNodeSelect}

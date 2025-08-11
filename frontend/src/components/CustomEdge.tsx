@@ -10,7 +10,9 @@ const CustomEdge = ({
 
   // 화살표 마커 ID (unique per edge)
   const markerId = `custom-arrowhead-${id}`;
-  const edgeColor = selected ? '#1565c0' : '#222';
+  // style.stroke가 있으면 우선 사용 (시나리오 전이 등)
+  const defaultColor = selected ? '#1565c0' : '#222';
+  const edgeColor = style?.stroke || defaultColor;
   const edgeShadow = selected ? 'drop-shadow(0 0 6px #1976d2aa)' : undefined;
 
   return (
@@ -44,10 +46,10 @@ const CustomEdge = ({
         id={id}
         d={edgePath}
         style={{
-          stroke: edgeColor,
           strokeWidth: selected ? 2 : 1.5,
           filter: edgeShadow,
           ...style,
+          stroke: edgeColor,  // edgeColor를 나중에 적용하여 style.stroke가 있으면 덮어쓰도록
         }}
         className="react-flow__edge-path"
         markerEnd={`url(#${markerId})`}

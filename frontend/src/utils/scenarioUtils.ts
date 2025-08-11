@@ -260,6 +260,18 @@ export const convertNodesToScenario = (
     if (!sourceEdge) return;
     const sourceNode = nodeMap[sourceEdge.source];
     if (!sourceNode || !sourceNode.data || !sourceNode.data.dialogState) return;
+    
+    // 중복 체크: 이미 동일한 transitionTarget을 가진 핸들러가 있는지 확인
+    const existingHandler = sourceNode.data.dialogState.conditionHandlers?.find(handler => 
+      handler.transitionTarget?.scenario === stNode.data.targetScenario &&
+      handler.transitionTarget?.dialogState === stNode.data.targetState
+    );
+    
+    // 중복된 핸들러가 있으면 추가하지 않음
+    if (existingHandler) {
+      return;
+    }
+    
     // handler 추가 (여기서는 conditionHandler로 추가, 필요시 intentHandler 등으로 확장 가능)
     const handler = {
       conditionStatement: 'True',
