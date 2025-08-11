@@ -1191,14 +1191,9 @@ function App() {
 
   // FlowCanvas에서 노드가 변경될 때 scenario와 nodes를 동기화
   const handleNodesChange = useCallback((updatedNodes: FlowNode[]) => {
+    // 내부에서 추가/삭제/이동된 구조를 그대로 반영
     setNodes(updatedNodes);
-    if (scenario) {
-      const latestName = scenarios[activeScenarioId]?.plan?.[0]?.name || scenario.plan[0].name;
-      const updatedScenario = convertNodesToScenario(updatedNodes, edges, scenario, latestName, scenarios);
-      setScenario(updatedScenario);
-      setScenarios(prev => activeScenarioId ? { ...prev, [activeScenarioId]: updatedScenario } : prev);
-    }
-  }, [scenario, activeScenarioId, scenarios, edges]);
+  }, []);
 
   // 연결 변경 시 처리 (현재는 UI에서만 관리, 향후 확장 가능)
   const handleEdgesChange = useCallback((newEdges: FlowEdge[]) => {

@@ -216,10 +216,11 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
   isTestMode,
   ...rest
 }) => {
-  const { project, screenToFlowPosition } = useReactFlow();
+  const { project, screenToFlowPosition, getNodes: rfGetNodes } = useReactFlow();
   const containerRef = useRef<HTMLDivElement>(null);
   
   // 로컬 상태
+  const [internalNodes, setInternalNodes] = useState<FlowNode[]>(nodes);
   const [editingNode, setEditingNode] = useState<FlowNode | null>(null);
   const [editingEdge, setEditingEdge] = useState<FlowEdge | null>(null);
   const [contextMenu, setContextMenu] = useState<{
@@ -236,6 +237,9 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
 
   // 편집 가능 여부
   const [isEditable, setIsEditable] = useState(true);
+  useEffect(() => {
+    setInternalNodes(nodes);
+  }, [nodes]);
 
   // 자동 레이아웃 모드 상태
   const [autoLayoutEnabled, setAutoLayoutEnabled] = useState(false);
@@ -446,13 +450,13 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
 
   // 노드 편집 모달 열기
   const handleNodeEdit = useCallback((nodeId: string) => {
-    const nodeToEdit = nodes.find(n => n.id === nodeId);
+    const nodeToEdit = internalNodes.find(n => n.id === nodeId);
     if (nodeToEdit) {
       setEditingNode(nodeToEdit);
       // Webhook actions 확인
       // console.log('🔍 [DEBUG] FlowCanvas - webhookActions:', nodeToEdit.data.dialogState.webhookActions);
     }
-  }, [nodes, scenario]);
+  }, [internalNodes, scenario]);
 
   // 노드들로부터 엣지 자동 생성
   const generateEdgesFromNodes = useCallback((nodes: FlowNode[]) => {
@@ -656,14 +660,14 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
   // 노드 클릭 처리
   const onNodeClick = useCallback(
     (event: React.MouseEvent, node: Node) => {
-      const flowNode = nodes.find(n => n.id === node.id);
+      const flowNode = internalNodes.find(n => n.id === node.id);
       if (flowNode && onNodeSelect) {
         onNodeSelect(flowNode.id);
       }
       setSelectedNodes([node.id]);
       setSelectedEdges([]);
     },
-    [nodes, onNodeSelect]
+    [internalNodes, onNodeSelect]
   );
 
   // 1. onNodeDoubleClick 핸들러 추가
@@ -712,13 +716,19 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
 
   // 노드 변경 처리
   const handleNodesChange = useCallback((changes: NodeChange[]) => {
-    // 포지션 변경일 경우에만 처리
-    const positionChanges = changes.filter(change => change.type === 'position');
-    if (positionChanges.length > 0 && onNodesChange) {
-      const updatedNodes = applyNodeChanges(changes, nodes) as FlowNode[];
-      onNodesChange(updatedNodes);
-    }
-  }, [nodes, onNodesChange]);
+    // ReactFlow 내부 state를 유지하면서 position/selection 등은 내부 상태로만 반영
+    setInternalNodes(prev => applyNodeChanges(changes, prev) as FlowNode[]);
+  }, []);
+
+  const handleNodeDragStop = useCallback((evt: React.MouseEvent, node: Node) => {
+    if (!onNodesChange) return;
+    const rfNodes = rfGetNodes();
+    const updatedNodes = internalNodes.map(n => {
+      const rn = rfNodes.find(r => r.id === n.id);
+      return rn ? { ...n, position: rn.position } : n;
+    }) as FlowNode[];
+    onNodesChange(updatedNodes);
+  }, [internalNodes, onNodesChange, rfGetNodes]);
 
   // 엣지 더블클릭 처리
   const onEdgeDoubleClick = useCallback((event: React.MouseEvent, edge: Edge) => {
@@ -810,7 +820,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
 
   // 노드 스타일 계산
   const getNodeStyle = (nodeId: string) => {
-    const node = nodes.find(n => n.id === nodeId);
+    const node = internalNodes.find(n => n.id === nodeId);
     let baseStyle = {};
     
     // 노드 타입에 따른 기본 스타일
@@ -883,7 +893,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
     
     // 새로운 시나리오 전이 노드 생성
     const newNodeId = `scenario-transition-${Date.now()}`;
-    const sourceNodeObj = nodes.find(n => n.id === sourceNode);
+    const sourceNodeObj = internalNodes.find(n => n.id === sourceNode);
     
     if (sourceNodeObj) {
       const newNode: FlowNode = {
@@ -916,7 +926,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
         label: '시나리오 전이'
       };
       
-      onNodesChange?.([...nodes, newNode]);
+      onNodesChange?.([...internalNodes, newNode]);
       onEdgesChange?.([...edges, newEdge]);
     }
     
@@ -931,7 +941,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
   }, []);
 
   // 노드들을 렌더링용으로 변환 (스타일 적용)
-  const styledNodes = nodes.map(node => ({
+  const styledNodes = internalNodes.map(node => ({
     ...node,
     data: {
       ...node.data,
@@ -1239,6 +1249,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           onNodesChange={handleNodesChange}
+          onNodeDragStop={handleNodeDragStop}
           onEdgesChange={handleEdgesChangeWithUndo}
           onConnect={onEdgesChange ? onConnect : undefined}
           onNodeClick={onNodeClick}
