@@ -45,18 +45,30 @@ const EdgeEditModal: React.FC<EdgeEditModalProps> = ({
     if (edge) {
       setEditedEdge({ ...edge });
       // 시나리오 간 전이인지 확인
-      const isScenarioEdge = edge.label?.includes('시나리오 전이') || edge.target.includes('scenario-');
+      const isScenarioEdge = edge.label?.includes('시나리오 전이') || edge.target.includes('scenario-transition');
       setIsScenarioTransition(isScenarioEdge);
       
       if (isScenarioEdge) {
-        // 기존 시나리오 전이 정보 파싱
-        const scenarioMatch = edge.target.match(/scenario-(\d+)/);
-        if (scenarioMatch) {
-          setTargetScenarioId(scenarioMatch[1]);
+        // 시나리오 전이 노드 ID에서 타겟 시나리오와 상태 정보 추출
+        // ID 형식: scenario-transition-${state.name}-${targetScenario}-${handler.transitionTarget.dialogState}
+        const targetMatch = edge.target.match(/scenario-transition-.*?-(.*?)-(.*)/);
+        if (targetMatch) {
+          const extractedTargetScenario = targetMatch[1];
+          const extractedTargetState = targetMatch[2];
+          
+          // 시나리오 이름으로 ID 찾기
+          const foundScenarioId = Object.entries(scenarios).find(([id, scenario]) => 
+            scenario.plan[0]?.name === extractedTargetScenario
+          )?.[0];
+          
+          if (foundScenarioId) {
+            setTargetScenarioId(foundScenarioId);
+            setTargetState(extractedTargetState);
+          }
         }
       }
     }
-  }, [edge]);
+  }, [edge, scenarios]);
 
   if (!editedEdge) return null;
 
@@ -64,8 +76,11 @@ const EdgeEditModal: React.FC<EdgeEditModalProps> = ({
     let updatedEdge = { ...editedEdge };
     
     if (isScenarioTransition) {
-      // 시나리오 간 전이인 경우 타겟을 시나리오 ID로 설정
-      updatedEdge.target = `scenario-${targetScenarioId}`;
+      // 시나리오 간 전이인 경우 새로운 시나리오 전이 노드 ID 생성
+      const targetScenarioName = scenarios[targetScenarioId]?.plan[0]?.name || targetScenarioId;
+      const newTargetId = `scenario-transition-${editedEdge.source}-${targetScenarioName}-${targetState}`;
+      
+      updatedEdge.target = newTargetId;
       updatedEdge.label = `시나리오 전이: ${targetState}`;
     }
     
