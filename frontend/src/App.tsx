@@ -1077,8 +1077,9 @@ function App() {
     
     // 🔥 핵심: 기존 상태를 완전히 대체 (누적 방지)
     console.log('🔄 [INFO] 기존 상태 완전 대체 시작');
-    setNodes(newNodes); // 이전 노드 완전 대체
-    setEdges(newEdges); // 이전 엣지 완전 대체
+    // 상태를 먼저 반영한 뒤 다음 프레임에서 캔버스 fitView가 동작하도록 함
+    setNodes(newNodes);
+    setEdges(newEdges);
     console.log('✅ [INFO] 기존 상태 완전 대체 완료');
     
     console.log('✅ [INFO] 상태 업데이트 완료:');

@@ -10,6 +10,7 @@ import ReactFlow, {
   ReactFlowProvider,
   BackgroundVariant,
   useReactFlow,
+  ReactFlowInstance,
   applyNodeChanges,
   applyEdgeChanges,
   NodeChange,
@@ -216,7 +217,8 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
   isTestMode,
   ...rest
 }) => {
-  const { project, screenToFlowPosition, getNodes: rfGetNodes } = useReactFlow();
+  const { project, screenToFlowPosition, getNodes: rfGetNodes, fitView } = useReactFlow();
+  const rfInstanceRef = useRef<ReactFlowInstance | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
   // 로컬 상태
@@ -276,13 +278,17 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
 
   // 자동 레이아웃 함수
   const handleAutoLayout = useCallback(() => {
-    const { nodes: layoutedNodes } = getLayoutedElements(nodes, edges);
-    const typedNodes = layoutedNodes.map(node => ({
+    setUndoStack(stack => [...stack, { nodes: internalNodes, edges }]);
+    setRedoStack([]);
+    const { nodes: layoutedNodes } = getLayoutedElements(internalNodes as unknown as Node[], edges as unknown as Edge[]);
+    const typedNodes = (layoutedNodes as any).map((node: any) => ({
       ...node,
       type: node.type || 'custom'
     })) as FlowNode[];
+    setInternalNodes(typedNodes);
     onNodesChange?.(typedNodes);
-  }, [nodes, edges, onNodesChange]);
+    requestAnimationFrame(() => fitView({ padding: 0.2 }));
+  }, [internalNodes, edges, onNodesChange, fitView]);
 
   // 두 노드 간의 최적 핸들 조합을 반환하는 함수
   const getOptimalHandles = useCallback((sourceNode: FlowNode, targetNode: FlowNode) => {
@@ -392,14 +398,16 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
     if (!params.source || !params.target) return;
     
     // 가장 가까운 핸들끼리 연결하기 위한 핸들 선택 로직
-    const sourceNode = nodes.find(n => n.id === params.source);
-    const targetNode = nodes.find(n => n.id === params.target);
+    const sourceNode = internalNodes.find(n => n.id === params.source);
+    const targetNode = internalNodes.find(n => n.id === params.target);
     
     if (!sourceNode || !targetNode) return;
     
     // 최적 핸들 조합 선택
     const { sourceHandle, targetHandle } = getHandlesWithConnectionCount(sourceNode, targetNode);
     
+    setUndoStack(stack => [...stack, { nodes: internalNodes, edges }]);
+    setRedoStack([]);
     const newEdge: FlowEdge = {
       id: `${params.source}-${params.target}-${Date.now()}`,
       source: params.source,
@@ -411,7 +419,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
     };
     
     onEdgesChange?.([...edges, newEdge]);
-  }, [edges, onEdgesChange, nodes, getHandlesWithConnectionCount]);
+  }, [edges, onEdgesChange, internalNodes, getHandlesWithConnectionCount]);
 
   // 노드 변경 처리 - Undo 스택 추가
   const handleNodesChangeWithUndo = useCallback((changes: NodeChange[]) => {
@@ -433,6 +441,8 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
   const handleEdgeUpdate = useCallback((oldEdge: Edge, newConnection: Connection) => {
     if (!newConnection.source || !newConnection.target) return;
     
+    setUndoStack(stack => [...stack, { nodes: internalNodes, edges }]);
+    setRedoStack([]);
     const updatedEdges = edges.map(e => 
       e.id === oldEdge.id 
         ? { 
@@ -446,7 +456,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
     ) as FlowEdge[];
     
     onEdgesChange?.(updatedEdges);
-  }, [edges, onEdgesChange]);
+  }, [edges, onEdgesChange, internalNodes]);
 
   // 노드 편집 모달 열기
   const handleNodeEdit = useCallback((nodeId: string) => {
@@ -745,10 +755,12 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
 
   // 엣지 삭제 처리
   const handleEdgeDelete = useCallback((edgeId: string) => {
+    setUndoStack(stack => [...stack, { nodes: internalNodes, edges }]);
+    setRedoStack([]);
     const updatedEdges = edges.filter(e => e.id !== edgeId);
     onEdgesChange?.(updatedEdges);
     setEditingEdge(null);
-  }, [edges, onEdgesChange]);
+  }, [edges, onEdgesChange, internalNodes]);
 
   // 컨텍스트 메뉴 처리
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
@@ -787,12 +799,14 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
 
   // 노드 삭제 처리
   const handleNodeDelete = useCallback((nodeId: string) => {
-    const updatedNodes = nodes.filter(n => n.id !== nodeId);
+    setUndoStack(stack => [...stack, { nodes: internalNodes, edges }]);
+    setRedoStack([]);
+    const updatedNodes = internalNodes.filter(n => n.id !== nodeId);
     const updatedEdges = edges.filter(e => e.source !== nodeId && e.target !== nodeId);
     onNodesChange?.(updatedNodes);
     onEdgesChange?.(updatedEdges);
     setContextMenu(null);
-  }, [nodes, edges, onNodesChange, onEdgesChange]);
+  }, [internalNodes, edges, onNodesChange, onEdgesChange]);
 
   // 엣지 삭제 버튼 클릭 처리
   const handleEdgeDeleteClick = useCallback((e: React.MouseEvent) => {
@@ -877,15 +891,10 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
 
   // 초기 레이아웃 적용
   useEffect(() => {
-    if (nodes.length > 0 && !nodes.some(n => n.position.x !== 0 || n.position.y !== 0)) {
-      const layoutedNodes = applyInitialLayout();
-      const typedNodes = layoutedNodes.map(node => ({
-        ...node,
-        type: node.type || 'custom'
-      })) as FlowNode[];
-      onNodesChange?.(typedNodes);
-    }
-  }, []);
+    if (internalNodes.length === 0) return;
+    // 화면 맞춤만 수행 (초기 자동 레이아웃은 버튼으로 실행)
+    requestAnimationFrame(() => fitView({ padding: 0.2 }));
+  }, [internalNodes.length, fitView]);
 
   // 시나리오 전환 저장 처리
   const handleScenarioTransitionSave = useCallback(() => {
@@ -1165,6 +1174,29 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
     setRedoStack([]);
   }, [currentScenarioId]);
 
+  // 노드 세트/시나리오 변경 시 화면 자동 맞춤
+  useEffect(() => {
+    if (internalNodes.length > 0) {
+      // ReactFlow 내부 레이아웃 반영 이후 실행
+      requestAnimationFrame(() => {
+        // 우선 훅의 fitView 사용
+        try { fitView({ padding: 0.2, includeHiddenNodes: true }); } catch {}
+        // 인스턴스가 있다면 인스턴스 기반으로 한 번 더 보장
+        if (rfInstanceRef.current) {
+          rfInstanceRef.current.fitView({ padding: 0.2, includeHiddenNodes: true });
+        }
+      });
+      // 비동기 반영 지연 대비 재시도
+      const timeoutId = setTimeout(() => {
+        try { fitView({ padding: 0.2, includeHiddenNodes: true }); } catch {}
+        if (rfInstanceRef.current) {
+          rfInstanceRef.current.fitView({ padding: 0.2, includeHiddenNodes: true });
+        }
+      }, 60);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [currentScenarioId, internalNodes, edges.length, fitView]);
+
   return (
     <>
       <Box ref={containerRef} sx={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -1248,6 +1280,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
           edges={edges}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
+          onInit={(inst) => { rfInstanceRef.current = inst; requestAnimationFrame(() => inst.fitView({ padding: 0.2 })); }}
           onNodesChange={handleNodesChange}
           onNodeDragStop={handleNodeDragStop}
           onEdgesChange={handleEdgesChangeWithUndo}
