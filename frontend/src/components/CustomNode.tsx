@@ -59,7 +59,7 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
         },
       }}
     >
-      {/* Handle (Top) - source & target */}
+      {/* Handle (Top) - target만 가능 */}
       <Handle
         id="top-target"
         type="target"
@@ -77,45 +77,11 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
         }}
         ref={handleRefs?.top}
       />
-      <Handle
-        id="top-source"
-        type="source"
-        position={Position.Top}
-        style={{
-          background: '#1976d2',
-          width: 10,
-          height: 10,
-          left: '50%',
-          top: -5,
-          transform: 'translateX(-50%)',
-          border: '2px solid #fff',
-          zIndex: 10,
-          pointerEvents: 'all',
-        }}
-        ref={handleRefs?.top}
-      />
 
-      {/* Handle (Left) - source & target */}
+      {/* Handle (Left) - target만 가능 */}
       <Handle
         id="left-target"
         type="target"
-        position={Position.Left}
-        style={{
-          background: '#1976d2',
-          width: 10,
-          height: 10,
-          left: -5,
-          top: '50%',
-          transform: 'translateY(-50%)',
-          border: '2px solid #fff',
-          zIndex: 10,
-          pointerEvents: 'all',
-        }}
-        ref={handleRefs?.left}
-      />
-      <Handle
-        id="left-source"
-        type="source"
         position={Position.Left}
         style={{
           background: '#1976d2',
@@ -259,6 +225,7 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
         }}
         ref={handleRefs?.right}
       />
+
       {/* Handle (Bottom) - source & target */}
       <Handle
         id="bottom-source"

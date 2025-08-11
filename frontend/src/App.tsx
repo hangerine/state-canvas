@@ -287,6 +287,109 @@ function App() {
     }
   }, [scenarios]);
 
+  // 두 노드 간의 최적 핸들 조합을 반환하는 함수
+  const getOptimalHandles = (sourceNode: FlowNode, targetNode: FlowNode) => {
+    // 소스 노드의 위치
+    const sourcePos = sourceNode.position;
+    // 타겟 노드의 위치
+    const targetPos = targetNode.position;
+    
+    // 두 노드 간의 상대적 위치 계산
+    const deltaX = targetPos.x - sourcePos.x;
+    const deltaY = targetPos.y - sourcePos.y;
+    
+    // Source는 항상 right 또는 bottom, Target은 항상 left 또는 top
+    let sourceHandle: string | undefined;
+    let targetHandle: string | undefined;
+    
+    if (Math.abs(deltaX) > Math.abs(deltaY)) {
+      // 수평 연결이 더 적절
+      if (deltaX > 0) {
+        // 소스가 왼쪽, 타겟이 오른쪽
+        sourceHandle = 'right-source';
+        targetHandle = 'left-target';
+      } else {
+        // 소스가 오른쪽, 타겟이 왼쪽
+        sourceHandle = 'right-source';
+        targetHandle = 'left-target';
+      }
+    } else {
+      // 수직 연결이 더 적절
+      if (deltaY > 0) {
+        // 소스가 위쪽, 타겟이 아래쪽
+        sourceHandle = 'bottom-source';
+        targetHandle = 'top-target';
+      } else {
+        // 소스가 아래쪽, 타겟이 위쪽
+        sourceHandle = 'bottom-source';
+        targetHandle = 'top-target';
+      }
+    }
+    
+    return { sourceHandle, targetHandle };
+  };
+
+  // 연결 개수를 고려한 핸들 선택 함수
+  const getHandlesWithConnectionCount = (sourceNode: FlowNode, targetNode: FlowNode, existingEdges: FlowEdge[]) => {
+    // 소스 노드의 각 핸들별 사용 개수 계산
+    const rightSourceCount = existingEdges.filter(edge => 
+      edge.source === sourceNode.id && edge.sourceHandle === 'right-source'
+    ).length;
+    const bottomSourceCount = existingEdges.filter(edge => 
+      edge.source === sourceNode.id && edge.sourceHandle === 'bottom-source'
+    ).length;
+    
+    // 타겟 노드의 각 핸들별 사용 개수 계산
+    const leftTargetCount = existingEdges.filter(edge => 
+      edge.target === targetNode.id && edge.targetHandle === 'left-target'
+    ).length;
+    const topTargetCount = existingEdges.filter(edge => 
+      edge.target === targetNode.id && edge.targetHandle === 'top-target'
+    ).length;
+    
+    // 사용 가능한 핸들 조합 찾기
+    const availableCombinations = [];
+    
+    // right-source -> top-target 조합이 사용 가능한지 확인
+    if (rightSourceCount === 0 && topTargetCount === 0) {
+      availableCombinations.push({
+        sourceHandle: 'right-source',
+        targetHandle: 'top-target',
+        priority: 1 // right -> top 우선
+      });
+    }
+    
+    // bottom-source -> left-target 조합이 사용 가능한지 확인
+    if (bottomSourceCount === 0 && leftTargetCount === 0) {
+      availableCombinations.push({
+        sourceHandle: 'bottom-source',
+        targetHandle: 'left-target',
+        priority: 2 // bottom -> left
+      });
+    }
+    
+    // 사용 가능한 조합이 있으면 우선순위에 따라 선택
+    if (availableCombinations.length > 0) {
+      // 우선순위가 높은 것부터 선택 (right -> top 우선)
+      availableCombinations.sort((a, b) => a.priority - b.priority);
+      return availableCombinations[0];
+    }
+    
+    // 모든 핸들이 사용 중인 경우, 가장 적게 사용된 조합 선택
+    const combination1 = {
+      sourceHandle: 'right-source',
+      targetHandle: 'top-target',
+      usage: rightSourceCount + topTargetCount
+    };
+    const combination2 = {
+      sourceHandle: 'bottom-source',
+      targetHandle: 'left-target',
+      usage: bottomSourceCount + leftTargetCount
+    };
+    
+    return combination1.usage <= combination2.usage ? combination1 : combination2;
+  };
+
   const convertScenarioToFlow = (scenario: Scenario) => {
     const convertStartTime = performance.now();
     console.log('🔄 [TIMING] convertScenarioToFlow 시작 - 시나리오:', scenario.plan[0]?.name);
@@ -348,10 +451,26 @@ function App() {
             // 시나리오 전이 노드로의 엣지 생성 (안정적인 ID 사용)
             let scenarioTransitionNodeId = `scenario-transition-${state.name}-${targetScenario}-${handler.transitionTarget.dialogState}`;
             const condKey = (handler.conditionStatement || '').replace(/\s+/g, '_');
+            
+            // 소스 노드와 타겟 노드 찾기
+            const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
+            const targetNode = newNodes.find(n => n.id === scenarioTransitionNodeId);
+            
+            let sourceHandle: string | undefined;
+            let targetHandle: string | undefined;
+            
+            if (sourceNode && targetNode) {
+              const handles = getHandlesWithConnectionCount(sourceNode, targetNode, newEdges);
+              sourceHandle = handles.sourceHandle;
+              targetHandle = handles.targetHandle;
+            }
+            
             const edge: FlowEdge = {
               id: `${state.name}-condition-${idx}-${scenarioTransitionNodeId}`,
               source: state.name,
               target: scenarioTransitionNodeId,
+              sourceHandle,
+              targetHandle,
               label: `조건: ${handler.conditionStatement}`,
               type: 'custom',
               style: { stroke: '#ff6b35', strokeWidth: 2 } // 시나리오 전이 색상
@@ -397,10 +516,26 @@ function App() {
           // 같은 시나리오 내 전이
           else if (!targetScenario || targetScenario === currentScenarioName) {
             const condKey = (handler.conditionStatement || '').replace(/\s+/g, '_');
+            
+            // 소스 노드와 타겟 노드 찾기
+            const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
+            const targetNode = newNodes.find(n => n.data.dialogState.name === handler.transitionTarget.dialogState);
+            
+            let sourceHandle: string | undefined;
+            let targetHandle: string | undefined;
+            
+            if (sourceNode && targetNode) {
+              const handles = getHandlesWithConnectionCount(sourceNode, targetNode, newEdges);
+              sourceHandle = handles.sourceHandle;
+              targetHandle = handles.targetHandle;
+            }
+            
             const edge: FlowEdge = {
               id: `${state.name}-condition-${idx}-${handler.transitionTarget.dialogState}`,
               source: state.name,
               target: handler.transitionTarget.dialogState,
+              sourceHandle,
+              targetHandle,
               label: `조건: ${handler.conditionStatement}`,
               type: 'custom'
             };
@@ -421,10 +556,26 @@ function App() {
             // 시나리오 전이 노드로의 엣지 생성 (안정적인 ID 사용)
             let scenarioTransitionNodeId = `scenario-transition-${state.name}-${targetScenario}-${handler.transitionTarget.dialogState}`;
             const intentKey = (handler.intent || '').replace(/\s+/g, '_');
+            
+            // 소스 노드와 타겟 노드 찾기
+            const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
+            const targetNode = newNodes.find(n => n.id === scenarioTransitionNodeId);
+            
+            let sourceHandle: string | undefined;
+            let targetHandle: string | undefined;
+            
+            if (sourceNode && targetNode) {
+              const handles = getHandlesWithConnectionCount(sourceNode, targetNode, newEdges);
+              sourceHandle = handles.sourceHandle;
+              targetHandle = handles.targetHandle;
+            }
+            
             const edge: FlowEdge = {
               id: `${state.name}-intent-${idx}-${scenarioTransitionNodeId}`,
               source: state.name,
               target: scenarioTransitionNodeId,
+              sourceHandle,
+              targetHandle,
               label: `인텐트: ${handler.intent}`,
               type: 'custom',
               style: { stroke: '#ff6b35', strokeWidth: 2 } // 시나리오 전이 색상
@@ -502,10 +653,26 @@ function App() {
             // 시나리오 전이 노드로의 엣지 생성 (안정적인 ID 사용)
             let scenarioTransitionNodeId = `scenario-transition-${state.name}-${targetScenario}-${handler.transitionTarget.dialogState}`;
             const eventKey = (eventType || '').replace(/\s+/g, '_');
+            
+            // 소스 노드와 타겟 노드 찾기
+            const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
+            const targetNode = newNodes.find(n => n.id === scenarioTransitionNodeId);
+            
+            let sourceHandle: string | undefined;
+            let targetHandle: string | undefined;
+            
+            if (sourceNode && targetNode) {
+              const handles = getOptimalHandles(sourceNode, targetNode);
+              sourceHandle = handles.sourceHandle;
+              targetHandle = handles.targetHandle;
+            }
+            
             const edge: FlowEdge = {
               id: `${state.name}-event-${idx}-${scenarioTransitionNodeId}`,
               source: state.name,
               target: scenarioTransitionNodeId,
+              sourceHandle,
+              targetHandle,
               label: `이벤트: ${eventType}`,
               type: 'custom',
               style: { stroke: '#ff6b35', strokeWidth: 2 } // 시나리오 전이 색상
@@ -548,10 +715,26 @@ function App() {
           // 같은 시나리오 내 전이
           else if (!handler.transitionTarget.scenario || handler.transitionTarget.scenario === currentScenarioName) {
             const eventKey = (eventType || '').replace(/\s+/g, '_');
+            
+            // 소스 노드와 타겟 노드 찾기
+            const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
+            const targetNode = newNodes.find(n => n.data.dialogState.name === handler.transitionTarget.dialogState);
+            
+            let sourceHandle: string | undefined;
+            let targetHandle: string | undefined;
+            
+            if (sourceNode && targetNode) {
+              const handles = getHandlesWithConnectionCount(sourceNode, targetNode, newEdges);
+              sourceHandle = handles.sourceHandle;
+              targetHandle = handles.targetHandle;
+            }
+            
             const edge: FlowEdge = {
               id: `${state.name}-event-${idx}-${handler.transitionTarget.dialogState}`,
               source: state.name,
               target: handler.transitionTarget.dialogState,
+              sourceHandle,
+              targetHandle,
               label: `이벤트: ${eventType}`,
               type: 'custom'
             };

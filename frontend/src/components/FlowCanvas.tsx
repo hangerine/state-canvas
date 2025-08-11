@@ -62,9 +62,22 @@ const ScenarioTransitionNode: React.FC<any> = ({ data, id }) => {
     >
       {/* Input Handle (왼쪽) */}
       <Handle
+        id="left-target"
         type="target"
         position={Position.Left}
-        id={`${id}-target`}
+        style={{
+          background: '#ff6b35',
+          width: 8,
+          height: 8,
+          border: '2px solid #fff',
+        }}
+      />
+      
+      {/* Input Handle (위쪽) */}
+      <Handle
+        id="top-target"
+        type="target"
+        position={Position.Top}
         style={{
           background: '#ff6b35',
           width: 8,
@@ -102,9 +115,22 @@ const ScenarioTransitionNode: React.FC<any> = ({ data, id }) => {
       
       {/* Output Handle (오른쪽) */}
       <Handle
+        id="right-source"
         type="source"
         position={Position.Right}
-        id={`${id}-source`}
+        style={{
+          background: '#ff6b35',
+          width: 8,
+          height: 8,
+          border: '2px solid #fff',
+        }}
+      />
+      
+      {/* Output Handle (아래쪽) */}
+      <Handle
+        id="bottom-source"
+        type="source"
+        position={Position.Bottom}
         style={{
           background: '#ff6b35',
           width: 8,
@@ -254,22 +280,134 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
     onNodesChange?.(typedNodes);
   }, [nodes, edges, onNodesChange]);
 
+  // 두 노드 간의 최적 핸들 조합을 반환하는 함수
+  const getOptimalHandles = useCallback((sourceNode: FlowNode, targetNode: FlowNode) => {
+    // 소스 노드의 위치
+    const sourcePos = sourceNode.position;
+    // 타겟 노드의 위치
+    const targetPos = targetNode.position;
+    
+    // 두 노드 간의 상대적 위치 계산
+    const deltaX = targetPos.x - sourcePos.x;
+    const deltaY = targetPos.y - sourcePos.y;
+    
+    // Source는 항상 right 또는 bottom, Target은 항상 top 또는 left
+    let sourceHandle: string | undefined;
+    let targetHandle: string | undefined;
+    
+    if (Math.abs(deltaX) > Math.abs(deltaY)) {
+      // 수평 연결이 더 적절
+      if (deltaX > 0) {
+        // 소스가 왼쪽, 타겟이 오른쪽
+        sourceHandle = 'right-source';
+        targetHandle = 'top-target';
+      } else {
+        // 소스가 오른쪽, 타겟이 왼쪽
+        sourceHandle = 'right-source';
+        targetHandle = 'top-target';
+      }
+    } else {
+      // 수직 연결이 더 적절
+      if (deltaY > 0) {
+        // 소스가 위쪽, 타겟이 아래쪽
+        sourceHandle = 'bottom-source';
+        targetHandle = 'left-target';
+      } else {
+        // 소스가 아래쪽, 타겟이 위쪽
+        sourceHandle = 'bottom-source';
+        targetHandle = 'left-target';
+      }
+    }
+    
+    return { sourceHandle, targetHandle };
+  }, []);
+
+  // 연결 개수를 고려한 핸들 선택 함수
+  const getHandlesWithConnectionCount = useCallback((sourceNode: FlowNode, targetNode: FlowNode) => {
+    // 소스 노드의 각 핸들별 사용 개수 계산
+    const rightSourceCount = edges.filter(edge => 
+      edge.source === sourceNode.id && edge.sourceHandle === 'right-source'
+    ).length;
+    const bottomSourceCount = edges.filter(edge => 
+      edge.source === sourceNode.id && edge.sourceHandle === 'bottom-source'
+    ).length;
+    
+    // 타겟 노드의 각 핸들별 사용 개수 계산
+    const leftTargetCount = edges.filter(edge => 
+      edge.target === targetNode.id && edge.targetHandle === 'left-target'
+    ).length;
+    const topTargetCount = edges.filter(edge => 
+      edge.target === targetNode.id && edge.targetHandle === 'top-target'
+    ).length;
+    
+    // 사용 가능한 핸들 조합 찾기
+    const availableCombinations = [];
+    
+    // right-source -> top-target 조합이 사용 가능한지 확인
+    if (rightSourceCount === 0 && topTargetCount === 0) {
+      availableCombinations.push({
+        sourceHandle: 'right-source',
+        targetHandle: 'top-target',
+        priority: 1 // right -> top 우선
+      });
+    }
+    
+    // bottom-source -> left-target 조합이 사용 가능한지 확인
+    if (bottomSourceCount === 0 && leftTargetCount === 0) {
+      availableCombinations.push({
+        sourceHandle: 'bottom-source',
+        targetHandle: 'left-target',
+        priority: 2 // bottom -> left
+      });
+    }
+    
+    // 사용 가능한 조합이 있으면 우선순위에 따라 선택
+    if (availableCombinations.length > 0) {
+      // 우선순위가 높은 것부터 선택 (right -> top 우선)
+      availableCombinations.sort((a, b) => a.priority - b.priority);
+      return availableCombinations[0];
+    }
+    
+    // 모든 핸들이 사용 중인 경우, 가장 적게 사용된 조합 선택
+    const combination1 = {
+      sourceHandle: 'right-source',
+      targetHandle: 'top-target',
+      usage: rightSourceCount + topTargetCount
+    };
+    const combination2 = {
+      sourceHandle: 'bottom-source',
+      targetHandle: 'left-target',
+      usage: bottomSourceCount + leftTargetCount
+    };
+    
+    return combination1.usage <= combination2.usage ? combination1 : combination2;
+  }, [edges]);
+
   // 연결 생성 처리
   const onConnect = useCallback((params: Connection) => {
     if (!params.source || !params.target) return;
+    
+    // 가장 가까운 핸들끼리 연결하기 위한 핸들 선택 로직
+    const sourceNode = nodes.find(n => n.id === params.source);
+    const targetNode = nodes.find(n => n.id === params.target);
+    
+    if (!sourceNode || !targetNode) return;
+    
+    // 최적 핸들 조합 선택
+    const { sourceHandle, targetHandle } = getHandlesWithConnectionCount(sourceNode, targetNode);
     
     const newEdge: FlowEdge = {
       id: `${params.source}-${params.target}-${Date.now()}`,
       source: params.source,
       target: params.target,
-      sourceHandle: params.sourceHandle || undefined,
-      targetHandle: params.targetHandle || undefined,
+      sourceHandle: sourceHandle,
+      targetHandle: targetHandle,
       type: 'smoothstep',
       label: '새 연결',
     };
     
     onEdgesChange?.([...edges, newEdge]);
-  }, [edges, onEdgesChange]);
+  }, [edges, onEdgesChange, nodes, getHandlesWithConnectionCount]);
 
   // 노드 변경 처리 - Undo 스택 추가
   const handleNodesChangeWithUndo = useCallback((changes: NodeChange[]) => {
@@ -327,28 +465,40 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       state.conditionHandlers?.forEach((handler, idx) => {
         if (handler.transitionTarget.dialogState && 
             handler.transitionTarget.dialogState !== '__END_SESSION__') {
-          const edge: FlowEdge = {
-            id: `${state.name}-condition-${idx}`,
-            source: state.name,
-            target: handler.transitionTarget.dialogState,
-            label: `조건: ${handler.conditionStatement}`,
-            type: 'smoothstep'
-          };
-          newEdges.push(edge);
+          const targetNode = nodes.find(n => n.data.dialogState.name === handler.transitionTarget.dialogState);
+          if (targetNode) {
+            const { sourceHandle, targetHandle } = getOptimalHandles(node, targetNode);
+            const edge: FlowEdge = {
+              id: `${state.name}-condition-${idx}`,
+              source: state.name,
+              target: handler.transitionTarget.dialogState,
+              sourceHandle,
+              targetHandle,
+              label: `조건: ${handler.conditionStatement}`,
+              type: 'smoothstep'
+            };
+            newEdges.push(edge);
+          }
         }
       });
 
       // Intent handlers에서 전이 관계 추출
       state.intentHandlers?.forEach((handler, idx) => {
         if (handler.transitionTarget.dialogState) {
-          const edge: FlowEdge = {
-            id: `${state.name}-intent-${idx}`,
-            source: state.name,
-            target: handler.transitionTarget.dialogState,
-            label: `인텐트: ${handler.intent}`,
-            type: 'smoothstep'
-          };
-          newEdges.push(edge);
+          const targetNode = nodes.find(n => n.data.dialogState.name === handler.transitionTarget.dialogState);
+          if (targetNode) {
+            const { sourceHandle, targetHandle } = getOptimalHandles(node, targetNode);
+            const edge: FlowEdge = {
+              id: `${state.name}-intent-${idx}`,
+              source: state.name,
+              target: handler.transitionTarget.dialogState,
+              sourceHandle,
+              targetHandle,
+              label: `인텐트: ${handler.intent}`,
+              type: 'smoothstep'
+            };
+            newEdges.push(edge);
+          }
         }
       });
 
@@ -356,14 +506,20 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       state.eventHandlers?.forEach((handler, idx) => {
         if (handler.transitionTarget.dialogState && 
             handler.transitionTarget.dialogState !== '__CURRENT_DIALOG_STATE__') {
-          const edge: FlowEdge = {
-            id: `${state.name}-event-${idx}`,
-            source: state.name,
-            target: handler.transitionTarget.dialogState,
-            label: `이벤트: ${handler.event}`,
-            type: 'smoothstep'
-          };
-          newEdges.push(edge);
+          const targetNode = nodes.find(n => n.data.dialogState.name === handler.transitionTarget.dialogState);
+          if (targetNode) {
+            const { sourceHandle, targetHandle } = getOptimalHandles(node, targetNode);
+            const edge: FlowEdge = {
+              id: `${state.name}-event-${idx}`,
+              source: state.name,
+              target: handler.transitionTarget.dialogState,
+              sourceHandle,
+              targetHandle,
+              label: `이벤트: ${handler.event}`,
+              type: 'smoothstep'
+            };
+            newEdges.push(edge);
+          }
         }
       });
     });
