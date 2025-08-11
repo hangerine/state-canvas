@@ -826,6 +826,18 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
         border: '2px solid #ff9800',
         borderRadius: '8px',
       };
+    } else if (node?.type === 'custom' && node.data.label === '__END_SCENARIO__') {
+      baseStyle = {
+        backgroundColor: '#f44336',
+        border: '2px solid #d32f2f',
+        borderRadius: '8px',
+      };
+    } else if (node?.type === 'custom' && node.data.label === '__END_SESSION__') {
+      baseStyle = {
+        backgroundColor: '#4CAF50',
+        border: '2px solid #388E3C',
+        borderRadius: '8px',
+      };
     } else {
       // custom 타입 (기본)
       baseStyle = {
@@ -933,7 +945,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
   }));
 
   // 새 노드 추가 함수
-  const handleAddNewNode = useCallback((x: number, y: number, nodeType: 'state' | 'scenarioTransition' = 'state') => {
+  const handleAddNewNode = useCallback((x: number, y: number, nodeType: 'state' | 'scenarioTransition' | 'endScenario' | 'endSession' = 'state') => {
     const timestamp = Date.now();
     let newNode: FlowNode;
     
@@ -964,7 +976,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
         },
       };
       console.log('🆕 상태 노드 생성:', newNodeId, newNode);
-    } else {
+    } else if (nodeType === 'scenarioTransition') {
       // Scenario 전이 노드 생성
       const newNodeId = `scenario-transition-${timestamp}`;
       newNode = {
@@ -991,6 +1003,87 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
         },
       };
       console.log('🔄 시나리오 전이 노드 생성:', newNodeId, newNode);
+    } else if (nodeType === 'endScenario') {
+      // 시나리오 종료 노드 생성
+      const newNodeId = `end-scenario-${timestamp}`;
+      newNode = {
+        id: newNodeId,
+        type: 'custom', // 특별한 노드 타입
+        position: { x, y },
+        data: {
+          label: '__END_SCENARIO__',
+          dialogState: {
+            name: '__END_SCENARIO__',
+            conditionHandlers: [],
+            eventHandlers: [],
+            intentHandlers: [],
+            webhookActions: [],
+            slotFillingForm: []
+          },
+          onEdit: handleNodeEdit,
+          handleRefs: {},
+        },
+        style: {
+          backgroundColor: '#f44336', // 빨간색으로 표시
+          border: '2px solid #d32f2f',
+          borderRadius: '8px',
+        },
+      };
+      console.log('🔚 시나리오 종료 노드 생성:', newNodeId, newNode);
+    } else if (nodeType === 'endSession') {
+      // 세션 종료 노드 생성
+      const newNodeId = `end-session-${timestamp}`;
+      newNode = {
+        id: newNodeId,
+        type: 'custom', // 특별한 노드 타입
+        position: { x, y },
+        data: {
+          label: '__END_SESSION__',
+          dialogState: {
+            name: '__END_SESSION__',
+            conditionHandlers: [],
+            eventHandlers: [],
+            intentHandlers: [],
+            webhookActions: [],
+            slotFillingForm: []
+          },
+          onEdit: handleNodeEdit,
+          handleRefs: {},
+        },
+        style: {
+          backgroundColor: '#4CAF50', // 초록색으로 표시
+          border: '2px solid #388E3C',
+          borderRadius: '8px',
+        },
+      };
+      console.log('🔚 세션 종료 노드 생성:', newNodeId, newNode);
+    } else {
+      // 기본 상태 노드 생성 (fallback)
+      const newNodeId = `state-node-${timestamp}`;
+      newNode = {
+        id: newNodeId,
+        type: 'state',
+        position: { x, y },
+        data: {
+          label: '새 상태',
+          dialogState: {
+            name: '새 상태',
+            conditionHandlers: [],
+            eventHandlers: [],
+            intentHandlers: [],
+            webhookActions: [],
+            slotFillingForm: []
+          },
+          onEdit: handleNodeEdit,
+          handleRefs: {},
+        },
+        style: {
+          backgroundColor: '#e3f2fd',
+          border: '2px solid #2196f3',
+          borderRadius: '8px',
+        },
+      };
+      console.log('�� 기본 상태 노드 생성:', newNodeId, newNode);
     }
     
     onNodesChange?.(nodes.concat(newNode));
@@ -1002,7 +1095,38 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       위치: { x: newNode.position.x, y: newNode.position.y },
       총노드수: nodes.length + 1
     });
+    
+    // 노드 생성 후 상태 확인
+    console.log('🔍 생성된 노드 상세 정보:', {
+      노드타입: newNode.type,
+      노드ID: newNode.id,
+      노드라벨: newNode.data.label,
+      노드스타일: newNode.style,
+      전체노드수: nodes.length + 1
+    });
+    
+    // onNodesChange 호출 확인
+    console.log('📞 onNodesChange 호출됨:', {
+      함수존재여부: !!onNodesChange,
+      전달된노드수: nodes.concat(newNode).length,
+      새노드포함여부: nodes.concat(newNode).some(n => n.id === newNode.id)
+    });
+    
+    // 새 노드가 실제로 추가되었는지 확인
+    setTimeout(() => {
+      console.log('⏰ 노드 생성 후 상태 확인:', {
+        현재노드수: nodes.length,
+        새노드ID: newNode.id,
+        새노드존재여부: nodes.some(n => n.id === newNode.id)
+      });
+    }, 100);
   }, [nodes, onNodesChange, handleNodeEdit]);
+
+  // 시나리오 전환 시 로컬 상태 초기화 (undo/redo 등)
+  useEffect(() => {
+    setUndoStack([]);
+    setRedoStack([]);
+  }, [currentScenarioId]);
 
   return (
     <>
@@ -1082,12 +1206,13 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
         </Box>
 
         <ReactFlow
+          key={currentScenarioId || 'default'}
           nodes={styledNodes}
           edges={edges}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
-          onNodesChange={onNodesChange ? handleNodesChangeWithUndo : undefined}
-          onEdgesChange={onEdgesChange ? handleEdgesChangeWithUndo : undefined}
+          onNodesChange={handleNodesChange}
+          onEdgesChange={handleEdgesChangeWithUndo}
           onConnect={onEdgesChange ? onConnect : undefined}
           onNodeClick={onNodeClick}
           onNodeDoubleClick={onNodeDoubleClick}
@@ -1178,6 +1303,18 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
                 handleCloseContextMenu();
               }}>
                 시나리오 전이 노드 추가
+              </MenuItem>
+              <MenuItem onClick={() => {
+                handleAddNewNode(contextMenu.x, contextMenu.y, 'endScenario');
+                handleCloseContextMenu();
+              }}>
+                시나리오 종료 노드 추가
+              </MenuItem>
+              <MenuItem onClick={() => {
+                handleAddNewNode(contextMenu.x, contextMenu.y, 'endSession');
+                handleCloseContextMenu();
+              }}>
+                세션 종료 노드 추가
               </MenuItem>
             </>
           )}

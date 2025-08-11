@@ -93,7 +93,18 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
           state: tState,
         };
       });
-    return [...stateOptions, ...transitionOptions];
+    
+    // 특수 종료 노드들 추가
+    const endNodes = nodes
+      .filter((n: any) => n.type === 'custom' && (n.data.label === '__END_SCENARIO__' || n.data.label === '__END_SESSION__'))
+      .map((n: any) => ({
+        key: n.data.label, // __END_SCENARIO__ 또는 __END_SESSION__
+        label: n.data.label,
+        scenario: '',
+        state: n.data.label,
+      }));
+    
+    return [...stateOptions, ...transitionOptions, ...endNodes];
   }, [nodes, scenario, activeScenarioId]);
 
   // 시나리오 전이 노드용: 시나리오 목록

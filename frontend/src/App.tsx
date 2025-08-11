@@ -141,7 +141,14 @@ function App() {
       setScenario(targetScenario);
       setOriginalScenario(JSON.parse(JSON.stringify(targetScenario)));
       
-      // 새 시나리오를 플로우로 변환
+      // 기존 노드와 엣지를 완전히 초기화 (동기 플러시)
+      console.log('🧹 [INFO] 기존 상태 초기화 시작 (flushSync)');
+      flushSync(() => {
+        setNodes([]);
+        setEdges([]);
+      });
+      
+      // 새 시나리오를 플로우로 변환 (기존 상태 무시)
       convertScenarioToFlow(targetScenario);
       
       console.log('🔄 시나리오 전환됨:', scenarioId);
@@ -417,16 +424,23 @@ function App() {
     const convertStartTime = performance.now();
     console.log('🔄 [TIMING] convertScenarioToFlow 시작 - 시나리오:', scenario.plan[0]?.name);
     
-    if (!scenario.plan || scenario.plan.length === 0) return;
-    
-    // 중복 실행 방지: 이미 처리된 시나리오인지 확인
-    if (nodes.length > 0 && activeScenarioId) {
-      const currentScenario = scenarios[activeScenarioId];
-      if (currentScenario && currentScenario.plan[0]?.name === scenario.plan[0]?.name) {
-        console.log('🔄 [INFO] 이미 처리된 시나리오입니다. 중복 실행 방지.');
-        return;
-      }
+    if (!scenario.plan || scenario.plan.length === 0) {
+      console.log('⚠️ [WARNING] 시나리오에 plan이 없거나 dialogState가 비어있습니다.');
+      return;
     }
+    
+    // 주의: 이 로직은 제거하고 항상 새로운 시나리오로 변환하도록 수정
+    console.log('✅ [INFO] 새로운 시나리오 변환 시작');
+    console.log('  - 시나리오 이름:', scenario.plan[0]?.name);
+    console.log('  - 기존 노드 수:', nodes.length);
+    console.log('  - 기존 엣지 수:', edges.length);
+    
+    // 🔥 핵심 수정: 기존 상태를 완전히 무시하고 새로 시작
+    console.log('🧹 [INFO] 기존 상태 무시하고 새로 시작');
+    
+    // 🔥 핵심 수정: nodes와 edges 상태를 직접 참조하지 않고 빈 배열에서 시작
+    const newNodes: FlowNode[] = [];
+    const newEdges: FlowEdge[] = [];
     
     const dialogStates = scenario.plan[0].dialogState;
     console.log('⏱️ [TIMING] dialogStates 수:', dialogStates.length);
@@ -434,7 +448,8 @@ function App() {
     // 노드 생성 타이밍 측정
     const nodeCreationStartTime = performance.now();
     
-    const newNodes: FlowNode[] = [
+    // dialogState 노드들 생성
+    const dialogStateNodes: FlowNode[] = [
       // dialogState 노드만 생성 (시나리오 전이 노드는 아래에서 동적으로 생성)
       ...dialogStates.map((state, index) => ({
         id: state.name,
@@ -449,6 +464,144 @@ function App() {
         }
       }))
     ];
+    
+    // newNodes에 dialogState 노드들 추가
+    newNodes.push(...dialogStateNodes);
+    
+    // 종료 노드들을 자동으로 생성 (__END_SCENARIO__, __END_SESSION__)
+    const endNodes: FlowNode[] = [];
+    const endNodePositions = new Map<string, { x: number; y: number }>();
+    
+    // 종료 노드 위치 계산 (기존 노드들 옆에 배치)
+    let endNodeIndex = 0;
+    const baseX = Math.max(...newNodes.map(n => n.position.x)) + 300;
+    const baseY = 100;
+    
+    dialogStates.forEach((state) => {
+      // Condition handlers에서 종료 전이 분석
+      state.conditionHandlers?.forEach((handler) => {
+        const targetState = handler.transitionTarget.dialogState;
+        if (targetState === '__END_SCENARIO__' || targetState === '__END_SESSION__') {
+          const endNodeId = `end-${targetState.toLowerCase().replace(/__/g, '')}-${state.name}`;
+          
+          // 이미 생성된 종료 노드인지 확인
+          if (!endNodes.find(n => n.id === endNodeId)) {
+            const endNode: FlowNode = {
+              id: endNodeId,
+              type: 'custom',
+              position: { 
+                x: baseX + (endNodeIndex % 2) * 200, 
+                y: baseY + Math.floor(endNodeIndex / 2) * 150 
+              },
+              data: {
+                label: targetState,
+                dialogState: {
+                  name: targetState,
+                  conditionHandlers: [],
+                  eventHandlers: [],
+                  intentHandlers: [],
+                  webhookActions: [],
+                  slotFillingForm: []
+                }
+              },
+              style: {
+                backgroundColor: targetState === '__END_SCENARIO__' ? '#f44336' : '#4CAF50',
+                border: targetState === '__END_SCENARIO__' ? '2px solid #d32f2f' : '2px solid #388E3C',
+                borderRadius: '8px',
+              }
+            };
+            endNodes.push(endNode);
+            endNodePositions.set(endNodeId, endNode.position);
+            endNodeIndex++;
+          }
+        }
+      });
+      
+      // Intent handlers에서 종료 전이 분석
+      state.intentHandlers?.forEach((handler) => {
+        const targetState = handler.transitionTarget.dialogState;
+        if (targetState === '__END_SCENARIO__' || targetState === '__END_SESSION__') {
+          const endNodeId = `end-${targetState.toLowerCase().replace(/__/g, '')}-${state.name}`;
+          
+          if (!endNodes.find(n => n.id === endNodeId)) {
+            const endNode: FlowNode = {
+              id: endNodeId,
+              type: 'custom',
+              position: { 
+                x: baseX + (endNodeIndex % 2) * 200, 
+                y: baseY + Math.floor(endNodeIndex / 2) * 150 
+              },
+              data: {
+                label: targetState,
+                dialogState: {
+                  name: targetState,
+                  conditionHandlers: [],
+                  eventHandlers: [],
+                  intentHandlers: [],
+                  webhookActions: [],
+                  slotFillingForm: []
+                }
+              },
+              style: {
+                backgroundColor: targetState === '__END_SCENARIO__' ? '#f44336' : '#4CAF50',
+                border: targetState === '__END_SCENARIO__' ? '2px solid #d32f2f' : '2px solid #388E3C',
+                borderRadius: '8px',
+              }
+            };
+            endNodes.push(endNode);
+            endNodePositions.set(endNodeId, endNode.position);
+            endNodeIndex++;
+          }
+        }
+      });
+      
+      // Event handlers에서 종료 전이 분석
+      state.eventHandlers?.forEach((handler) => {
+        const targetState = handler.transitionTarget.dialogState;
+        if (targetState === '__END_SCENARIO__' || targetState === '__END_SESSION__') {
+          const endNodeId = `end-${targetState.toLowerCase().replace(/__/g, '')}-${state.name}`;
+          
+          if (!endNodes.find(n => n.id === endNodeId)) {
+            const endNode: FlowNode = {
+              id: endNodeId,
+              type: 'custom',
+              position: { 
+                x: baseX + (endNodeIndex % 2) * 200, 
+                y: baseY + Math.floor(endNodeIndex / 2) * 150 
+              },
+              data: {
+                label: targetState,
+                dialogState: {
+                  name: targetState,
+                  conditionHandlers: [],
+                  eventHandlers: [],
+                  intentHandlers: [],
+                  webhookActions: [],
+                  slotFillingForm: []
+                }
+              },
+              style: {
+                backgroundColor: targetState === '__END_SCENARIO__' ? '#f44336' : '#4CAF50',
+                border: targetState === '__END_SCENARIO__' ? '2px solid #d32f2f' : '2px solid #388E3C',
+                borderRadius: '8px',
+              }
+            };
+            endNodes.push(endNode);
+            endNodePositions.set(endNodeId, endNode.position);
+            endNodeIndex++;
+          }
+        }
+      });
+    });
+    
+    // 종료 노드들을 메인 노드 배열에 추가
+    newNodes.push(...endNodes);
+    
+    console.log('🔚 자동 생성된 종료 노드들:', endNodes.length, '개');
+    endNodes.forEach(node => {
+      console.log(`  - ${node.id}: ${node.data.label} (${node.position.x}, ${node.position.y})`);
+    });
+
     const nodeCreationTime = performance.now() - nodeCreationStartTime;
     // console.log('⏱️ [TIMING] 노드 생성:', nodeCreationTime.toFixed(2), 'ms');
 
@@ -458,7 +611,7 @@ function App() {
     let intentEdgeCount = 0;
     let eventEdgeCount = 0;
     
-    const newEdges: FlowEdge[] = [];
+    // newEdges는 이미 위에서 선언됨
 
     dialogStates.forEach((state) => {
       // Condition handlers에서 전이 관계 추출
@@ -566,6 +719,42 @@ function App() {
             conditionEdgeCount++;
           }
         }
+        // 종료 노드로의 전이 처리
+        else if (handler.transitionTarget.dialogState === '__END_SCENARIO__' || 
+                 handler.transitionTarget.dialogState === '__END_SESSION__') {
+          
+          const endNodeId = `end-${handler.transitionTarget.dialogState.toLowerCase().replace(/__/g, '')}-${state.name}`;
+          
+          // 소스 노드와 종료 노드 찾기
+          const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
+          const targetNode = newNodes.find(n => n.id === endNodeId);
+          
+          if (sourceNode && targetNode) {
+            let sourceHandle: string | undefined;
+            let targetHandle: string | undefined;
+            
+            const handles = getHandlesWithConnectionCount(sourceNode, targetNode, newEdges);
+            sourceHandle = handles.sourceHandle;
+            targetHandle = handles.targetHandle;
+            
+            const edge: FlowEdge = {
+              id: `${state.name}-condition-${idx}-${endNodeId}`,
+              source: state.name,
+              target: endNodeId,
+              sourceHandle,
+              targetHandle,
+              label: `조건: ${handler.conditionStatement}`,
+              type: 'custom',
+              style: { 
+                stroke: handler.transitionTarget.dialogState === '__END_SCENARIO__' ? '#f44336' : '#4CAF50', 
+                strokeWidth: 2 
+              }
+            };
+            newEdges.push(edge);
+            conditionEdgeCount++;
+            console.log(`🔚 종료 전이 엣지 생성: ${state.name} → ${endNodeId}`);
+          }
+        }
       });
 
       // Intent handlers에서 전이 관계 추출
@@ -650,6 +839,42 @@ function App() {
             };
             newEdges.push(edge);
             intentEdgeCount++;
+          }
+        }
+        // 종료 노드로의 전이 처리
+        else if (handler.transitionTarget.dialogState === '__END_SCENARIO__' || 
+                 handler.transitionTarget.dialogState === '__END_SESSION__') {
+          
+          const endNodeId = `end-${handler.transitionTarget.dialogState.toLowerCase().replace(/__/g, '')}-${state.name}`;
+          
+          // 소스 노드와 종료 노드 찾기
+          const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
+          const targetNode = newNodes.find(n => n.id === endNodeId);
+          
+          if (sourceNode && targetNode) {
+            let sourceHandle: string | undefined;
+            let targetHandle: string | undefined;
+            
+            const handles = getHandlesWithConnectionCount(sourceNode, targetNode, newEdges);
+            sourceHandle = handles.sourceHandle;
+            targetHandle = handles.targetHandle;
+            
+            const edge: FlowEdge = {
+              id: `${state.name}-intent-${idx}-${endNodeId}`,
+              source: state.name,
+              target: endNodeId,
+              sourceHandle,
+              targetHandle,
+              label: `인텐트: ${handler.intent}`,
+              type: 'custom',
+              style: { 
+                stroke: handler.transitionTarget.dialogState === '__END_SCENARIO__' ? '#f44336' : '#4CAF50', 
+                strokeWidth: 2 
+              }
+            };
+            newEdges.push(edge);
+            intentEdgeCount++;
+            console.log(`🔚 인텐트 종료 전이 엣지 생성: ${state.name} → ${endNodeId}`);
           }
         }
       });
@@ -765,6 +990,52 @@ function App() {
             eventEdgeCount++;
           }
         }
+        // 종료 노드로의 전이 처리
+        else if (handler.transitionTarget.dialogState === '__END_SCENARIO__' || 
+                 handler.transitionTarget.dialogState === '__END_SESSION__') {
+          
+          // event 필드 안전하게 처리
+          let eventType = '';
+          if (handler.event) {
+            if (typeof handler.event === 'object' && handler.event.type) {
+              eventType = handler.event.type;
+            } else if (typeof handler.event === 'string') {
+              eventType = handler.event;
+            }
+          }
+          
+          const endNodeId = `end-${handler.transitionTarget.dialogState.toLowerCase().replace(/__/g, '')}-${state.name}`;
+          
+          // 소스 노드와 종료 노드 찾기
+          const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
+          const targetNode = newNodes.find(n => n.id === endNodeId);
+          
+          if (sourceNode && targetNode) {
+            let sourceHandle: string | undefined;
+            let targetHandle: string | undefined;
+            
+            const handles = getHandlesWithConnectionCount(sourceNode, targetNode, newEdges);
+            sourceHandle = handles.sourceHandle;
+            targetHandle = handles.targetHandle;
+            
+            const edge: FlowEdge = {
+              id: `${state.name}-event-${idx}-${endNodeId}`,
+              source: state.name,
+              target: endNodeId,
+              sourceHandle,
+              targetHandle,
+              label: `이벤트: ${eventType}`,
+              type: 'custom',
+              style: { 
+                stroke: handler.transitionTarget.dialogState === '__END_SCENARIO__' ? '#f44336' : '#4CAF50', 
+                strokeWidth: 2 
+              }
+            };
+            newEdges.push(edge);
+            eventEdgeCount++;
+            console.log(`🔚 이벤트 종료 전이 엣지 생성: ${state.name} → ${endNodeId}`);
+          }
+        }
       });
     });
     
@@ -778,15 +1049,23 @@ function App() {
 
     // 상태 설정
     const stateUpdateStartTime = performance.now();
+    
+    console.log('📊 [INFO] 상태 업데이트 시작:');
+    console.log('  - 기존 노드 수:', nodes.length);
+    console.log('  - 새로 생성된 노드 수:', newNodes.length);
+    console.log('  - 기존 엣지 수:', edges.length);
+    console.log('  - 새로 생성된 엣지 수:', newEdges.length);
+    
+    // 🔥 핵심: 기존 상태를 완전히 대체 (누적 방지)
+    console.log('🔄 [INFO] 기존 상태 완전 대체 시작');
     setNodes(newNodes); // 이전 노드 완전 대체
-    console.log('setNodes called', newNodes.map(n => ({
-      id: n.id,
-      type: n.type,
-      label: n.data.label,
-      targetScenario: n.data.targetScenario,
-      targetState: n.data.targetState
-    })));
-    setEdges(newEdges);
+    setEdges(newEdges); // 이전 엣지 완전 대체
+    console.log('✅ [INFO] 기존 상태 완전 대체 완료');
+    
+    console.log('✅ [INFO] 상태 업데이트 완료:');
+    console.log('  - 새 노드들:', newNodes.map(n => ({ id: n.id, type: n.type, label: n.data.label })));
+    console.log('  - 새 엣지들:', newEdges.map(e => ({ id: e.id, source: e.source, target: e.target, label: e.label })));
+    
     const stateUpdateTime = performance.now() - stateUpdateStartTime;
     
     const totalConversionTime = performance.now() - convertStartTime;
