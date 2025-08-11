@@ -53,6 +53,13 @@ function App() {
 
   const testPanelResizeRef = useRef<HTMLDivElement>(null);
   const sidebarResizeRef = useRef<HTMLDivElement>(null);
+  // convertScenarioToFlow 호출을 안전하게 래핑하기 위한 ref
+  const convertScenarioToFlowRef = useRef<(scenario: Scenario) => void>();
+  const invokeConvertScenarioToFlow = useCallback((scenario: Scenario) => {
+    if (convertScenarioToFlowRef.current) {
+      convertScenarioToFlowRef.current(scenario);
+    }
+  }, []);
 
   useEffect(() => {
     // scenarios가 변경될 때마다 로그 출력 (디버깅용)
@@ -122,7 +129,10 @@ function App() {
     console.log('🆕 새 시나리오 생성됨:', scenarioId);
   }, [scenarios]);
 
+  
+
   // 시나리오 전환 함수
+  // eslint-disable-next-line no-use-before-define, @typescript-eslint/no-use-before-define
   const switchScenario = useCallback((scenarioId: string) => {
     const targetScenario = scenarios[scenarioId];
     if (targetScenario && activeScenarioId !== scenarioId) {
@@ -148,7 +158,7 @@ function App() {
       });
       
       // 새 시나리오를 플로우로 변환 (기존 상태 무시)
-      convertScenarioToFlow(targetScenario);
+      invokeConvertScenarioToFlow(targetScenario);
       
       // convertScenarioToFlow 완료 후 originalScenario 설정
       // 원본 시나리오만 설정 (자동 생성된 종료 노드는 포함하지 않음)
@@ -167,7 +177,7 @@ function App() {
     } else {
       console.log('⚠️ 이미 활성화된 시나리오이거나 시나리오를 찾을 수 없습니다:', scenarioId);
     }
-  }, [scenarios, activeScenarioId, nodes, edges, originalScenario]);
+  }, [scenarios, activeScenarioId, nodes, edges, originalScenario, invokeConvertScenarioToFlow]);
 
   // 시나리오 이름 변경 함수
   const updateScenarioName = useCallback((scenarioId: string, newName: string) => {
@@ -220,7 +230,7 @@ function App() {
     }
 
     console.log('✏️ 시나리오 이름 변경됨:', scenarioId, '→', newName);
-  }, [scenarios, activeScenarioId]);
+  }, [activeScenarioId]);
 
   // 시나리오 삭제 함수
   const deleteScenario = useCallback((scenarioId: string) => {
@@ -282,46 +292,59 @@ function App() {
   }, []);
 
   // handleScenarioLoad가 기존 id로만 시나리오를 등록/활성화하도록 개선
+  // eslint-disable-next-line no-use-before-define, @typescript-eslint/no-use-before-define
   const handleScenarioLoad = useCallback((loadedScenario: Scenario, loadedId?: string) => {
     const scenarioId = loadedId || `scenario-${Date.now()}`;
-    
-    // 이미 존재하는 시나리오인지 확인
-    if (scenarios[scenarioId]) {
-      console.log('⚠️ 이미 존재하는 시나리오입니다:', scenarioId);
-      return;
-    }
-    
+
+    // 기존에 동일 ID가 있더라도 항상 교체하여 화면을 초기화
     setScenarios(prev => ({
       ...prev,
       [scenarioId]: loadedScenario
     }));
+
     setActiveScenarioId(scenarioId);
     setScenario(loadedScenario);
     setOriginalScenario(JSON.parse(JSON.stringify(loadedScenario)));
-    convertScenarioToFlow(loadedScenario);
-  }, [scenarios]);
+
+    // 완전 리셋 후 변환 적용
+    flushSync(() => {
+      setNodes([]);
+      setEdges([]);
+    });
+    invokeConvertScenarioToFlow(loadedScenario);
+    // 업로드 직후 초기 상태도 재설정하여 화면 반응을 명확히 함
+    const initial = getInitialState(loadedScenario);
+    setCurrentState(initial);
+  }, [invokeConvertScenarioToFlow, getInitialState]);
 
   // 여러 시나리오 업로드 시 모두 등록하고 첫 번째 시나리오만 활성화
+  // eslint-disable-next-line no-use-before-define, @typescript-eslint/no-use-before-define
   const handleAllScenariosLoad = useCallback((scenarioMap: Record<string, Scenario>) => {
-    // 기존 시나리오와 중복되지 않는지 확인
-    const hasOverlap = Object.keys(scenarioMap).some(id => scenarios[id]);
-    if (hasOverlap) {
-      console.log('⚠️ 일부 시나리오가 이미 존재합니다. 중복을 방지합니다.');
-      return;
-    }
-    
+    // 재업로드 시에도 항상 전체 교체 및 화면 리셋
     setScenarios(scenarioMap);
+
     const firstId = Object.keys(scenarioMap)[0];
     if (firstId) {
+      const firstScenario = scenarioMap[firstId];
+
       setActiveScenarioId(firstId);
-      setScenario(scenarioMap[firstId]);
-      setOriginalScenario(JSON.parse(JSON.stringify(scenarioMap[firstId])));
-      convertScenarioToFlow(scenarioMap[firstId]);
+      setScenario(firstScenario);
+      setOriginalScenario(JSON.parse(JSON.stringify(firstScenario)));
+
+      // 완전 리셋 후 변환 적용
+      flushSync(() => {
+        setNodes([]);
+        setEdges([]);
+      });
+      invokeConvertScenarioToFlow(firstScenario);
+      // 여러 시나리오 업로드 시에도 초기 상태 재설정
+      const initial = getInitialState(firstScenario);
+      setCurrentState(initial);
     }
-  }, [scenarios]);
+  }, [invokeConvertScenarioToFlow, getInitialState]);
 
   // 두 노드 간의 최적 핸들 조합을 반환하는 함수
-  const getOptimalHandles = (sourceNode: FlowNode, targetNode: FlowNode) => {
+  const getOptimalHandles = useCallback((sourceNode: FlowNode, targetNode: FlowNode) => {
     // 소스 노드의 위치
     const sourcePos = sourceNode.position;
     // 타겟 노드의 위치
@@ -360,10 +383,10 @@ function App() {
     }
     
     return { sourceHandle, targetHandle };
-  };
+  }, []);
 
   // 연결 개수를 고려한 핸들 선택 함수
-  const getHandlesWithConnectionCount = (sourceNode: FlowNode, targetNode: FlowNode, existingEdges: FlowEdge[]) => {
+  const getHandlesWithConnectionCount = useCallback((sourceNode: FlowNode, targetNode: FlowNode, existingEdges: FlowEdge[]) => {
     // 소스 노드의 각 핸들별 사용 개수 계산
     const rightSourceCount = existingEdges.filter(edge => 
       edge.source === sourceNode.id && edge.sourceHandle === 'right-source'
@@ -421,10 +444,12 @@ function App() {
     };
     
     return combination1.usage <= combination2.usage ? combination1 : combination2;
-  };
+  }, []);
 
-  const convertScenarioToFlow = (scenario: Scenario) => {
-    const convertStartTime = performance.now();
+  // 엣지 생성 (전이 관계 분석)
+  const convertScenarioToFlowImpl = useCallback((scenario: Scenario) => {
+    // 시작 시간 측정 (디버그용)
+    // const convertStartTime = performance.now();
     console.log('🔄 [TIMING] convertScenarioToFlow 시작 - 시나리오:', scenario.plan[0]?.name);
     
     if (!scenario.plan || scenario.plan.length === 0) {
@@ -435,8 +460,7 @@ function App() {
     // 주의: 이 로직은 제거하고 항상 새로운 시나리오로 변환하도록 수정
     console.log('✅ [INFO] 새로운 시나리오 변환 시작');
     console.log('  - 시나리오 이름:', scenario.plan[0]?.name);
-    console.log('  - 기존 노드 수:', nodes.length);
-    console.log('  - 기존 엣지 수:', edges.length);
+    // 기존 nodes/edges 수 로깅은 제거하여 외부 상태 의존성을 낮춤
     
     // 🔥 핵심 수정: 기존 상태를 완전히 무시하고 새로 시작
     console.log('🧹 [INFO] 기존 상태 무시하고 새로 시작');
@@ -449,7 +473,7 @@ function App() {
     console.log('⏱️ [TIMING] dialogStates 수:', dialogStates.length);
     
     // 노드 생성 타이밍 측정
-    const nodeCreationStartTime = performance.now();
+    
     
     // dialogState 노드들 생성
     const dialogStateNodes: FlowNode[] = [
@@ -626,14 +650,10 @@ function App() {
       console.log(`  - ${node.id}: ${node.data.label} (${node.position.x}, ${node.position.y})`);
     });
 
-    const nodeCreationTime = performance.now() - nodeCreationStartTime;
-    // console.log('⏱️ [TIMING] 노드 생성:', nodeCreationTime.toFixed(2), 'ms');
+    // console.log('⏱️ [TIMING] 노드 생성 완료');
 
     // 엣지 생성 (전이 관계 분석)
-    const edgeCreationStartTime = performance.now();
-    let conditionEdgeCount = 0;
-    let intentEdgeCount = 0;
-    let eventEdgeCount = 0;
+    
     
     // newEdges는 이미 위에서 선언됨
 
@@ -649,7 +669,7 @@ function App() {
           if (targetScenario && targetScenario !== currentScenarioName) {
             // 시나리오 전이 노드로의 엣지 생성 (안정적인 ID 사용)
             let scenarioTransitionNodeId = `scenario-transition-${state.name}-${targetScenario}-${handler.transitionTarget.dialogState}`;
-            const condKey = (handler.conditionStatement || '').replace(/\s+/g, '_');
+            
             
             // 소스 노드와 타겟 노드 찾기
             const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
@@ -675,7 +695,6 @@ function App() {
               style: { stroke: '#ff6b35', strokeWidth: 2 } // 시나리오 전이 색상
             };
             newEdges.push(edge);
-            conditionEdgeCount++;
             
             // 시나리오 전이 노드 생성 (중복 체크 강화)
             const existingTransitionNode = newNodes.find(n => 
@@ -714,7 +733,7 @@ function App() {
           } 
           // 같은 시나리오 내 전이
           else if (!targetScenario || targetScenario === currentScenarioName) {
-            const condKey = (handler.conditionStatement || '').replace(/\s+/g, '_');
+            
             
             // 소스 노드와 타겟 노드 찾기
             const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
@@ -739,7 +758,6 @@ function App() {
               type: 'custom'
             };
             newEdges.push(edge);
-            conditionEdgeCount++;
           }
         }
         // 종료 노드로의 전이 처리
@@ -773,7 +791,6 @@ function App() {
               }
             };
             newEdges.push(edge);
-            conditionEdgeCount++;
             console.log(`🔚 종료 전이 엣지 생성: ${state.name} → ${endNodeId}`);
           }
         }
@@ -789,7 +806,7 @@ function App() {
           if (targetScenario && targetScenario !== currentScenarioName) {
             // 시나리오 전이 노드로의 엣지 생성 (안정적인 ID 사용)
             let scenarioTransitionNodeId = `scenario-transition-${state.name}-${targetScenario}-${handler.transitionTarget.dialogState}`;
-            const intentKey = (handler.intent || '').replace(/\s+/g, '_');
+            
             
             // 소스 노드와 타겟 노드 찾기
             const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
@@ -815,7 +832,6 @@ function App() {
               style: { stroke: '#ff6b35', strokeWidth: 2 } // 시나리오 전이 색상
             };
             newEdges.push(edge);
-            intentEdgeCount++;
             
             // 시나리오 전이 노드 생성 (중복 체크 강화)
             const existingTransitionNode = newNodes.find(n => 
@@ -851,7 +867,7 @@ function App() {
           }
           // 같은 시나리오 내 전이
           else if (!targetScenario || targetScenario === currentScenarioName) {
-            const intentKey = (handler.intent || '').replace(/\s+/g, '_');
+            
             const edge: FlowEdge = {
               id: `${state.name}-intent-${idx}-${targetState}`,
               source: state.name,
@@ -860,7 +876,6 @@ function App() {
               type: 'custom'
             };
             newEdges.push(edge);
-            intentEdgeCount++;
           }
         }
         // 종료 노드로의 전이 처리
@@ -894,7 +909,6 @@ function App() {
               }
             };
             newEdges.push(edge);
-            intentEdgeCount++;
             console.log(`🔚 인텐트 종료 전이 엣지 생성: ${state.name} → ${endNodeId}`);
           }
         }
@@ -920,7 +934,7 @@ function App() {
           if (targetScenario && targetScenario !== currentScenarioName) {
             // 시나리오 전이 노드로의 엣지 생성 (안정적인 ID 사용)
             let scenarioTransitionNodeId = `scenario-transition-${state.name}-${targetScenario}-${handler.transitionTarget.dialogState}`;
-            const eventKey = (eventType || '').replace(/\s+/g, '_');
+            
             
             // 소스 노드와 타겟 노드 찾기
             const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
@@ -946,7 +960,6 @@ function App() {
               style: { stroke: '#ff6b35', strokeWidth: 2 } // 시나리오 전이 색상
             };
             newEdges.push(edge);
-            eventEdgeCount++;
             
             // 시나리오 전이 노드 생성 (중복 체크 강화)
             const existingTransitionNode = newNodes.find(n => 
@@ -982,7 +995,7 @@ function App() {
           }
           // 같은 시나리오 내 전이
           else if (!handler.transitionTarget.scenario || handler.transitionTarget.scenario === currentScenarioName) {
-            const eventKey = (eventType || '').replace(/\s+/g, '_');
+            
             
             // 소스 노드와 타겟 노드 찾기
             const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
@@ -1007,7 +1020,6 @@ function App() {
               type: 'custom'
             };
             newEdges.push(edge);
-            eventEdgeCount++;
           }
         }
         // 종료 노드로의 전이 처리
@@ -1051,28 +1063,23 @@ function App() {
               }
             };
             newEdges.push(edge);
-            eventEdgeCount++;
             console.log(`🔚 이벤트 종료 전이 엣지 생성: ${state.name} → ${endNodeId}`);
           }
         }
       });
     });
     
-    const edgeCreationTime = performance.now() - edgeCreationStartTime;
-    // console.log('⏱️ [TIMING] 엣지 생성:', edgeCreationTime.toFixed(2), 'ms');
+    // console.log('⏱️ [TIMING] 엣지 생성 완료');
     // console.log('📊 [TIMING] 엣지 종류별 개수:');
     // console.log('  - Condition 엣지:', conditionEdgeCount);
-    // console.log('  - Intent 엣지:', intentEdgeCount);
-    // console.log('  - Event 엣지:', eventEdgeCount);
+    // console.log('  - Intent 엣지:');
+    // console.log('  - Event 엣지:');
     // console.log('  - 총 엣지:', newEdges.length);
 
     // 상태 설정
-    const stateUpdateStartTime = performance.now();
     
     console.log('📊 [INFO] 상태 업데이트 시작:');
-    console.log('  - 기존 노드 수:', nodes.length);
     console.log('  - 새로 생성된 노드 수:', newNodes.length);
-    console.log('  - 기존 엣지 수:', edges.length);
     console.log('  - 새로 생성된 엣지 수:', newEdges.length);
     
     // 🔥 핵심: 기존 상태를 완전히 대체 (누적 방지)
@@ -1086,16 +1093,16 @@ function App() {
     console.log('  - 새 노드들:', newNodes.map(n => ({ id: n.id, type: n.type, label: n.data.label })));
     console.log('  - 새 엣지들:', newEdges.map(e => ({ id: e.id, source: e.source, target: e.target, label: e.label })));
     
-    const stateUpdateTime = performance.now() - stateUpdateStartTime;
-    
-    const totalConversionTime = performance.now() - convertStartTime;
-    // console.log('⏱️ [TIMING] 상태 업데이트:', stateUpdateTime.toFixed(2), 'ms');
-    // console.log('⏱️ [TIMING] convertScenarioToFlow 총 시간:', totalConversionTime.toFixed(2), 'ms');
+    // console.log('⏱️ [TIMING] 상태 업데이트 완료');
     // console.log('📊 [TIMING] 변환 세부 분석:');
     // console.log('  - 노드 생성:', nodeCreationTime.toFixed(2), 'ms', `(${(nodeCreationTime/totalConversionTime*100).toFixed(1)}%)`);
     // console.log('  - 엣지 생성:', edgeCreationTime.toFixed(2), 'ms', `(${(edgeCreationTime/totalConversionTime*100).toFixed(1)}%)`);
     // console.log('  - 상태 업데이트:', stateUpdateTime.toFixed(2), 'ms', `(${(stateUpdateTime/totalConversionTime*100).toFixed(1)}%)`);
-  };
+  }, [getHandlesWithConnectionCount, getOptimalHandles]);
+
+  useEffect(() => {
+    convertScenarioToFlowRef.current = convertScenarioToFlowImpl;
+  }, [convertScenarioToFlowImpl]);
 
   const handleNodeSelect = useCallback((nodeName: string | null) => {
     const node = nodeName ? nodes.find(n => n.id === nodeName) || null : null;
@@ -1292,7 +1299,7 @@ function App() {
       setOriginalScenario(JSON.parse(JSON.stringify(convertedScenario)));
       
       // 엣지 재생성 (전이 관계 업데이트)
-      convertScenarioToFlow(convertedScenario);
+      invokeConvertScenarioToFlow(convertedScenario);
       
       // 초기 상태 재설정 (새로운 시나리오 기준)
       const newInitialState = getInitialState(convertedScenario);
@@ -1330,7 +1337,7 @@ function App() {
       // console.error('시나리오 반영 오류:', error);
       alert('❌ 시나리오 반영 중 오류가 발생했습니다: ' + (error as Error).message);
     }
-  }, [nodes, originalScenario, currentState, getInitialState, scenarios, activeScenarioId, edges]);
+  }, [nodes, originalScenario, currentState, getInitialState, scenarios, activeScenarioId, edges, invokeConvertScenarioToFlow]);
 
   // 모달에서 최종 저장 처리
   const handleSaveConfirm = useCallback((filename: string) => {
