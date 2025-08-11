@@ -440,13 +440,20 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
     });
   };
 
-  const updateIntentHandler = (index: number, field: string, value: string) => {
+  const updateIntentHandler = (index: number, field: string, value: string | { scenario: string; dialogState: string }) => {
     const updated = editedState.intentHandlers?.map((handler, i) => {
       if (i === index) {
         if (field === 'intent') {
-          return { ...handler, intent: value };
+          return { ...handler, intent: value as string };
         } else if (field === 'transitionTarget') {
-          return { ...handler, transitionTarget: { ...handler.transitionTarget, dialogState: value } };
+          // value가 문자열인 경우 (__END_SESSION__, __END_SCENARIO__ 등)
+          if (typeof value === 'string') {
+            return { ...handler, transitionTarget: value as any };
+          }
+          // value가 객체인 경우 (scenario, dialogState)
+          if (typeof value === 'object' && value.scenario && value.dialogState) {
+            return { ...handler, transitionTarget: value };
+          }
         }
       }
       return handler;
@@ -454,7 +461,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
     
     setEditedState({
       ...editedState,
-      intentHandlers: updated
+      intentHandlers: updated as any
     });
   };
 
@@ -556,7 +563,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
     });
   };
 
-  const updateEventHandler = (index: number, field: string, value: string) => {
+  const updateEventHandler = (index: number, field: string, value: string | { scenario: string; dialogState: string }) => {
     const updated = editedState.eventHandlers?.map((handler, i) => {
       if (i === index) {
         if (field === 'eventType') {
@@ -564,15 +571,19 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
           return { 
             ...handler, 
             event: {
-              type: value,
+              type: value as string,
               count: "1"
             }
           };
         } else if (field === 'transitionTarget') {
-          return { 
-            ...handler, 
-            transitionTarget: { ...handler.transitionTarget, dialogState: value } 
-          };
+          // value가 문자열인 경우 (__END_SESSION__, __END_SCENARIO__ 등)
+          if (typeof value === 'string') {
+            return { ...handler, transitionTarget: value as any };
+          }
+          // value가 객체인 경우 (scenario, dialogState)
+          if (typeof value === 'object' && value.scenario && value.dialogState) {
+            return { ...handler, transitionTarget: value };
+          }
         }
       }
       return handler;
@@ -580,7 +591,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
     
     setEditedState({
       ...editedState,
-      eventHandlers: updated
+      eventHandlers: updated as any
     });
   };
 
@@ -1252,25 +1263,54 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                           label="전이 대상 State"
                           value={(() => {
                             const t = handler.transitionTarget;
+                            console.log('🔍 [DEBUG] 전이 대상 State value 계산:', {
+                              handlerIndex: index,
+                              transitionTarget: t,
+                              type: typeof t,
+                              isObject: t && typeof t === 'object',
+                              isString: typeof t === 'string'
+                            });
+                            
                             if (t && typeof t === 'object' && t.scenario && t.dialogState) {
-                              return `${t.scenario}::${t.dialogState}`;
+                              // 특수값인 경우 (__END_SESSION__, __END_SCENARIO__)
+                              if (t.dialogState === '__END_SESSION__' || t.dialogState === '__END_SCENARIO__') {
+                                console.log('  → 특수값 객체:', t.dialogState);
+                                return t.dialogState;
+                              }
+                              // 일반 시나리오 전이인 경우
+                              const result = `${t.scenario}::${t.dialogState}`;
+                              console.log('  → 객체 타입 전이:', result);
+                              return result;
                             }
-                            if (typeof t === 'string' && t) return t;
+                            if (typeof t === 'string' && t) {
+                              console.log('  → 문자열 타입 전이:', t);
+                              return t;
+                            }
+                            console.log('  → 기본값: 빈 문자열');
                             return '';
                           })()}
                           onChange={e => {
                             const value = e.target.value;
+                            console.log('🔄 [DEBUG] 전이 대상 State 변경:', {
+                              handlerIndex: index,
+                              oldValue: handler.transitionTarget,
+                              newValue: value
+                            });
+                            
                             // scenarioTransition 노드 id는 nodes에서 type이 scenarioTransition인 노드의 id와 일치
                             const isScenarioTransitionId = nodes?.some((n: any) => n.type === 'scenarioTransition' && n.id === value);
                             if (isScenarioTransitionId) {
                               // scenarioTransition 노드 선택 시 id(string)로 저장
+                              console.log('  → 시나리오 전이 노드로 설정');
                               updateConditionHandler(index, 'transitionTarget', value);
                             } else if (typeof value === 'string' && value.includes('::')) {
                               // 일반 state 선택 시 {scenario, dialogState}로 저장
                               const [scenario, dialogState] = value.split('::');
+                              console.log('  → 일반 state로 설정:', { scenario, dialogState });
                               updateConditionHandler(index, 'transitionTarget', { scenario, dialogState });
                             } else {
-                              // 특수값 (__END_SESSION__ 등)
+                              // 특수값 (__END_SESSION__, __END_SCENARIO__ 등)
+                              console.log('  → 특수값으로 설정:', value);
                               updateConditionHandler(index, 'transitionTarget', value);
                             }
                           }}
@@ -1429,26 +1469,49 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                         label="전이 대상 State"
                         value={(() => {
                           const t = handler.transitionTarget;
+                          console.log('🔍 [DEBUG] 인텐트 핸들러 전이 대상 State value 계산:', {
+                            handlerIndex: index,
+                            transitionTarget: t,
+                            type: typeof t,
+                            isObject: t && typeof t === 'object',
+                            isString: typeof t === 'string'
+                          });
+                          
                           if (t && typeof t === 'object' && t.scenario && t.dialogState) {
-                            return `${t.scenario}::${t.dialogState}`;
+                            const result = `${t.scenario}::${t.dialogState}`;
+                            console.log('  → 객체 타입 전이:', result);
+                            return result;
                           }
-                          if (typeof t === 'string' && t) return t;
+                          if (typeof t === 'string' && t) {
+                            console.log('  → 문자열 타입 전이:', t);
+                            return t;
+                          }
+                          console.log('  → 기본값: 빈 문자열');
                           return '';
                         })()}
                         onChange={e => {
                           const value = e.target.value;
+                          console.log('🔄 [DEBUG] 인텐트 핸들러 전이 대상 State 변경:', {
+                            handlerIndex: index,
+                            oldValue: handler.transitionTarget,
+                            newValue: value
+                          });
+                          
                           // scenarioTransition 노드 id는 nodes에서 type이 scenarioTransition인 노드의 id와 일치
                           const isScenarioTransitionId = nodes?.some((n: any) => n.type === 'scenarioTransition' && n.id === value);
                           if (isScenarioTransitionId) {
                             // scenarioTransition 노드 선택 시 id(string)로 저장
-                            updateConditionHandler(index, 'transitionTarget', value);
+                            console.log('  → 시나리오 전이 노드로 설정');
+                            updateIntentHandler(index, 'transitionTarget', value);
                           } else if (typeof value === 'string' && value.includes('::')) {
                             // 일반 state 선택 시 {scenario, dialogState}로 저장
                             const [scenario, dialogState] = value.split('::');
-                            updateConditionHandler(index, 'transitionTarget', { scenario, dialogState });
+                            console.log('  → 일반 state로 설정:', { scenario, dialogState });
+                            updateIntentHandler(index, 'transitionTarget', { scenario, dialogState });
                           } else {
-                            // 특수값 (__END_SESSION__ 등)
-                            updateConditionHandler(index, 'transitionTarget', value);
+                            // 특수값 (__END_SESSION__, __END_SCENARIO__ 등)
+                            console.log('  → 특수값으로 설정:', value);
+                            updateIntentHandler(index, 'transitionTarget', value);
                           }
                         }}
                       >
@@ -1579,26 +1642,55 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                         label="전이 대상 State"
                         value={(() => {
                           const t = handler.transitionTarget;
+                          console.log('🔍 [DEBUG] 이벤트 핸들러 전이 대상 State value 계산:', {
+                            handlerIndex: index,
+                            transitionTarget: t,
+                            type: typeof t,
+                            isObject: t && typeof t === 'object',
+                            isString: typeof t === 'string'
+                          });
+                          
                           if (t && typeof t === 'object' && t.scenario && t.dialogState) {
-                            return `${t.scenario}::${t.dialogState}`;
+                            // 특수값인 경우 (__END_SESSION__, __END_SCENARIO__)
+                            if (t.dialogState === '__END_SESSION__' || t.dialogState === '__END_SCENARIO__') {
+                              console.log('  → 특수값 객체:', t.dialogState);
+                              return t.dialogState;
+                            }
+                            // 일반 시나리오 전이인 경우
+                            const result = `${t.scenario}::${t.dialogState}`;
+                            console.log('  → 객체 타입 전이:', result);
+                            return result;
                           }
-                          if (typeof t === 'string' && t) return t;
+                          if (typeof t === 'string' && t) {
+                            console.log('  → 문자열 타입 전이:', t);
+                            return t;
+                          }
+                          console.log('  → 기본값: 빈 문자열');
                           return '';
                         })()}
                         onChange={e => {
                           const value = e.target.value;
+                          console.log('🔄 [DEBUG] 이벤트 핸들러 전이 대상 State 변경:', {
+                            handlerIndex: index,
+                            oldValue: handler.transitionTarget,
+                            newValue: value
+                          });
+                          
                           // scenarioTransition 노드 id는 nodes에서 type이 scenarioTransition인 노드의 id와 일치
                           const isScenarioTransitionId = nodes?.some((n: any) => n.type === 'scenarioTransition' && n.id === value);
                           if (isScenarioTransitionId) {
                             // scenarioTransition 노드 선택 시 id(string)로 저장
-                            updateConditionHandler(index, 'transitionTarget', value);
+                            console.log('  → 시나리오 전이 노드로 설정');
+                            updateEventHandler(index, 'transitionTarget', value);
                           } else if (typeof value === 'string' && value.includes('::')) {
                             // 일반 state 선택 시 {scenario, dialogState}로 저장
                             const [scenario, dialogState] = value.split('::');
-                            updateConditionHandler(index, 'transitionTarget', { scenario, dialogState });
+                            console.log('  → 일반 state로 설정:', { scenario, dialogState });
+                            updateEventHandler(index, 'transitionTarget', { scenario, dialogState });
                           } else {
-                            // 특수값 (__END_SESSION__ 등)
-                            updateConditionHandler(index, 'transitionTarget', value);
+                            // 특수값 (__END_SESSION__, __END_SCENARIO__ 등)
+                            console.log('  → 특수값으로 설정:', value);
+                            updateEventHandler(index, 'transitionTarget', value);
                           }
                         }}
                       >
