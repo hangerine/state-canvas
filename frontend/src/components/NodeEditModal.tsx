@@ -2312,32 +2312,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
       
       <DialogActions>
         <Button onClick={onClose}>취소</Button>
-        <Button onClick={() => {
-          // 저장 시에도 항상 이름으로 변환
-          let scenarioName = selectedScenario;
-          if (scenarios && scenarios[selectedScenario]) {
-            scenarioName = scenarios[selectedScenario].plan[0]?.name || selectedScenario;
-          }
-          
-          // 시나리오 전이 노드 정보 검증
-          if (!scenarioName || !selectedState) {
-            console.error('❌ 시나리오 전이 노드 정보 누락:', {
-              targetScenario: scenarioName,
-              targetState: selectedState
-            });
-            alert('시나리오와 상태를 모두 선택해주세요.');
-            return;
-          }
-          
-          console.log('💾 시나리오 전이 노드 저장:', {
-            노드이름: editedState?.name || '시나리오 전이',
-            전환시나리오: scenarioName,
-            전환상태: selectedState,
-            시나리오ID: selectedScenario
-          });
-          
-          onSave({ targetScenario: scenarioName, targetState: selectedState });
-        }} variant="contained" color="primary" disabled={!selectedScenario || !selectedState}>저장</Button>
+        <Button onClick={handleSave} variant="contained" color="primary">저장</Button>
       </DialogActions>
     </Dialog>
   );
