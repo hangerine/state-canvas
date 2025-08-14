@@ -24,6 +24,7 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Tooltip,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -64,8 +65,20 @@ interface ApiCallFormData {
 }
 
 const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({ scenario, onScenarioUpdate }) => {
-  // 탭 상태: 0=Webhook, 1=ApiCall
+  // 탭 상태: 0=Webhook, 1=ApiCall, 2=API 테스트
   const [tab, setTab] = useState(0);
+  // 전역 API 테스트 탭 상태
+  const [apiTestTabUrl, setApiTestTabUrl] = useState('');
+  const [apiTestTabMethod, setApiTestTabMethod] = useState<'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH'>('POST');
+  const [apiTestTabHeaders, setApiTestTabHeaders] = useState<Record<string, string>>({ 'Content-Type': 'application/json' });
+  const [apiTestTabBody, setApiTestTabBody] = useState('');
+  const [apiTestTabLoading, setApiTestTabLoading] = useState(false);
+  const [apiTestTabRespText, setApiTestTabRespText] = useState('');
+  const [apiTestTabRespObj, setApiTestTabRespObj] = useState<any>(null);
+  const [apiTestTabPastedText, setApiTestTabPastedText] = useState('');
+  const [apiTestTabPastedObj, setApiTestTabPastedObj] = useState<any>(null);
+  const [isRespTreeModalOpen, setIsRespTreeModalOpen] = useState(false);
+  const [isPastedTreeModalOpen, setIsPastedTreeModalOpen] = useState(false);
 
   // Webhook 상태
   const [webhooks, setWebhooks] = useState<Webhook[]>([]);
@@ -507,6 +520,27 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
       updateScenarioApiCalls(updatedApiCalls);
     }
   };
+  const loadApiCallToTest = (apicall: ApiCallWithName) => {
+    try {
+      setApiTestTabUrl(apicall.url || '');
+      setApiTestTabMethod((apicall.formats?.method || 'POST') as any);
+      setApiTestTabHeaders(apicall.formats?.headers || { 'Content-Type': 'application/json' });
+      const tmpl = apicall.formats?.requestTemplate || '';
+      if (tmpl && typeof tmpl === 'string') {
+        try {
+          const parsed = JSON.parse(tmpl);
+          setApiTestTabBody(JSON.stringify(parsed, null, 2));
+        } catch {
+          setApiTestTabBody(tmpl);
+        }
+      } else {
+        setApiTestTabBody('');
+      }
+      setTab(2);
+    } catch {
+      // noop
+    }
+  };
   const updateScenarioApiCalls = (updatedApiCalls: ApiCallWithName[]) => {
     if (scenario) {
       // apicalls를 webhooks(type='apicall')로 병합 저장
@@ -610,6 +644,156 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
     (oldArr || []).forEach(g => map.set(`${g.type}::${g.name}`, g));
     (newArr || []).forEach(g => { const k = `${g.type}::${g.name}`; if (!map.has(k)) map.set(k, g); });
     return Array.from(map.values());
+  };
+  // JSONPath 트리 유틸 (TestPanel 스타일)
+  const generateJsonPath = (obj: any, path: string = '$'): string[] => {
+    const paths: string[] = [];
+    if (obj === null || obj === undefined) return paths;
+    if (Array.isArray(obj)) {
+      paths.push(path);
+      obj.forEach((item, index) => {
+        const newPath = `${path}[${index}]`;
+        paths.push(newPath);
+        paths.push(...generateJsonPath(item, newPath));
+      });
+    } else if (typeof obj === 'object') {
+      paths.push(path);
+      Object.keys(obj).forEach(key => {
+        const newPath = `${path}.${key}`;
+        paths.push(newPath);
+        paths.push(...generateJsonPath(obj[key], newPath));
+      });
+    } else {
+      paths.push(path);
+    }
+    return paths;
+  };
+  const getValueByPath = (obj: any, path: string): any => {
+    try {
+      const cleanPath = path.replace(/^\$\.?/, '');
+      if (!cleanPath) return obj;
+      const parts = cleanPath.split(/[.\[\]]+/).filter(Boolean);
+      let current = obj;
+      for (const part of parts) {
+        const isIndex = /^\d+$/.test(part);
+        if (isIndex) {
+          current = current?.[Number(part)];
+        } else {
+          current = current?.[part];
+        }
+      }
+      return current;
+    } catch {
+      return undefined;
+    }
+  };
+  const getValueType = (value: any): string => {
+    if (value === null) return 'null';
+    if (Array.isArray(value)) return `array[${value.length}]`;
+    if (typeof value === 'object') return `object{${Object.keys(value || {}).length}}`;
+    return typeof value;
+  };
+  const renderJsonPathTooltip = (value: any, path: string) => {
+    const actualValue = getValueByPath(value, path);
+    const valueType = getValueType(actualValue);
+    const isLeafValue = !Array.isArray(actualValue) && typeof actualValue !== 'object';
+    return (
+      <Tooltip 
+        title={
+          <Box>
+            <Typography variant="caption" sx={{ display: 'block', fontWeight: 'bold' }}>JSONPath: {path}</Typography>
+            <Typography variant="caption" sx={{ display: 'block' }}>Type: {valueType}</Typography>
+            {isLeafValue && (
+              <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>Value: {String(actualValue)}</Typography>
+            )}
+          </Box>
+        }
+        arrow
+        placement="top"
+      >
+        <IconButton size="small" onClick={() => copyToClipboard(path)} sx={{ ml: 0.5, p: 0.25 }}>
+          <ContentCopyIcon fontSize="inherit" />
+        </IconButton>
+      </Tooltip>
+    );
+  };
+  const renderResponseValue = (obj: any, path: string = '$', depth: number = 0): React.ReactNode => {
+    const maxDepth = 5;
+    if (depth > maxDepth) {
+      return (
+        <Box sx={{ display: 'inline-flex', alignItems: 'center' }}>
+          <span style={{ color: '#999', fontStyle: 'italic' }}>...</span>
+          {renderJsonPathTooltip(obj, path)}
+        </Box>
+      );
+    }
+    if (obj === null || obj === undefined) {
+      return (
+        <Box sx={{ display: 'inline-flex', alignItems: 'center' }}>
+          <span style={{ color: '#999' }}>{obj === null ? 'null' : 'undefined'}</span>
+          {renderJsonPathTooltip(apiTestTabRespObj, path)}
+        </Box>
+      );
+    }
+    if (Array.isArray(obj)) {
+      if (obj.length === 0) {
+        return (
+          <Box sx={{ display: 'inline-flex', alignItems: 'center' }}>
+            <span style={{ color: '#666' }}>[]</span>
+            {renderJsonPathTooltip(apiTestTabRespObj, path)}
+          </Box>
+        );
+      }
+      return (
+        <Box sx={{ ml: depth > 0 ? 2 : 0 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+            <Typography variant="body2" sx={{ fontWeight: 'bold', color: '#e91e63' }}>Array [{obj.length}]</Typography>
+            {renderJsonPathTooltip(apiTestTabRespObj, path)}
+          </Box>
+          {obj.slice(0, 50).map((item, index) => (
+            <Box key={index} sx={{ ml: 2, mb: 0.5 }}>
+              <Typography variant="body2" component="div">
+                <strong style={{ color: '#1976d2' }}>[{index}]:</strong>{' '}
+                {renderResponseValue(item, `${path}[${index}]`, depth + 1)}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
+      );
+    }
+    if (typeof obj === 'object') {
+      const keys = Object.keys(obj);
+      if (keys.length === 0) {
+        return (
+          <Box sx={{ display: 'inline-flex', alignItems: 'center' }}>
+            <span style={{ color: '#666' }}>{'{}'}</span>
+            {renderJsonPathTooltip(apiTestTabRespObj, path)}
+          </Box>
+        );
+      }
+      return (
+        <Box sx={{ ml: depth > 0 ? 2 : 0 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+            <Typography variant="body2" sx={{ fontWeight: 'bold', color: '#ff9800' }}>Object {'{'}{keys.length}{'}'}</Typography>
+            {renderJsonPathTooltip(apiTestTabRespObj, path)}
+          </Box>
+          {keys.slice(0, 100).map((key) => (
+            <Box key={key} sx={{ ml: 2, mb: 0.5 }}>
+              <Typography variant="body2" component="div">
+                <strong style={{ color: '#4caf50' }}>{key}:</strong>{' '}
+                {renderResponseValue(obj[key], `${path}.${key}`, depth + 1)}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
+      );
+    }
+    return (
+      <Box sx={{ display: 'inline-flex', alignItems: 'center' }}>
+        <span style={{ color: '#333', fontFamily: 'monospace', fontSize: '0.9em' }}>{typeof obj === 'string' ? `"${obj}"` : String(obj)}</span>
+        {renderJsonPathTooltip(apiTestTabRespObj, path)}
+      </Box>
+    );
   };
   const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&');
   const isNameInGroup = (name: string, grp: string) => {
@@ -827,6 +1011,7 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
         <Tab label="Webhook 관리" />
         <Tab label="API Call 관리" />
+        <Tab label="API 테스트" />
       </Tabs>
       {tab === 0 && (
         <Box>
@@ -870,9 +1055,15 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                               <Typography variant="body2" color="text.secondary">Base URL: {grp.baseUrl}</Typography>
                             </Box>
                             <Box sx={{ display: 'flex', gap: 1 }}>
-                              <Button size="small" variant="outlined" onClick={() => openAddWebhookEntryForGroup(grp.name)}>엔트리 추가</Button>
-                              <Button size="small" variant="text" onClick={() => handleEditGroupBaseUrl('webhook', grp.name, grp.baseUrl)}>Base URL 수정</Button>
-                              <Button size="small" variant="text" color="error" onClick={() => handleDeleteGroup('webhook', grp.name)}>그룹 삭제</Button>
+                              <IconButton size="small" color="primary" onClick={() => openAddWebhookEntryForGroup(grp.name)} title="엔트리 추가">
+                                <AddIcon />
+                              </IconButton>
+                              <IconButton size="small" onClick={() => handleEditGroupBaseUrl('webhook', grp.name, grp.baseUrl)} title="Base URL 수정">
+                                <EditIcon />
+                              </IconButton>
+                              <IconButton size="small" color="error" onClick={() => handleDeleteGroup('webhook', grp.name)} title="그룹 삭제">
+                                <DeleteIcon />
+                              </IconButton>
                             </Box>
                           </Box>
                         </TableCell>
@@ -1244,9 +1435,15 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                               <Typography variant="body2" color="text.secondary">Base URL: {grp.baseUrl}</Typography>
                             </Box>
                             <Box sx={{ display: 'flex', gap: 1 }}>
-                              <Button size="small" variant="outlined" onClick={() => openAddApiCallEntryForGroup(grp.name)}>엔트리 추가</Button>
-                              <Button size="small" variant="text" onClick={() => handleEditGroupBaseUrl('apicall', grp.name, grp.baseUrl)}>Base URL 수정</Button>
-                              <Button size="small" variant="text" color="error" onClick={() => handleDeleteGroup('apicall', grp.name)}>그룹 삭제</Button>
+                              <IconButton size="small" color="primary" onClick={() => openAddApiCallEntryForGroup(grp.name)} title="엔트리 추가">
+                                <AddIcon />
+                              </IconButton>
+                              <IconButton size="small" onClick={() => handleEditGroupBaseUrl('apicall', grp.name, grp.baseUrl)} title="Base URL 수정">
+                                <EditIcon />
+                              </IconButton>
+                              <IconButton size="small" color="error" onClick={() => handleDeleteGroup('apicall', grp.name)} title="그룹 삭제">
+                                <DeleteIcon />
+                              </IconButton>
                             </Box>
                           </Box>
                         </TableCell>
@@ -1262,7 +1459,8 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                           <TableCell>{apicall.timeout}ms</TableCell>
                           <TableCell>{apicall.retry}</TableCell>
                           <TableCell>
-                            <IconButton size="small" onClick={() => handleEditApiCall(apicall)} color="primary"><EditIcon /></IconButton>
+                            <IconButton size="small" onClick={() => loadApiCallToTest(apicall)} title="불러오기"><ContentCopyIcon /></IconButton>
+                            <IconButton size="small" onClick={() => handleEditApiCall(apicall)} color="primary" title="편집"><EditIcon /></IconButton>
                             <IconButton size="small" onClick={() => handleDeleteApiCall(apicall)} color="error"><DeleteIcon /></IconButton>
                           </TableCell>
                         </TableRow>
@@ -1710,6 +1908,126 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
           </Dialog>
         </Box>
       )}
+      {tab === 2 && (
+        <Box>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <Typography variant="body2">외부연동 관리에서 독립적인 API 테스트를 실행합니다.</Typography>
+          </Alert>
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 1 }}>
+            <TextField label="URL" value={apiTestTabUrl} onChange={(e) => setApiTestTabUrl(e.target.value)} fullWidth />
+            <TextField label="Method" value={apiTestTabMethod} onChange={(e) => setApiTestTabMethod(e.target.value as any)} select SelectProps={{ native: true }} sx={{ width: 140 }}>
+              <option value="GET">GET</option>
+              <option value="POST">POST</option>
+              <option value="PUT">PUT</option>
+              <option value="DELETE">DELETE</option>
+              <option value="PATCH">PATCH</option>
+            </TextField>
+          </Box>
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            <TextField label="Headers (JSON)" value={JSON.stringify(apiTestTabHeaders, null, 2)} onChange={(e) => { try { setApiTestTabHeaders(JSON.parse(e.target.value)); } catch {} }} multiline rows={6} sx={{ flex: 1 }} />
+            <TextField label="Body (JSON)" value={apiTestTabBody} onChange={(e) => setApiTestTabBody(e.target.value)} multiline rows={6} sx={{ flex: 1 }} />
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+            <Button variant="contained" onClick={async () => {
+              setApiTestTabLoading(true);
+              setApiTestTabRespText('');
+              setApiTestTabRespObj(null);
+              try {
+                const method = apiTestTabMethod;
+                const url = apiTestTabUrl;
+                const headers = apiTestTabHeaders;
+                let data: any = undefined;
+                if (method !== 'GET' && apiTestTabBody.trim()) {
+                  try { data = JSON.parse(apiTestTabBody); } catch { data = apiTestTabBody; }
+                }
+                const resp = await axios({ url, method, headers, data });
+                const text = typeof resp.data === 'string' ? resp.data : JSON.stringify(resp.data, null, 2);
+                setApiTestTabRespText(text);
+                try { setApiTestTabRespObj(typeof resp.data === 'string' ? JSON.parse(resp.data) : resp.data); } catch { setApiTestTabRespObj(null); }
+              } catch (e: any) {
+                const errText = e?.response?.data ? (typeof e.response.data === 'string' ? e.response.data : JSON.stringify(e.response.data, null, 2)) : String(e);
+                setApiTestTabRespText(errText);
+                setApiTestTabRespObj(null);
+              } finally {
+                setApiTestTabLoading(false);
+              }
+            }} disabled={apiTestTabLoading || !apiTestTabUrl.trim()}>
+              {apiTestTabLoading ? '전송중...' : 'API 테스트 실행'}
+            </Button>
+          </Box>
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="subtitle2">응답</Typography>
+            <TextField value={apiTestTabRespText} onChange={() => {}} multiline rows={8} fullWidth InputProps={{ readOnly: true }} />
+          </Box>
+          <Box sx={{ mt: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Typography variant="subtitle2">응답 JSONPath 트리</Typography>
+              <Button size="small" variant="text" onClick={() => setIsRespTreeModalOpen(true)}>크게 보기</Button>
+            </Box>
+            <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1, maxHeight: 280, overflow: 'auto', bgcolor: '#fafafa' }}>
+              {apiTestTabRespObj ? (
+                <Box sx={{ fontFamily: 'monospace', fontSize: '12px' }}>
+                  {renderResponseValue(apiTestTabRespObj, '$', 0)}
+                </Box>
+              ) : (
+                <Typography variant="caption" color="text.secondary">API 응답 JSON이 없거나 유효하지 않습니다.</Typography>
+              )}
+            </Box>
+          </Box>
+          <Box sx={{ mt: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Typography variant="subtitle2">응답 JSON 붙여넣기 (직접 탐색)</Typography>
+              <Button size="small" variant="text" onClick={() => setIsPastedTreeModalOpen(true)}>크게 보기</Button>
+            </Box>
+            <TextField label="응답 JSON (붙여넣기)" value={apiTestTabPastedText} onChange={(e) => { setApiTestTabPastedText(e.target.value); try { setApiTestTabPastedObj(JSON.parse(e.target.value)); } catch { setApiTestTabPastedObj(null); } }} multiline rows={6} fullWidth placeholder='임의의 응답 JSON을 붙여넣어 JSONPath를 탐색해보세요' />
+            <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1, maxHeight: 280, overflow: 'auto', bgcolor: '#fafafa', mt: 1 }}>
+              {apiTestTabPastedObj ? (
+                <Box sx={{ fontFamily: 'monospace', fontSize: '12px' }}>
+                  {renderResponseValue(apiTestTabPastedObj, '$', 0)}
+                </Box>
+              ) : (
+                <Typography variant="caption" color="text.secondary">붙여넣은 JSON이 없거나 유효하지 않습니다.</Typography>
+              )}
+            </Box>
+          </Box>
+          {/* JSONPath 트리 모달들 */}
+          <Dialog open={isRespTreeModalOpen} onClose={() => setIsRespTreeModalOpen(false)} maxWidth="lg" fullWidth>
+            <DialogTitle>응답 JSONPath 트리</DialogTitle>
+            <DialogContent>
+              <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1, maxHeight: 600, overflow: 'auto', bgcolor: '#fafafa' }}>
+                {apiTestTabRespObj ? (
+                  <Box sx={{ fontFamily: 'monospace', fontSize: '13px' }}>
+                    {renderResponseValue(apiTestTabRespObj, '$', 0)}
+                  </Box>
+                ) : (
+                  <Typography variant="caption" color="text.secondary">API 응답 JSON이 없거나 유효하지 않습니다.</Typography>
+                )}
+              </Box>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setIsRespTreeModalOpen(false)}>닫기</Button>
+            </DialogActions>
+          </Dialog>
+          <Dialog open={isPastedTreeModalOpen} onClose={() => setIsPastedTreeModalOpen(false)} maxWidth="lg" fullWidth>
+            <DialogTitle>붙여넣은 JSON JSONPath 트리</DialogTitle>
+            <DialogContent>
+              <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1, maxHeight: 600, overflow: 'auto', bgcolor: '#fafafa' }}>
+                {apiTestTabPastedObj ? (
+                  <Box sx={{ fontFamily: 'monospace', fontSize: '13px' }}>
+                    {renderResponseValue(apiTestTabPastedObj, '$', 0)}
+                  </Box>
+                ) : (
+                  <Typography variant="caption" color="text.secondary">붙여넣은 JSON이 없거나 유효하지 않습니다.</Typography>
+                )}
+              </Box>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setIsPastedTreeModalOpen(false)}>닫기</Button>
+            </DialogActions>
+          </Dialog>
+        </Box>
+      )}
+      
       {/* 그룹 생성 다이얼로그 */}
       <Dialog open={isGroupDialogOpen} onClose={() => setIsGroupDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>그룹 만들기</DialogTitle>
