@@ -1089,10 +1089,26 @@ class StateEngine:
                 apicall_name = handler.get("name")
                 apicall_config = None
                 if apicall_name:
-                    for apicall in scenario.get("apicalls", []):
-                        if apicall.get("name") == apicall_name:
-                            apicall_config = apicall
-                            break
+                    # unified webhooks(type='apicall') 우선 검색
+                    for ap in scenario.get("webhooks", []):
+                        try:
+                            if ap.get("type") == "apicall" and ap.get("name") == apicall_name:
+                                apicall_config = {
+                                    "name": ap.get("name"),
+                                    "url": ap.get("url", ""),
+                                    "timeout": ap.get("timeout", ap.get("timeoutInMilliSecond", 5000)),
+                                    "retry": ap.get("retry", 3),
+                                    "formats": ap.get("formats", {})
+                                }
+                                break
+                        except Exception:
+                            continue
+                    # 레거시 fallback
+                    if not apicall_config:
+                        for apicall in scenario.get("apicalls", []):
+                            if apicall.get("name") == apicall_name:
+                                apicall_config = apicall
+                                break
                 if not apicall_config:
                     logger.warning(f"No apicall config found for name: {apicall_name} (handler: {handler})")
                     continue

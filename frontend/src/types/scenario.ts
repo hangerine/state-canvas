@@ -221,6 +221,11 @@ export interface Webhook {
   retry: number;
   // optional: additional body fields for webhook requests
   body?: Record<string, any>;
+  // unified list support
+  type?: 'webhook' | 'apicall';
+  // when type === 'apicall'
+  timeout?: number;
+  formats?: ApiCallFormats;
 }
 
 export interface ScenarioPlan {
@@ -237,8 +242,8 @@ export interface Scenario {
   intentMapping: IntentMapping[];
   multiIntentMapping: any[];
   handlerGroups: any[];
-  webhooks: Webhook[];
-  // [추가] 글로벌 apicall 목록
+  webhooks: Webhook[]; // unified (webhook | apicall)
+  // legacy global apicalls (to be migrated into webhooks with type='apicall')
   apicalls?: ApiCallWithName[];
   dialogResult: string;
 }

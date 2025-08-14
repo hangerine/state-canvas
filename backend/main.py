@@ -111,6 +111,42 @@ async def download_scenario(session_id: str):
         if not scenario_data:
             raise HTTPException(status_code=404, detail="시나리오를 찾을 수 없습니다.")
 
+        # 통합 저장 규칙:
+        # - webhooks 배열에 webhook/apicall을 함께 저장 (type 필드로 구분)
+        # - legacy apicalls는 webhooks(type='apicall')로 이동 후 삭제
+        def unify_webhooks_and_apicalls(scenario: Dict[str, Any]):
+            # 기본 webhooks 보장
+            webhooks = scenario.get("webhooks", []) or []
+            # 기존 webhook들에 type 없으면 webhook으로 표기
+            for w in webhooks:
+                if "type" not in w:
+                    w["type"] = "webhook"
+
+            legacy_apicalls = scenario.get("apicalls", []) or []
+            if legacy_apicalls:
+                # 기존 webhooks에서 apicall 타입 중복 제거(이름 기준)
+                existing_apicall_names = {w.get("name") for w in webhooks if w.get("type") == "apicall"}
+                for a in legacy_apicalls:
+                    name = a.get("name")
+                    if name in existing_apicall_names:
+                        continue
+                    webhooks.append({
+                        "type": "apicall",
+                        "name": name,
+                        "url": a.get("url", ""),
+                        "timeout": a.get("timeout", 5000),
+                        "retry": a.get("retry", 3),
+                        # webhook 공통 인터페이스 호환 필드
+                        "timeoutInMilliSecond": a.get("timeout", 5000),
+                        "headers": (a.get("formats", {}) or {}).get("headers", {}) or {},
+                        # apicall 고유 포맷 보관
+                        "formats": a.get("formats", {}) or {}
+                    })
+                scenario["webhooks"] = webhooks
+                # legacy 삭제
+                if "apicalls" in scenario:
+                    del scenario["apicalls"]
+
         # apicallHandlers의 apicall.url 필드 삭제 함수
         def remove_apicall_urls(scenario):
             # 여러 plan, 여러 dialogState 지원
@@ -132,8 +168,10 @@ async def download_scenario(session_id: str):
         # 시나리오가 리스트일 수도 있음
         if isinstance(scenario_data, list):
             for scenario in scenario_data:
+                unify_webhooks_and_apicalls(scenario)
                 remove_apicall_urls(scenario)
         else:
+            unify_webhooks_and_apicalls(scenario_data)
             remove_apicall_urls(scenario_data)
 
         # 임시 파일로 저장 후 반환

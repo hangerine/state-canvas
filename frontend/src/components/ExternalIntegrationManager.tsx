@@ -128,10 +128,21 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
     { key: 'Cache-Control', value: 'no-cache' },
   ];
 
-  // 시나리오에서 목록 로드
+  // 시나리오에서 목록 로드 (webhooks 통합 리스트에서 type으로 분리)
   useEffect(() => {
-    setWebhooks(scenario?.webhooks || []);
-    setApicalls(scenario?.apicalls || []);
+    const all = scenario?.webhooks || [];
+    const webhookOnly = all.filter((w: any) => !w.type || w.type === 'webhook');
+    const apicallOnly = all.filter((w: any) => w.type === 'apicall');
+    setWebhooks(webhookOnly as any);
+    setApicalls(
+      apicallOnly.map((w: any) => ({
+        name: w.name,
+        url: w.url,
+        timeout: w.timeout || w.timeoutInMilliSecond || 5000,
+        retry: w.retry || 3,
+        formats: w.formats || { method: 'POST', headers: {}, requestTemplate: '', responseMappings: {}, responseSchema: {} }
+      }))
+    );
   }, [scenario]);
 
   // Webhook 폼 초기화
@@ -216,10 +227,13 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
   };
   const updateScenarioWebhooks = (updatedWebhooks: Webhook[]) => {
     if (scenario) {
+      // 기존 apicall 항목 유지, webhook 항목만 교체
+      const existingApicalls = (scenario.webhooks || []).filter((w: any) => w.type === 'apicall');
+      const normalizedWebhooks = (updatedWebhooks || []).map((w: any) => ({ ...w, type: 'webhook' }));
       const updatedScenario = {
         ...scenario,
-        webhooks: updatedWebhooks,
-      };
+        webhooks: [...normalizedWebhooks, ...existingApicalls],
+      } as any;
       onScenarioUpdate(updatedScenario);
     }
   };
@@ -388,10 +402,23 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
   };
   const updateScenarioApiCalls = (updatedApiCalls: ApiCallWithName[]) => {
     if (scenario) {
+      // apicalls를 webhooks(type='apicall')로 병합 저장
+      const legacyWebhooks = scenario.webhooks || [];
+      const apicallsAsWebhooks: Webhook[] = updatedApiCalls.map(a => ({
+        type: 'apicall',
+        name: a.name,
+        url: a.url,
+        timeout: a.timeout,
+        retry: a.retry,
+        headers: a.formats.headers || {},
+        timeoutInMilliSecond: a.timeout, // for uniformity, although unused
+        formats: a.formats,
+      }));
       const updatedScenario = {
         ...scenario,
-        apicalls: updatedApiCalls,
-      };
+        webhooks: [...legacyWebhooks.filter(w => w.type !== 'apicall'), ...apicallsAsWebhooks],
+        apicalls: undefined,
+      } as any;
       onScenarioUpdate(updatedScenario);
     }
   };

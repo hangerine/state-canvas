@@ -103,13 +103,13 @@ const Sidebar: React.FC<SidebarProps> = ({
         const hasAnyChange = totalChanges > 0 || webhooksChanged || apicallsChanged;
 
         setHasChanges(hasAnyChange);
-        setChangeCount(totalChanges + (webhooksChanged ? 1 : 0) + (apicallsChanged ? 1 : 0));
+        setChangeCount(totalChanges + (webhooksChanged ? 1 : 0));
         setChangeSummary({
           added: changes.added.map(state => state.name),
           modified: changes.modified.map(state => state.name),
           removed: changes.removed.map(state => state.name),
           ...(webhooksChanged ? { webhooks: true } : {}),
-          ...(apicallsChanged ? { apicalls: true } : {}),
+          // apicalls merged into webhooks
         });
       } catch (error) {
         setHasChanges(false);
@@ -121,7 +121,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       setChangeCount(0);
       setChangeSummary({ added: [], modified: [], removed: [] });
     }
-  }, [nodes, originalScenario, scenario?.webhooks, scenario?.apicalls]);
+  }, [nodes, originalScenario, scenario?.webhooks]);
 
   // 시나리오 로드 시 초기화
   useEffect(() => {
@@ -249,8 +249,41 @@ const Sidebar: React.FC<SidebarProps> = ({
   // JSON 파일 다운로드
   const handleDownload = () => {
     if (!scenario) return;
+    // 통합 저장: apicalls -> webhooks(type='apicall'), webhook에 type 지정
+    const unifyScenarioForSave = (src: any) => {
+      const s = JSON.parse(JSON.stringify(src || {}));
+      const webhooks: any[] = Array.isArray(s.webhooks) ? s.webhooks : [];
+      // ensure type on existing webhooks
+      webhooks.forEach((w) => {
+        if (!w.type) w.type = 'webhook';
+      });
+      const apicalls: any[] = Array.isArray(s.apicalls) ? s.apicalls : [];
+      if (apicalls.length > 0) {
+        const existing = new Set((webhooks || []).filter((w: any) => w.type === 'apicall').map((w: any) => w.name));
+        apicalls.forEach((a) => {
+          if (existing.has(a.name)) return;
+          webhooks.push({
+            type: 'apicall',
+            name: a.name,
+            url: a.url,
+            timeout: a.timeout,
+            retry: a.retry,
+            timeoutInMilliSecond: a.timeout,
+            headers: (a.formats || {}).headers || {},
+            formats: a.formats || {}
+          });
+        });
+        s.webhooks = webhooks;
+        delete s.apicalls;
+      } else {
+        s.webhooks = webhooks;
+        delete s.apicalls;
+      }
+      return s;
+    };
 
-    const dataStr = JSON.stringify(scenario, null, 2);
+    const unified = unifyScenarioForSave(scenario);
+    const dataStr = JSON.stringify(unified, null, 2);
     const dataBlob = new Blob([dataStr], { type: 'application/json' });
     const url = URL.createObjectURL(dataBlob);
     
@@ -640,7 +673,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 </Box>
               )}
 
-              {changeSummary.apicalls && (
+              {false && changeSummary.apicalls && (
                 <Box sx={{ mb: 1 }}>
                   <Typography variant="caption" color="info.main" sx={{ fontWeight: 'bold' }}>
                     🔄 API Calls 변경
@@ -1132,7 +1165,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             </AccordionSummary>
             <AccordionDetails>
               {selectedNode.data.dialogState.apicallHandlers?.map((handler, idx) => {
-                const apicall = scenario?.apicalls?.find(a => a.name === handler.name);
+                const apicall = (scenario?.webhooks as any)?.find((w: any) => w.type === 'apicall' && w.name === handler.name);
                 return (
                   <Box key={idx} sx={{ mb: 2, p: 1, bgcolor: '#f9f9f9', borderRadius: 1 }}>
                     <Typography variant="caption" display="block" sx={{ fontWeight: 'bold', mb: 1 }}>
@@ -1181,10 +1214,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                         borderRadius: 0.5,
                         fontFamily: 'monospace'
                       }}>
-                        {Object.entries(apicall.formats.responseMappings).map(([key, value]) => (
-                          <Typography key={key} variant="caption" display="block">
-                            {key}: {value}
-                          </Typography>
+                        {Object.entries((apicall as any)?.formats?.responseMappings || {}).map(([key, value]) => (
+                          <Typography key={key} variant="caption" display="block">{`${key}: ${String(value)}`}</Typography>
                         ))}
                       </Box>
                     )}
@@ -1203,10 +1234,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                         borderRadius: 0.5,
                         fontFamily: 'monospace'
                       }}>
-                        {Object.entries(apicall.formats.headers).map(([key, value]) => (
-                          <Typography key={key} variant="caption" display="block">
-                            {key}: {value}
-                          </Typography>
+                        {Object.entries((apicall as any)?.formats?.headers || {}).map(([key, value]) => (
+                          <Typography key={key} variant="caption" display="block">{`${key}: ${String(value)}`}</Typography>
                         ))}
                       </Box>
                     )}

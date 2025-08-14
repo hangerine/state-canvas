@@ -806,8 +806,14 @@ const TestPanel: React.FC<TestPanelProps> = ({
       // 항상 scenario.apicalls에서 최신 apicall 객체를 찾아서 사용
       const apiCallNames = apiCallHandlers.map(handler => {
         let apicall = null;
-        if (scenario && scenario.apicalls && handler.name) {
-          apicall = scenario.apicalls.find(a => a.name === handler.name);
+        if (scenario && scenario.webhooks && handler.name) {
+          const apicallLike = (scenario.webhooks as any[]).find(w => w.type === 'apicall' && w.name === handler.name);
+          if (apicallLike) {
+            apicall = {
+              url: apicallLike.url,
+              formats: apicallLike.formats || { method: 'POST' }
+            } as any;
+          }
         }
         const url = apicall?.url || 'Unknown URL';
         const method = apicall?.formats?.method || 'POST';
@@ -2016,8 +2022,14 @@ const TestPanel: React.FC<TestPanelProps> = ({
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 1 }}>
                       {getApiCallHandlers().map((handler, index) => {
                         let apicall = null;
-                        if (scenario && scenario.apicalls && handler.name) {
-                          apicall = scenario.apicalls.find(a => a.name === handler.name);
+        if (scenario && scenario.webhooks && handler.name) {
+          const apicallLike = (scenario.webhooks as any[]).find(w => w.type === 'apicall' && w.name === handler.name);
+          if (apicallLike) {
+            apicall = {
+              url: apicallLike.url,
+              formats: apicallLike.formats || { method: 'POST' }
+            } as any;
+          }
                         }
                         const url = apicall?.url || 'Unknown URL';
                         const method = apicall?.formats?.method || 'POST';

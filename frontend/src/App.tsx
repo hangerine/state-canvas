@@ -1372,10 +1372,42 @@ function App() {
       scenario
     }));
 
+    // 통합 변환: apicalls -> webhooks(type='apicall'), webhook의 type 지정
+    const unifyScenario = (src: any) => {
+      const s = JSON.parse(JSON.stringify(src || {}));
+      const webhooks: any[] = Array.isArray(s.webhooks) ? s.webhooks : [];
+      webhooks.forEach((w) => { if (!w.type) w.type = 'webhook'; });
+      const apicalls: any[] = Array.isArray(s.apicalls) ? s.apicalls : [];
+      if (apicalls.length > 0) {
+        const existing = new Set((webhooks || []).filter((w: any) => w.type === 'apicall').map((w: any) => w.name));
+        apicalls.forEach((a) => {
+          if (existing.has(a.name)) return;
+          webhooks.push({
+            type: 'apicall',
+            name: a.name,
+            url: a.url,
+            timeout: a.timeout,
+            retry: a.retry,
+            timeoutInMilliSecond: a.timeout,
+            headers: (a.formats || {}).headers || {},
+            formats: a.formats || {}
+          });
+        });
+        s.webhooks = webhooks;
+        delete s.apicalls;
+      } else {
+        s.webhooks = webhooks;
+        delete s.apicalls;
+      }
+      return s;
+    };
+
+    const unifiedScenarios = allScenarios.map(s => ({ ...s, scenario: unifyScenario(s.scenario) }));
+
     // apicallHandlers의 url 필드 삭제 (보안)
-    removeApiCallUrlsFromScenario(allScenarios.map(s => s.scenario));
+    removeApiCallUrlsFromScenario(unifiedScenarios.map(s => s.scenario));
     
-    const dataStr = JSON.stringify(allScenarios, null, 2);
+    const dataStr = JSON.stringify(unifiedScenarios, null, 2);
     const dataBlob = new Blob([dataStr], { type: 'application/json' });
     const url = URL.createObjectURL(dataBlob);
     const link = document.createElement('a');

@@ -1529,8 +1529,14 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
         dialogState={editingNode?.data.dialogState || null}
         onClose={() => setEditingNode(null)}
         onSave={handleNodeEditSave}
-        availableWebhooks={scenario?.webhooks || []}
-        availableApiCalls={scenario?.apicalls || []}
+        availableWebhooks={(scenario?.webhooks || []).filter(w => !w.type || w.type === 'webhook') as any}
+        availableApiCalls={((scenario?.webhooks || []).filter(w => w.type === 'apicall') as any).map((w: any) => ({
+          name: w.name,
+          url: w.url,
+          timeout: w.timeout || w.timeoutInMilliSecond || 5000,
+          retry: w.retry || 3,
+          formats: w.formats || { method: 'POST', headers: {}, requestTemplate: '', responseMappings: {}, responseSchema: {} }
+        }))}
         scenario={scenario || undefined}
         nodeType={editingNode?.type}
         scenarios={scenarios}
