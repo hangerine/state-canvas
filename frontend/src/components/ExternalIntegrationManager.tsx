@@ -20,6 +20,10 @@ import {
   Chip,
   Tabs,
   Tab,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -128,7 +132,27 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
     { key: 'Cache-Control', value: 'no-cache' },
   ];
 
-  // 시나리오에서 목록 로드 (webhooks 통합 리스트에서 type으로 분리)
+  // 그룹 상태 및 그룹 생성 다이얼로그
+  const [handlerGroups, setHandlerGroups] = useState<Array<{ type: 'webhook' | 'apicall'; name: string; baseUrl: string }>>([]);
+  const [isGroupDialogOpen, setIsGroupDialogOpen] = useState(false);
+  const [groupType, setGroupType] = useState<'webhook' | 'apicall'>('webhook');
+  const [groupName, setGroupName] = useState('');
+  const [groupBaseUrl, setGroupBaseUrl] = useState('');
+  const [firstEntryName, setFirstEntryName] = useState('');
+  const [firstEntryEndpoint, setFirstEntryEndpoint] = useState('');
+
+  // 엔트리 추가/편집 UX 상태: webhook
+  const [webhookUseGroup, setWebhookUseGroup] = useState(false);
+  const [webhookSelectedGroup, setWebhookSelectedGroup] = useState('');
+  const [webhookEntryName, setWebhookEntryName] = useState('');
+  const [webhookEndpoint, setWebhookEndpoint] = useState('');
+  // 엔트리 추가/편집 UX 상태: apicall
+  const [apiUseGroup, setApiUseGroup] = useState(false);
+  const [apiSelectedGroup, setApiSelectedGroup] = useState('');
+  const [apiEntryName, setApiEntryName] = useState('');
+  const [apiEndpoint, setApiEndpoint] = useState('');
+
+  // 시나리오에서 목록 로드 (webhooks 통합 리스트에서 type으로 분리) + 그룹 자동 생성
   useEffect(() => {
     const all = scenario?.webhooks || [];
     const webhookOnly = all.filter((w: any) => !w.type || w.type === 'webhook');
@@ -143,6 +167,15 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
         formats: w.formats || { method: 'POST', headers: {}, requestTemplate: '', responseMappings: {}, responseSchema: {} }
       }))
     );
+
+    // 자동 그룹 계산 및 병합 적용
+    const existing = (scenario as any)?.handlerGroups || [];
+    const auto = computeGroupsFromWebhooks(all as any[]);
+    const merged = mergeGroups(existing, auto);
+    setHandlerGroups(merged);
+    if (scenario && JSON.stringify(existing) !== JSON.stringify(merged)) {
+      onScenarioUpdate({ ...(scenario as any), handlerGroups: merged } as any);
+    }
   }, [scenario]);
 
   // Webhook 폼 초기화
@@ -194,6 +227,11 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
   const handleAddWebhook = () => {
     resetWebhookForm();
     setIsWebhookDialogOpen(true);
+    // 그룹 입력 초기화
+    setWebhookUseGroup(false);
+    setWebhookSelectedGroup('');
+    setWebhookEntryName('');
+    setWebhookEndpoint('');
   };
   const handleEditWebhook = (webhook: Webhook) => {
     setEditingWebhook(webhook);
@@ -217,6 +255,30 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
     setWebhookTestResponseObj(null);
     setWebhookPastedResponseText('');
     setWebhookPastedResponseObj(null);
+    // 그룹/엔드포인트 모드 자동 세팅
+    try {
+      const m = String(webhook.name || '').match(/^\(([^)]+)\)(.*)$/);
+      const grpName = m ? m[1] : '';
+      const entry = m ? m[2] : '';
+      const groupDef = handlerGroups.find(g => g.type === 'webhook' && g.name === grpName);
+      if (groupDef && groupDef.baseUrl && webhook.url?.startsWith(groupDef.baseUrl)) {
+        const endpoint = webhook.url.slice(groupDef.baseUrl.length);
+        setWebhookUseGroup(true);
+        setWebhookSelectedGroup(grpName);
+        setWebhookEntryName(entry);
+        setWebhookEndpoint(endpoint);
+      } else {
+        setWebhookUseGroup(false);
+        setWebhookSelectedGroup('');
+        setWebhookEntryName('');
+        setWebhookEndpoint('');
+      }
+    } catch {
+      setWebhookUseGroup(false);
+      setWebhookSelectedGroup('');
+      setWebhookEntryName('');
+      setWebhookEndpoint('');
+    }
   };
   const handleDeleteWebhook = (webhookToDelete: Webhook) => {
     if (window.confirm(`"${webhookToDelete.name}" webhook을 삭제하시겠습니까?`)) {
@@ -233,6 +295,7 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
       const updatedScenario = {
         ...scenario,
         webhooks: [...normalizedWebhooks, ...existingApicalls],
+        handlerGroups,
       } as any;
       onScenarioUpdate(updatedScenario);
     }
@@ -240,9 +303,24 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
   const handleSaveWebhook = () => {
     try {
       const parsedHeaders = JSON.parse(webhookHeadersText);
+      let finalName = webhookFormData.name;
+      let finalUrl = webhookFormData.url;
+      if (webhookUseGroup && webhookSelectedGroup) {
+        const grp = handlerGroups.find(g => g.type === 'webhook' && g.name === webhookSelectedGroup);
+        if (!grp) {
+          alert('선택한 그룹을 찾을 수 없습니다.');
+          return;
+        }
+        if (!webhookEntryName.trim()) {
+          alert('엔트리 이름을 입력하세요.');
+          return;
+        }
+        finalName = `(${grp.name})${webhookEntryName.trim()}`;
+        finalUrl = joinUrl(grp.baseUrl, webhookEndpoint.trim());
+      }
       const webhookData: Webhook = {
-        name: webhookFormData.name,
-        url: webhookFormData.url,
+        name: finalName,
+        url: finalUrl,
         headers: parsedHeaders,
         timeoutInMilliSecond: webhookFormData.timeoutInMilliSecond,
         retry: webhookFormData.retry,
@@ -359,6 +437,11 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
   const handleAddApiCall = () => {
     resetApiCallForm();
     setIsApiCallDialogOpen(true);
+    // 그룹 입력 초기화
+    setApiUseGroup(false);
+    setApiSelectedGroup('');
+    setApiEntryName('');
+    setApiEndpoint('');
   };
   const handleEditApiCall = (apicall: ApiCallWithName) => {
     setEditingApiCall(apicall);
@@ -392,6 +475,30 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
     setApiTestResponseObj(null);
     setPastedResponseText('');
     setPastedResponseObj(null);
+    // 그룹/엔드포인트 모드 자동 세팅
+    try {
+      const m = String(apicall.name || '').match(/^\(([^)]+)\)(.*)$/);
+      const grpName = m ? m[1] : '';
+      const entry = m ? m[2] : '';
+      const groupDef = handlerGroups.find(g => g.type === 'apicall' && g.name === grpName);
+      if (groupDef && groupDef.baseUrl && apicall.url?.startsWith(groupDef.baseUrl)) {
+        const endpoint = apicall.url.slice(groupDef.baseUrl.length);
+        setApiUseGroup(true);
+        setApiSelectedGroup(grpName);
+        setApiEntryName(entry);
+        setApiEndpoint(endpoint);
+      } else {
+        setApiUseGroup(false);
+        setApiSelectedGroup('');
+        setApiEntryName('');
+        setApiEndpoint('');
+      }
+    } catch {
+      setApiUseGroup(false);
+      setApiSelectedGroup('');
+      setApiEntryName('');
+      setApiEndpoint('');
+    }
   };
   const handleDeleteApiCall = (apicallToDelete: ApiCallWithName) => {
     if (window.confirm(`"${apicallToDelete.name}" API Call을 삭제하시겠습니까?`)) {
@@ -418,16 +525,151 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
         ...scenario,
         webhooks: [...legacyWebhooks.filter(w => w.type !== 'apicall'), ...apicallsAsWebhooks],
         apicalls: undefined,
+        handlerGroups,
       } as any;
       onScenarioUpdate(updatedScenario);
     }
   };
+
+  // 그룹 생성 다이얼로그 오픈/저장
+  const openGroupDialogFor = (type: 'webhook' | 'apicall') => {
+    setGroupType(type);
+    setGroupName('');
+    setGroupBaseUrl('');
+    setFirstEntryName('');
+    setFirstEntryEndpoint('');
+    setIsGroupDialogOpen(true);
+  };
+  const saveGroupWithFirstEntry = () => {
+    if (!scenario || !groupName.trim() || !groupBaseUrl.trim() || !firstEntryName.trim()) return;
+    const newGroups = mergeGroups(handlerGroups, [{ type: groupType, name: groupName.trim(), baseUrl: groupBaseUrl.trim() }]);
+    const fullUrl = joinUrl(groupBaseUrl.trim(), firstEntryEndpoint.trim());
+    const updatedScenario: any = { ...(scenario as any) };
+    updatedScenario.handlerGroups = newGroups;
+    const wlist = Array.isArray(updatedScenario.webhooks) ? updatedScenario.webhooks : [];
+    if (groupType === 'webhook') {
+      wlist.push({ type: 'webhook', name: `(${groupName.trim()})${firstEntryName.trim()}`, url: fullUrl, headers: {}, timeoutInMilliSecond: 5000, retry: 3 });
+    } else {
+      wlist.push({ type: 'apicall', name: `(${groupName.trim()})${firstEntryName.trim()}`, url: fullUrl, timeout: 5000, retry: 3, timeoutInMilliSecond: 5000, headers: {}, formats: { method: 'POST', headers: {}, requestTemplate: '', responseSchema: {}, responseMappings: {} } });
+    }
+    updatedScenario.webhooks = wlist;
+    onScenarioUpdate(updatedScenario);
+    setHandlerGroups(newGroups);
+    setIsGroupDialogOpen(false);
+  };
+
+  // URL 유틸
+  const joinUrl = (base: string, endpoint: string) => {
+    if (!base) return endpoint || '';
+    const b = base.endsWith('/') ? base.slice(0, -1) : base;
+    if (!endpoint) return b;
+    const e = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    return b + e;
+  };
+  const commonPrefix = (a: string, b: string) => {
+    const len = Math.min(a.length, b.length);
+    let i = 0;
+    while (i < len && a[i] === b[i]) i++;
+    return a.slice(0, i);
+  };
+  const inferBaseUrl = (urls: string[]) => {
+    if (!urls || urls.length === 0) return '';
+    try {
+      if (urls.length === 1) {
+        const u = new URL(urls[0]);
+        return `${u.protocol}//${u.host}`;
+      }
+      let prefix = urls[0];
+      for (let i = 1; i < urls.length; i++) prefix = commonPrefix(prefix, urls[i]);
+      const lastSlash = prefix.lastIndexOf('/');
+      const base = lastSlash > 7 ? prefix.slice(0, lastSlash) : prefix;
+      const u = new URL(urls[0]);
+      const minBase = `${u.protocol}//${u.host}`;
+      return base.length < minBase.length || !base.startsWith(minBase) ? minBase : base;
+    } catch {
+      return urls[0];
+    }
+  };
+  const computeGroupsFromWebhooks = (items: any[]) => {
+    const groups: Record<string, { type: 'webhook' | 'apicall'; name: string; urls: string[] }> = {};
+    (items || []).forEach((it) => {
+      const type: 'webhook' | 'apicall' = it.type === 'apicall' ? 'apicall' : 'webhook';
+      const nm: string = String(it.name || '');
+      const m = nm.match(/^\(([^)]+)\)/);
+      const grp = m ? m[1] : type;
+      const key = `${type}::${grp}`;
+      if (!groups[key]) groups[key] = { type, name: grp, urls: [] };
+      if (it.url) groups[key].urls.push(String(it.url));
+    });
+    const result: Array<{ type: 'webhook' | 'apicall'; name: string; baseUrl: string }> = [];
+    Object.values(groups).forEach((g) => result.push({ type: g.type, name: g.name, baseUrl: inferBaseUrl(g.urls) }));
+    return result;
+  };
+  const mergeGroups = (oldArr: any[], newArr: any[]) => {
+    const map = new Map<string, any>();
+    (oldArr || []).forEach(g => map.set(`${g.type}::${g.name}`, g));
+    (newArr || []).forEach(g => { const k = `${g.type}::${g.name}`; if (!map.has(k)) map.set(k, g); });
+    return Array.from(map.values());
+  };
+  const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&');
+  const isNameInGroup = (name: string, grp: string) => {
+    return new RegExp(`^\\(${escapeRegExp(grp)}\\)`).test(String(name || ''));
+  };
+  const stripGroupFromName = (name: string, grp: string) => String(name || '').replace(new RegExp(`^\\(${escapeRegExp(grp)}\\)`), '');
+  const endpointFromUrl = (url: string, baseUrl: string) => {
+    if (!url || !baseUrl) return url || '';
+    return url.startsWith(baseUrl) ? url.slice(baseUrl.length) || '/' : url;
+  };
+  const openAddWebhookEntryForGroup = (groupName: string) => {
+    resetWebhookForm();
+    setWebhookUseGroup(true);
+    setWebhookSelectedGroup(groupName);
+    setWebhookEntryName('');
+    setWebhookEndpoint('');
+    setIsWebhookDialogOpen(true);
+  };
+  const openAddApiCallEntryForGroup = (groupName: string) => {
+    resetApiCallForm();
+    setApiUseGroup(true);
+    setApiSelectedGroup(groupName);
+    setApiEntryName('');
+    setApiEndpoint('');
+    setIsApiCallDialogOpen(true);
+  };
+  const handleEditGroupBaseUrl = (type: 'webhook' | 'apicall', name: string, currentBaseUrl: string) => {
+    const next = window.prompt(`${type} 그룹 "${name}"의 Base URL`, currentBaseUrl || '') || '';
+    if (next.trim() === '' || next === currentBaseUrl) return;
+    const updated = handlerGroups.map(g => (g.type === type && g.name === name ? { ...g, baseUrl: next.trim() } : g));
+    setHandlerGroups(updated);
+    if (scenario) onScenarioUpdate({ ...(scenario as any), handlerGroups: updated } as any);
+  };
+  const handleDeleteGroup = (type: 'webhook' | 'apicall', name: string) => {
+    if (!window.confirm(`그룹 "${name}"을(를) 삭제하시겠습니까? 그룹에 속한 엔트리는 그룹 없음으로 이동합니다.`)) return;
+    const updated = handlerGroups.filter(g => !(g.type === type && g.name === name));
+    setHandlerGroups(updated);
+    if (scenario) onScenarioUpdate({ ...(scenario as any), handlerGroups: updated } as any);
+  };
   const handleSaveApiCall = () => {
     try {
       const parsedResponseSchema = JSON.parse(apiCallResponseSchemaText);
+      let finalName = apiCallFormData.name;
+      let finalUrl = apiCallFormData.url;
+      if (apiUseGroup && apiSelectedGroup) {
+        const grp = handlerGroups.find(g => g.type === 'apicall' && g.name === apiSelectedGroup);
+        if (!grp) {
+          alert('선택한 그룹을 찾을 수 없습니다.');
+          return;
+        }
+        if (!apiEntryName.trim()) {
+          alert('엔트리 이름을 입력하세요.');
+          return;
+        }
+        finalName = `(${grp.name})${apiEntryName.trim()}`;
+        finalUrl = joinUrl(grp.baseUrl, apiEndpoint.trim());
+      }
       const apiCallData: ApiCallWithName = {
-        name: apiCallFormData.name,
-        url: apiCallFormData.url,
+        name: finalName,
+        url: finalUrl,
         timeout: apiCallFormData.timeout,
         retry: apiCallFormData.retry,
         formats: {
@@ -590,9 +832,10 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
         <Box>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <Typography variant="h6">Webhook 관리</Typography>
-            <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddWebhook}>
-              Webhook 추가
-            </Button>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button variant="outlined" startIcon={<AddIcon />} onClick={() => openGroupDialogFor('webhook')}>그룹 만들기</Button>
+              <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddWebhook}>Webhook 추가</Button>
+            </Box>
           </Box>
           <Alert severity="info" sx={{ mb: 2 }}>
             <Typography variant="body2">
@@ -615,45 +858,81 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                 </TableRow>
               </TableHead>
               <TableBody>
-                {webhooks.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} align="center">
-                      <Typography variant="body2" color="text.secondary">
-                        등록된 webhook이 없습니다.
-                      </Typography>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  webhooks.map((webhook) => (
-                    <TableRow key={webhook.name}>
-                      <TableCell>
-                        <Chip label={webhook.name} size="small" color="primary" variant="outlined" />
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2" sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {webhook.url}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>{webhook.timeoutInMilliSecond}ms</TableCell>
-                      <TableCell>{webhook.retry}</TableCell>
-                      <TableCell>
-                        {Object.keys(webhook.headers).length > 0 ? (
-                          <Chip label={`${Object.keys(webhook.headers).length}개`} size="small" color="secondary" variant="outlined" />
-                        ) : (
-                          <Typography variant="body2" color="text.secondary">없음</Typography>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <IconButton size="small" onClick={() => handleEditWebhook(webhook)} color="primary">
-                          <EditIcon />
-                        </IconButton>
-                        <IconButton size="small" onClick={() => handleDeleteWebhook(webhook)} color="error">
-                          <DeleteIcon />
-                        </IconButton>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
+                {(() => {
+                  const groups = handlerGroups.filter(g => g.type === 'webhook');
+                  const renderGroup = (grp: any) => (
+                    <React.Fragment key={`wh-group-${grp.name}`}>
+                      <TableRow>
+                        <TableCell colSpan={6}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                              <Typography variant="subtitle2">그룹: {grp.name}</Typography>
+                              <Typography variant="body2" color="text.secondary">Base URL: {grp.baseUrl}</Typography>
+                            </Box>
+                            <Box sx={{ display: 'flex', gap: 1 }}>
+                              <Button size="small" variant="outlined" onClick={() => openAddWebhookEntryForGroup(grp.name)}>엔트리 추가</Button>
+                              <Button size="small" variant="text" onClick={() => handleEditGroupBaseUrl('webhook', grp.name, grp.baseUrl)}>Base URL 수정</Button>
+                              <Button size="small" variant="text" color="error" onClick={() => handleDeleteGroup('webhook', grp.name)}>그룹 삭제</Button>
+                            </Box>
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                      {webhooks.filter(w => isNameInGroup(w.name, grp.name)).map((webhook) => (
+                        <TableRow key={webhook.name}>
+                          <TableCell>
+                            <Chip label={stripGroupFromName(webhook.name, grp.name)} size="small" color="primary" variant="outlined" />
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2" sx={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{endpointFromUrl(webhook.url, grp.baseUrl)}</Typography>
+                          </TableCell>
+                          <TableCell>{webhook.timeoutInMilliSecond}ms</TableCell>
+                          <TableCell>{webhook.retry}</TableCell>
+                          <TableCell>
+                            {Object.keys(webhook.headers).length > 0 ? <Chip label={`${Object.keys(webhook.headers).length}개`} size="small" color="secondary" variant="outlined" /> : <Typography variant="body2" color="text.secondary">없음</Typography>}
+                          </TableCell>
+                          <TableCell>
+                            <IconButton size="small" onClick={() => handleEditWebhook(webhook)} color="primary"><EditIcon /></IconButton>
+                            <IconButton size="small" onClick={() => handleDeleteWebhook(webhook)} color="error"><DeleteIcon /></IconButton>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </React.Fragment>
+                  );
+                  return (
+                    <>
+                      {groups.map(renderGroup)}
+                      {/* 그룹 없음 섹션 */}
+                      {webhooks.some(w => !groups.some((g: any) => isNameInGroup(w.name, g.name))) && (
+                        <React.Fragment>
+                          <TableRow>
+                            <TableCell colSpan={6}>
+                              <Typography variant="subtitle2">그룹: (없음)</Typography>
+                            </TableCell>
+                          </TableRow>
+                          {webhooks.filter(w => !groups.some((g: any) => isNameInGroup(w.name, g.name))).map((webhook) => (
+                            <TableRow key={webhook.name}>
+                              <TableCell>
+                                <Chip label={webhook.name} size="small" color="default" variant="outlined" />
+                              </TableCell>
+                              <TableCell>
+                                <Typography variant="body2" sx={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{webhook.url}</Typography>
+                              </TableCell>
+                              <TableCell>{webhook.timeoutInMilliSecond}ms</TableCell>
+                              <TableCell>{webhook.retry}</TableCell>
+                              <TableCell>
+                                {Object.keys(webhook.headers).length > 0 ? <Chip label={`${Object.keys(webhook.headers).length}개`} size="small" color="secondary" variant="outlined" /> : <Typography variant="body2" color="text.secondary">없음</Typography>}
+                              </TableCell>
+                              <TableCell>
+                                <IconButton size="small" onClick={() => handleEditWebhook(webhook)} color="primary"><EditIcon /></IconButton>
+                                <IconButton size="small" onClick={() => handleDeleteWebhook(webhook)} color="error"><DeleteIcon /></IconButton>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </React.Fragment>
+                      )}
+                    </>
+                  );
+                })()}
               </TableBody>
             </Table>
           </TableContainer>
@@ -669,16 +948,41 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                   fullWidth
                   required
                   helperText="예: (intent_classifier)classifier"
-                  disabled={!!editingWebhook}
+                  disabled={!!editingWebhook || webhookUseGroup}
                 />
-                <TextField
-                  label="URL"
-                  value={webhookFormData.url}
-                  onChange={(e) => setWebhookFormData(prev => ({ ...prev, url: e.target.value }))}
-                  fullWidth
-                  required
-                  helperText="예: http://172.27.31.215:8089/api/sentences/webhook"
-                />
+                <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                  <Chip
+                    label={webhookUseGroup ? '그룹 모드' : '직접 URL 모드'}
+                    color={webhookUseGroup ? 'primary' : 'default'}
+                    onClick={() => setWebhookUseGroup(!webhookUseGroup)}
+                  />
+                  <Typography variant="body2" color="text.secondary">
+                    {webhookUseGroup ? '그룹과 엔드포인트로 URL을 구성합니다.' : 'URL을 직접 입력합니다.'}
+                  </Typography>
+                </Box>
+                {webhookUseGroup ? (
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <FormControl sx={{ minWidth: 180 }}>
+                      <InputLabel>그룹 선택</InputLabel>
+                      <Select label="그룹 선택" value={webhookSelectedGroup} onChange={(e) => setWebhookSelectedGroup(e.target.value as string)}>
+                        {handlerGroups.filter(g => g.type === 'webhook').map(g => (
+                          <MenuItem key={`wh-${g.name}`} value={g.name}>{`${g.name} (${g.baseUrl})`}</MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    <TextField label="엔트리 이름" value={webhookEntryName} onChange={(e) => setWebhookEntryName(e.target.value)} sx={{ minWidth: 160 }} />
+                    <TextField label="Endpoint" value={webhookEndpoint} onChange={(e) => setWebhookEndpoint(e.target.value)} sx={{ flex: 1 }} placeholder="예: /webhook" />
+                  </Box>
+                ) : (
+                  <TextField
+                    label="URL"
+                    value={webhookFormData.url}
+                    onChange={(e) => setWebhookFormData(prev => ({ ...prev, url: e.target.value }))}
+                    fullWidth
+                    required
+                    helperText="예: http://172.27.31.215:8089/api/sentences/webhook"
+                  />
+                )}
                 <Box sx={{ display: 'flex', gap: 2 }}>
                   <TextField
                     label="타임아웃 (ms)"
@@ -883,7 +1187,18 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
             </DialogContent>
             <DialogActions>
               <Button onClick={handleCancelWebhookEdit} startIcon={<CancelIcon />}>취소</Button>
-              <Button onClick={handleSaveWebhook} variant="contained" startIcon={<SaveIcon />} disabled={!webhookFormData.name || !webhookFormData.url}>저장</Button>
+              <Button
+                onClick={handleSaveWebhook}
+                variant="contained"
+                startIcon={<SaveIcon />}
+                disabled={
+                  webhookUseGroup
+                    ? !(webhookSelectedGroup && webhookEntryName)
+                    : !(webhookFormData.name && webhookFormData.url)
+                }
+              >
+                저장
+              </Button>
             </DialogActions>
           </Dialog>
         </Box>
@@ -892,9 +1207,10 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
         <Box>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <Typography variant="h6">API Call 관리</Typography>
-            <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddApiCall}>
-              API Call 추가
-            </Button>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button variant="outlined" startIcon={<AddIcon />} onClick={() => openGroupDialogFor('apicall')}>그룹 만들기</Button>
+              <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddApiCall}>API Call 추가</Button>
+            </Box>
           </Box>
           <Alert severity="info" sx={{ mb: 2 }}>
             <Typography variant="body2">
@@ -916,38 +1232,75 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                 </TableRow>
               </TableHead>
               <TableBody>
-                {apicalls.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={5} align="center">
-                      <Typography variant="body2" color="text.secondary">
-                        등록된 API Call이 없습니다.
-                      </Typography>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  apicalls.map((apicall) => (
-                    <TableRow key={apicall.name}>
-                      <TableCell>
-                        <Chip label={apicall.name} size="small" color="primary" variant="outlined" />
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2" sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {apicall.url}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>{apicall.timeout}ms</TableCell>
-                      <TableCell>{apicall.retry}</TableCell>
-                      <TableCell>
-                        <IconButton size="small" onClick={() => handleEditApiCall(apicall)} color="primary">
-                          <EditIcon />
-                        </IconButton>
-                        <IconButton size="small" onClick={() => handleDeleteApiCall(apicall)} color="error">
-                          <DeleteIcon />
-                        </IconButton>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
+                {(() => {
+                  const groups = handlerGroups.filter(g => g.type === 'apicall');
+                  const renderGroup = (grp: any) => (
+                    <React.Fragment key={`api-group-${grp.name}`}>
+                      <TableRow>
+                        <TableCell colSpan={5}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                              <Typography variant="subtitle2">그룹: {grp.name}</Typography>
+                              <Typography variant="body2" color="text.secondary">Base URL: {grp.baseUrl}</Typography>
+                            </Box>
+                            <Box sx={{ display: 'flex', gap: 1 }}>
+                              <Button size="small" variant="outlined" onClick={() => openAddApiCallEntryForGroup(grp.name)}>엔트리 추가</Button>
+                              <Button size="small" variant="text" onClick={() => handleEditGroupBaseUrl('apicall', grp.name, grp.baseUrl)}>Base URL 수정</Button>
+                              <Button size="small" variant="text" color="error" onClick={() => handleDeleteGroup('apicall', grp.name)}>그룹 삭제</Button>
+                            </Box>
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                      {apicalls.filter(a => isNameInGroup(a.name, grp.name)).map((apicall) => (
+                        <TableRow key={apicall.name}>
+                          <TableCell>
+                            <Chip label={stripGroupFromName(apicall.name, grp.name)} size="small" color="primary" variant="outlined" />
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2" sx={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{endpointFromUrl(apicall.url, grp.baseUrl)}</Typography>
+                          </TableCell>
+                          <TableCell>{apicall.timeout}ms</TableCell>
+                          <TableCell>{apicall.retry}</TableCell>
+                          <TableCell>
+                            <IconButton size="small" onClick={() => handleEditApiCall(apicall)} color="primary"><EditIcon /></IconButton>
+                            <IconButton size="small" onClick={() => handleDeleteApiCall(apicall)} color="error"><DeleteIcon /></IconButton>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </React.Fragment>
+                  );
+                  return (
+                    <>
+                      {groups.map(renderGroup)}
+                      {/* 그룹 없음 섹션 */}
+                      {apicalls.some(a => !groups.some((g: any) => isNameInGroup(a.name, g.name))) && (
+                        <React.Fragment>
+                          <TableRow>
+                            <TableCell colSpan={5}>
+                              <Typography variant="subtitle2">그룹: (없음)</Typography>
+                            </TableCell>
+                          </TableRow>
+                          {apicalls.filter(a => !groups.some((g: any) => isNameInGroup(a.name, g.name))).map((apicall) => (
+                            <TableRow key={apicall.name}>
+                              <TableCell>
+                                <Chip label={apicall.name} size="small" color="default" variant="outlined" />
+                              </TableCell>
+                              <TableCell>
+                                <Typography variant="body2" sx={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{apicall.url}</Typography>
+                              </TableCell>
+                              <TableCell>{apicall.timeout}ms</TableCell>
+                              <TableCell>{apicall.retry}</TableCell>
+                              <TableCell>
+                                <IconButton size="small" onClick={() => handleEditApiCall(apicall)} color="primary"><EditIcon /></IconButton>
+                                <IconButton size="small" onClick={() => handleDeleteApiCall(apicall)} color="error"><DeleteIcon /></IconButton>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </React.Fragment>
+                      )}
+                    </>
+                  );
+                })()}
               </TableBody>
             </Table>
           </TableContainer>
@@ -965,14 +1318,40 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                   helperText="예: (external_api)search"
                   disabled={!!editingApiCall}
                 />
-                <TextField
-                  label="URL"
-                  value={apiCallFormData.url}
-                  onChange={(e) => setApiCallFormData(prev => ({ ...prev, url: e.target.value }))}
-                  fullWidth
-                  required
-                  helperText="예: http://api.example.com/v1/search"
-                />
+                {/* 그룹/엔드포인트 기반 입력 전환 */}
+                <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                  <Chip
+                    label={apiUseGroup ? '그룹 모드' : '직접 URL 모드'}
+                    color={apiUseGroup ? 'primary' : 'default'}
+                    onClick={() => setApiUseGroup(!apiUseGroup)}
+                  />
+                  <Typography variant="body2" color="text.secondary">
+                    {apiUseGroup ? '그룹과 엔드포인트로 URL을 구성합니다.' : 'URL을 직접 입력합니다.'}
+                  </Typography>
+                </Box>
+                {apiUseGroup ? (
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <FormControl sx={{ minWidth: 180 }}>
+                      <InputLabel>그룹 선택</InputLabel>
+                      <Select label="그룹 선택" value={apiSelectedGroup} onChange={(e) => setApiSelectedGroup(e.target.value as string)}>
+                        {handlerGroups.filter(g => g.type === 'apicall').map(g => (
+                          <MenuItem key={`api-${g.name}`} value={g.name}>{`${g.name} (${g.baseUrl})`}</MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    <TextField label="엔트리 이름" value={apiEntryName} onChange={(e) => setApiEntryName(e.target.value)} sx={{ minWidth: 160 }} />
+                    <TextField label="Endpoint" value={apiEndpoint} onChange={(e) => setApiEndpoint(e.target.value)} sx={{ flex: 1 }} placeholder="예: /search" />
+                  </Box>
+                ) : (
+                  <TextField
+                    label="URL"
+                    value={apiCallFormData.url}
+                    onChange={(e) => setApiCallFormData(prev => ({ ...prev, url: e.target.value }))}
+                    fullWidth
+                    required
+                    helperText="예: http://api.example.com/v1/search"
+                  />
+                )}
                 <Box sx={{ display: 'flex', gap: 2 }}>
                   <TextField
                     label="타임아웃 (ms)"
@@ -1315,11 +1694,46 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
             </DialogContent>
             <DialogActions>
               <Button onClick={handleCancelApiCallEdit} startIcon={<CancelIcon />}>취소</Button>
-              <Button onClick={handleSaveApiCall} variant="contained" startIcon={<SaveIcon />} disabled={!apiCallFormData.name || !apiCallFormData.url}>저장</Button>
+              <Button
+                onClick={handleSaveApiCall}
+                variant="contained"
+                startIcon={<SaveIcon />}
+                disabled={
+                  apiUseGroup
+                    ? !(apiSelectedGroup && apiEntryName)
+                    : !(apiCallFormData.name && apiCallFormData.url)
+                }
+              >
+                저장
+              </Button>
             </DialogActions>
           </Dialog>
         </Box>
       )}
+      {/* 그룹 생성 다이얼로그 */}
+      <Dialog open={isGroupDialogOpen} onClose={() => setIsGroupDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>그룹 만들기</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+            <FormControl fullWidth>
+              <InputLabel>Type</InputLabel>
+              <Select label="Type" value={groupType} onChange={(e) => setGroupType(e.target.value as any)}>
+                <MenuItem value="webhook">webhook</MenuItem>
+                <MenuItem value="apicall">apicall</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField label="그룹명" value={groupName} onChange={(e) => setGroupName(e.target.value)} fullWidth required placeholder="예: external_api" />
+            <TextField label="Base URL" value={groupBaseUrl} onChange={(e) => setGroupBaseUrl(e.target.value)} fullWidth required placeholder="예: http://localhost:8000/api/v1" />
+            <Alert severity="info">그룹 생성 시 첫 번째 엔트리를 반드시 등록해야 합니다.</Alert>
+            <TextField label="엔트리 이름" value={firstEntryName} onChange={(e) => setFirstEntryName(e.target.value)} fullWidth required placeholder="예: search" />
+            <TextField label="엔드포인트(Endpoint)" value={firstEntryEndpoint} onChange={(e) => setFirstEntryEndpoint(e.target.value)} fullWidth placeholder="예: /apicall 또는 /webhook" />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setIsGroupDialogOpen(false)} startIcon={<CancelIcon />}>취소</Button>
+          <Button onClick={saveGroupWithFirstEntry} variant="contained" startIcon={<SaveIcon />} disabled={!groupName.trim() || !groupBaseUrl.trim() || !firstEntryName.trim()}>저장</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
