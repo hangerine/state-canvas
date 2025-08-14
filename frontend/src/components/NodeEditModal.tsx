@@ -107,23 +107,11 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
     return [...stateOptions, ...transitionOptions, ...endNodes];
   }, [nodes, scenario, activeScenarioId]);
 
-  // 시나리오 전이 노드용: 시나리오 목록
-  const scenarioOptions = React.useMemo(() => Object.entries(scenarios).map(([id, s]) => ({ id, name: s.plan[0]?.name || id })), [scenarios]);
   // 시나리오 전이 노드용: 선택된 시나리오의 상태 목록
   const scenarioStateOptions = React.useMemo(() => {
     if (!selectedScenario || !scenarios[selectedScenario]) return [];
     return scenarios[selectedScenario].plan[0]?.dialogState.map(ds => ds.name) || [];
   }, [selectedScenario, scenarios]);
-
-  // JSON validation helper
-  const validateJson = (jsonString: string): { isValid: boolean; error?: string } => {
-    try {
-      JSON.parse(jsonString);
-      return { isValid: true };
-    } catch (error) {
-      return { isValid: false, error: (error as Error).message };
-    }
-  };
 
   useEffect(() => {
     if (nodeType === 'scenarioTransition') {
@@ -722,121 +710,9 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
     setResponseMappingsStrings(updatedStrings);
   };
 
-  // 헤더 관리 함수들
-  const addHeaderToApiCall = (apiCallIndex: number, key: string = '', value: string = '') => {
-    const handler = editedState.apicallHandlers?.[apiCallIndex];
-    if (!handler || !handler.apicall) return;
+  // 노드 편집에서는 헤더 편집을 지원하지 않고 읽기 전용으로 표시만 하므로, 관련 편집 함수 및 옵션 제거
 
-    const currentHeaders = handler.apicall.formats.headers || {};
-    const newHeaders = { ...currentHeaders, [key]: value };
-    
-    updateApiCallHandler(apiCallIndex, 'headers', newHeaders);
-  };
-
-  const removeHeaderFromApiCall = (apiCallIndex: number, headerKey: string) => {
-    const handler = editedState.apicallHandlers?.[apiCallIndex];
-    if (!handler || !handler.apicall) return;
-
-    const currentHeaders = handler.apicall.formats.headers || {};
-    const { [headerKey]: removed, ...newHeaders } = currentHeaders;
-    
-    updateApiCallHandler(apiCallIndex, 'headers', newHeaders);
-  };
-
-  const updateHeaderInApiCall = (apiCallIndex: number, oldKey: string, newKey: string, newValue: string) => {
-    const handler = editedState.apicallHandlers?.[apiCallIndex];
-    if (!handler || !handler.apicall) return;
-
-    const currentHeaders = handler.apicall.formats.headers || {};
-    const newHeaders = { ...currentHeaders };
-    
-    if (oldKey !== newKey) {
-      delete newHeaders[oldKey];
-    }
-    newHeaders[newKey] = newValue;
-    
-    updateApiCallHandler(apiCallIndex, 'headers', newHeaders);
-  };
-
-  // 기본 헤더 옵션들
-  const defaultHeaderOptions = [
-    { key: 'Content-Type', value: 'application/json' },
-    { key: 'Accept', value: 'application/json' },
-    { key: 'Authorization', value: 'Bearer ' },
-    { key: 'User-Agent', value: 'StateCanvas/1.0' },
-    { key: 'X-Requested-With', value: 'XMLHttpRequest' },
-    { key: 'Cache-Control', value: 'no-cache' },
-  ];
-
-  const updateApiCallHandler = (index: number, field: string, value: any) => {
-    const updated = editedState.apicallHandlers?.map((handler, i) => {
-      if (i === index) {
-        if (field === 'name') {
-          return { ...handler, name: value };
-        } else if (field === 'url') {
-          return { ...handler, apicall: { ...handler.apicall!, url: value } };
-        } else if (field === 'timeout') {
-          return { ...handler, apicall: { ...handler.apicall!, timeout: parseInt(value) || 5000 } };
-        } else if (field === 'retry') {
-          return { ...handler, apicall: { ...handler.apicall!, retry: parseInt(value) || 3 } };
-        } else if (field === 'method') {
-          return { 
-            ...handler, 
-            apicall: { 
-              ...handler.apicall!, 
-              formats: { ...handler.apicall!.formats, method: value } 
-            } 
-          };
-        } else if (field === 'requestTemplate') {
-          return { 
-            ...handler, 
-            apicall: { 
-              ...handler.apicall!, 
-              formats: { ...handler.apicall!.formats, requestTemplate: value } 
-            } 
-          };
-        } else if (field === 'headers') {
-          return { 
-            ...handler, 
-            apicall: { 
-              ...handler.apicall!, 
-              formats: { ...handler.apicall!.formats, headers: value } 
-            } 
-          };
-        } else if (field === 'responseMappings') {
-          return {
-            ...handler,
-            apicall: {
-              ...handler.apicall!,
-              formats: {
-                ...handler.apicall!.formats,
-                responseMappings: value
-              }
-            }
-          };
-        } else if (field === 'responseSchema') {
-          return {
-            ...handler,
-            apicall: {
-              ...handler.apicall!,
-              formats: {
-                ...handler.apicall!.formats,
-                responseSchema: value
-              }
-            }
-          };
-        } else if (field === 'transitionTarget') {
-          return { ...handler, transitionTarget: { ...handler.transitionTarget!, dialogState: value } };
-        }
-      }
-      return handler;
-    }) || [];
-    
-    setEditedState({
-      ...editedState,
-      apicallHandlers: updated
-    });
-  };
+  // 노드 편집에서는 API Call 상세 설정을 읽기 전용으로만 표시하므로 업데이트 로직 제거
 
   // Webhook 액션 관리 함수들
   const addWebhookAction = () => {
@@ -1893,225 +1769,54 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                       </Select>
                     </FormControl>
 
-                    {/* url만 readonly, 나머지는 기존 편집 UI 복원 */}
-                    <TextField
-                      label="URL"
-                      value={handler.apicall?.url || ''}
-                      fullWidth
-                      sx={{ mb: 1 }}
-                      InputProps={{ readOnly: true }}
-                      placeholder="http://example.com/api/endpoint"
-                    />
-
-                    <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
-                      <FormControl sx={{ minWidth: 120 }}>
-                        <InputLabel>Method</InputLabel>
-                        <Select
-                          value={handler.apicall?.formats.method || ''}
-                          label="Method"
-                          onChange={(e) => updateApiCallHandler(index, 'method', e.target.value)}
-                        >
-                          <MenuItem value="GET">GET</MenuItem>
-                          <MenuItem value="POST">POST</MenuItem>
-                          <MenuItem value="PUT">PUT</MenuItem>
-                          <MenuItem value="DELETE">DELETE</MenuItem>
-                          <MenuItem value="PATCH">PATCH</MenuItem>
-                        </Select>
-                      </FormControl>
-                      <TextField
-                        label="Timeout (ms)"
-                        type="number"
-                        value={handler.apicall?.timeout || ''}
-                        onChange={(e) => updateApiCallHandler(index, 'timeout', e.target.value)}
-                        sx={{ flex: 1 }}
-                      />
-                      <TextField
-                        label="Retry"
-                        type="number"
-                        value={handler.apicall?.retry || ''}
-                        onChange={(e) => updateApiCallHandler(index, 'retry', e.target.value)}
-                        sx={{ flex: 1 }}
-                      />
-                    </Box>
-
-                    <TextField
-                      label="Request Template"
-                      value={handler.apicall?.formats.requestTemplate || ''}
-                      onChange={(e) => updateApiCallHandler(index, 'requestTemplate', e.target.value)}
-                      multiline
-                      rows={3}
-                      fullWidth
-                      sx={{ mb: 1 }}
-                      placeholder='{"text": "{{USER_TEXT_INPUT.[0]}}", "sessionId": "{{sessionId}}", "requestId": "{{requestId}}"}'
-                      helperText="사용 가능한 변수: {{sessionId}}, {{requestId}}, {{USER_TEXT_INPUT.[0]}}, {{memorySlots.KEY.value.[0]}}, {{customKey}} 등"
-                    />
-
-                    {/* Headers 설정 (기존 UI 복원) */}
+                    {/* 읽기 전용 요약 표시 (편집은 외부연동관리 탭에서만) */}
                     <Box sx={{ mb: 1 }}>
-                      <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                        HTTP Headers
-                      </Typography>
-                      {/* 기본 헤더 선택 */}
-                      <Box sx={{ mb: 1 }}>
-                        <Typography variant="caption" sx={{ display: 'block', mb: 0.5 }}>
-                          기본 헤더 추가:
+                      <Typography variant="subtitle2" sx={{ mb: 0.5 }}>설정 요약 (읽기 전용)</Typography>
+                      <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1, bgcolor: '#f9f9f9' }}>
+                        <Typography variant="body2"><strong>URL:</strong> {handler.apicall?.url || '-'}</Typography>
+                        <Typography variant="body2"><strong>Method:</strong> {handler.apicall?.formats.method || '-'}</Typography>
+                        <Typography variant="body2"><strong>Timeout:</strong> {handler.apicall?.timeout ?? '-' } ms</Typography>
+                        <Typography variant="body2"><strong>Retry:</strong> {handler.apicall?.retry ?? '-'}</Typography>
+                        <Typography variant="body2" sx={{ mt: 0.5 }}>
+                          <strong>Headers:</strong> {Object.keys(handler.apicall?.formats.headers || {}).length}개
                         </Typography>
-                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                          {defaultHeaderOptions.map((option) => (
-                            <Chip
-                              key={option.key}
-                              label={`${option.key}: ${option.value}`}
-                              variant="outlined"
-                              size="small"
-                              clickable
-                              onClick={() => addHeaderToApiCall(index, option.key, option.value)}
-                              sx={{ fontSize: '0.7rem' }}
-                            />
-                          ))}
-                        </Box>
-                      </Box>
-                      {/* 현재 헤더 목록 */}
-                      <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1, minHeight: 60, bgcolor: '#f9f9f9' }}>
-                        {Object.entries(handler.apicall?.formats.headers || {}).length === 0 ? (
-                          <Typography variant="caption" color="text.secondary">
-                            설정된 헤더가 없습니다. 위의 기본 헤더를 선택하거나 아래에서 커스텀 헤더를 추가하세요.
+                        {Object.entries(handler.apicall?.formats.headers || {}).slice(0, 5).map(([k, v]) => (
+                          <Typography key={k} variant="caption" sx={{ display: 'block', ml: 1.5 }}>
+                            {k}: {String(v)}
                           </Typography>
-                        ) : (
-                          <Grid container spacing={1}>
-                            {Object.entries(handler.apicall?.formats.headers || {}).map(([key, value]) => (
-                              <Grid item xs={12} key={key}>
-                                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                                  <TextField
-                                    size="small"
-                                    label="Key"
-                                    value={key}
-                                    onChange={(e) => updateHeaderInApiCall(index, key, e.target.value, value as string)}
-                                    sx={{ flex: 1 }}
-                                  />
-                                  <TextField
-                                    size="small"
-                                    label="Value"
-                                    value={value as string}
-                                    onChange={(e) => updateHeaderInApiCall(index, key, key, e.target.value)}
-                                    sx={{ flex: 2 }}
-                                  />
-                                  <IconButton
-                                    size="small"
-                                    onClick={() => removeHeaderFromApiCall(index, key)}
-                                    color="error"
-                                  >
-                                    <DeleteIcon fontSize="small" />
-                                  </IconButton>
-                                </Box>
-                              </Grid>
-                            ))}
-                          </Grid>
+                        ))}
+                        <Typography variant="body2" sx={{ mt: 0.5 }}>
+                          <strong>Request Template:</strong>
+                        </Typography>
+                        <Typography variant="caption" sx={{ display: 'block', whiteSpace: 'pre-wrap', fontFamily: 'monospace', ml: 1.5 }}>
+                          {(handler.apicall?.formats.requestTemplate || '').slice(0, 400) || '-'}{(handler.apicall?.formats.requestTemplate || '').length > 400 ? ' ...' : ''}
+                        </Typography>
+                        <Typography variant="body2" sx={{ mt: 0.5 }}>
+                          <strong>Response Schema:</strong>
+                        </Typography>
+                        <Typography variant="caption" sx={{ display: 'block', whiteSpace: 'pre-wrap', fontFamily: 'monospace', ml: 1.5 }}>
+                          {(() => {
+                            try { return JSON.stringify(handler.apicall?.formats.responseSchema || {}, null, 2).slice(0, 400); } catch { return '-'; }
+                          })()}{(() => {
+                            try { return JSON.stringify(handler.apicall?.formats.responseSchema || {}, null, 2).length > 400 ? ' ...' : ''; } catch { return ''; }
+                          })()}
+                        </Typography>
+                        <Typography variant="body2" sx={{ mt: 0.5 }}>
+                          <strong>Response Mappings:</strong>
+                        </Typography>
+                        {Object.entries(handler.apicall?.formats.responseMappings || {}).slice(0, 6).map(([k, v]) => (
+                          <Typography key={k} variant="caption" sx={{ display: 'block', ml: 1.5 }}>
+                            {k} ⇐ {String(v)}
+                          </Typography>
+                        ))}
+                        {Object.keys(handler.apicall?.formats.responseMappings || {}).length === 0 && (
+                          <Typography variant="caption" sx={{ display: 'block', ml: 1.5 }}>-</Typography>
                         )}
-                      </Box>
-                      {/* 커스텀 헤더 추가 */}
-                      <Box sx={{ mt: 1, display: 'flex', gap: 1, alignItems: 'center' }}>
-                        <TextField
-                          size="small"
-                          placeholder="Header Key"
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              const target = e.target as HTMLInputElement;
-                              const valueInput = target.parentElement?.nextElementSibling?.querySelector('input') as HTMLInputElement;
-                              const key = target.value.trim();
-                              const value = valueInput?.value.trim() || '';
-                              if (key) {
-                                addHeaderToApiCall(index, key, value);
-                                target.value = '';
-                                if (valueInput) valueInput.value = '';
-                              }
-                            }
-                          }}
-                          sx={{ flex: 1 }}
-                        />
-                        <TextField
-                          size="small"
-                          placeholder="Header Value"
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              const target = e.target as HTMLInputElement;
-                              const keyInput = target.parentElement?.previousElementSibling?.querySelector('input') as HTMLInputElement;
-                              const key = keyInput?.value.trim() || '';
-                              const value = target.value.trim();
-                              if (key) {
-                                addHeaderToApiCall(index, key, value);
-                                if (keyInput) keyInput.value = '';
-                                target.value = '';
-                              }
-                            }
-                          }}
-                          sx={{ flex: 2 }}
-                        />
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          onClick={() => {
-                            const container = document.querySelector(`[data-api-call-index="${index}"]`);
-                            const keyInput = container?.querySelector('input[placeholder="Header Key"]') as HTMLInputElement;
-                            const valueInput = container?.querySelector('input[placeholder="Header Value"]') as HTMLInputElement;
-                            const key = keyInput?.value.trim() || '';
-                            const value = valueInput?.value.trim() || '';
-                            if (key) {
-                              addHeaderToApiCall(index, key, value);
-                              if (keyInput) keyInput.value = '';
-                              if (valueInput) valueInput.value = '';
-                            }
-                          }}
-                        >
-                          추가
-                        </Button>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                          편집은 테스트 패널 → 외부연동관리 → API Call 관리에서 수행하세요.
+                        </Typography>
                       </Box>
                     </Box>
-
-                    <TextField
-                      label="Response Schema (JSON)"
-                      value={JSON.stringify(handler.apicall?.formats.responseSchema || {}, null, 2)}
-                      onChange={(e) => {
-                        let parsed = {};
-                        try { parsed = JSON.parse(e.target.value); } catch {}
-                        updateApiCallHandler(index, 'responseSchema', parsed);
-                      }}
-                      multiline
-                      rows={3}
-                      fullWidth
-                      sx={{ mb: 1 }}
-                      placeholder='{"field1": "string", "field2": "number"}'
-                      helperText="API 응답의 스키마를 JSON 형식으로 입력하세요."
-                    />
-
-                    <TextField
-                      label="Response Mappings (JSON)"
-                      value={getSafeResponseMappingString(index)}
-                      onChange={(e) => {
-                        const newStrings = [...responseMappingsStrings];
-                        while (newStrings.length <= index) {
-                          newStrings.push('{}');
-                        }
-                        newStrings[index] = e.target.value;
-                        setResponseMappingsStrings(newStrings);
-                      }}
-                      multiline
-                      rows={3}
-                      fullWidth
-                      sx={{ mb: 1 }}
-                      placeholder='{"NLU_INTENT": "$.nlu.intent", "STS_CONFIDENCE": "$.nlu.confidence"}'
-                      error={(() => {
-                        const mappingString = getSafeResponseMappingString(index);
-                        return mappingString.trim() !== '' && mappingString !== '{}' && !validateJson(mappingString).isValid;
-                      })()}
-                      helperText={(() => {
-                        const mappingString = getSafeResponseMappingString(index);
-                        const validation = validateJson(mappingString);
-                        if (!validation.isValid && mappingString.trim() !== '' && mappingString !== '{}') {
-                          return `JSON 오류: ${validation.error}`;
-                        }
-                        return "JSONPath 표현식을 사용한 응답 매핑 (예: NLU_INTENT: $.nlu.intent)";
-                      })()}
-                    />
                   </Box>
                 ))}
                 <Button

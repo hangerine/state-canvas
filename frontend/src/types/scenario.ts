@@ -219,6 +219,8 @@ export interface Webhook {
   headers: Record<string, string>;
   timeoutInMilliSecond: number;
   retry: number;
+  // optional: additional body fields for webhook requests
+  body?: Record<string, any>;
 }
 
 export interface ScenarioPlan {
