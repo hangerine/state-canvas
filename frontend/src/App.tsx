@@ -1598,15 +1598,8 @@ function App() {
           )}
         </Box>
 
-        {/* Test Mode Toggle */}
-        <Box 
-          sx={{ 
-            position: 'fixed', 
-            bottom: 16, 
-            left: 16,
-            zIndex: 1000 
-          }}
-        >
+        {/* Test Mode Toggle + 현재 상태 표시 (나란히) */}
+        <Box sx={{ position: 'fixed', bottom: 16, left: 16, zIndex: 1000, display: 'flex', gap: 1, alignItems: 'center' }}>
           <button
             onClick={handleTestModeToggle}
             style={{
@@ -1622,28 +1615,23 @@ function App() {
           >
             {isTestMode ? '테스트 모드 OFF' : '테스트 모드 ON'}
           </button>
+          {currentState && (
+            <Box
+              sx={{
+                backgroundColor: '#1976d2',
+                color: 'white',
+                padding: '8px 16px',
+                borderRadius: '20px',
+                fontSize: '14px',
+                fontWeight: 'bold',
+                boxShadow: 2,
+                whiteSpace: 'nowrap'
+              }}
+            >
+              현재 상태: {currentState}
+            </Box>
+          )}
         </Box>
-
-        {/* 현재 상태 표시 */}
-        {currentState && (
-          <Box 
-            sx={{ 
-              position: 'fixed', 
-              left: 16,
-              bottom: 80,
-              zIndex: 1001,
-              backgroundColor: '#1976d2',
-              color: 'white',
-              padding: '8px 16px',
-              borderRadius: '20px',
-              fontSize: '14px',
-              fontWeight: 'bold',
-              boxShadow: 2,
-            }}
-          >
-            현재 상태: {currentState}
-          </Box>
-        )}
 
         {/* 시나리오 저장 확인 모달 */}
         <ScenarioSaveModal
