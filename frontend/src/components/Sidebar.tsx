@@ -17,7 +17,8 @@ import {
   List,
   ListItem,
   ListItemText,
-  IconButton
+  IconButton,
+  Tooltip
 } from '@mui/material';
 
 import { ExpandMore as ExpandMoreIcon } from '@mui/icons-material';
@@ -437,79 +438,32 @@ const Sidebar: React.FC<SidebarProps> = ({
             </Box>
           </Paper>
 
-          {/* 시나리오 관리 섹션 */}
-          <Paper sx={{ p: 2, mb: 2, bgcolor: '#fafafa', border: '1px solid #e0e0e0' }}>
-            <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold', color: '#1976d2', mb: 2 }}>
-              ⚙️ 시나리오 관리
-            </Typography>
-
-            {/* 새 시나리오 추가 버튼 */}
-            <Button 
-              variant="contained" 
-              color="primary"
-              onClick={onCreateNewScenario}
-              disabled={isLoading}
-              size="small"
-              sx={{ width: '100%', mb: 1, fontSize: '0.75rem' }}
-            >
-              🆕 새 시나리오 추가
-            </Button>
-
-            {/* 변경사항 적용 버튼 */}
-            <Badge 
-              badgeContent={hasChanges ? changeCount : 0} 
-              color="warning"
-              sx={{ width: '100%', mb: 1 }}
-            >
-              <Button 
-                variant="contained" 
-                color={hasChanges ? "warning" : "primary"}
-                onClick={onApplyChanges}
-                disabled={!scenario || isLoading}
-                size="small"
-                sx={{ 
-                  width: '100%',
-                  fontSize: '0.75rem',
-                  backgroundColor: hasChanges ? '#ff9800' : undefined,
-                  '&:hover': {
-                    backgroundColor: hasChanges ? '#f57c00' : undefined,
-                  }
-                }}
-              >
-                {hasChanges ? '🔄 변경사항 적용' : '✅ 변경사항 적용'}
-              </Button>
-            </Badge>
-
-            {/* 저장 버튼들 */}
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <Button 
-                variant="outlined" 
-                color="success"
-                onClick={onScenarioSave}
-                disabled={!scenario || isLoading}
-                size="small"
-                sx={{ flex: 1, fontSize: '0.75rem' }}
-              >
-                💾 개별 저장
-              </Button>
-              <Button 
-                variant="outlined" 
-                color="secondary"
-                onClick={onSaveAllScenarios}
-                disabled={isLoading}
-                size="small"
-                sx={{ flex: 1, fontSize: '0.75rem' }}
-              >
-                📦 전체 저장
-              </Button>
-            </Box>
-          </Paper>
+          {/* 시나리오 관리 섹션 (상단 버튼 및 리스트 내 아이콘으로 대체되어 제거) */}
 
           {/* 시나리오 목록 */}
           {Object.keys(scenarios).length > 0 && (
             <Paper sx={{ p: 2, mb: 2, bgcolor: '#fafafa', border: '1px solid #e0e0e0' }}>
-              <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold', color: '#1976d2', mb: 2 }}>
-                📋 시나리오 목록
+              <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold', color: '#1976d2', mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>📋 시나리오 목록</span>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Tooltip title="새 시나리오 추가">
+                    <IconButton size="small" color="primary" onClick={onCreateNewScenario}>
+                      <span style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>＋</span>
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="변경사항 적용">
+                    <span>
+                      <IconButton size="small" color="success" onClick={onApplyChanges} disabled={!hasChanges}>
+                        <span style={{ fontWeight: 'bold' }}>↻</span>
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                  <Tooltip title="전체 저장">
+                    <IconButton size="small" color="secondary" onClick={onSaveAllScenarios}>
+                      <span style={{ fontWeight: 'bold' }}>💾</span>
+                    </IconButton>
+                  </Tooltip>
+                </Box>
               </Typography>
               <List dense sx={{ p: 0 }}>
                 {Object.entries(scenarios).map(([id, scenarioData]) => (
@@ -572,9 +526,18 @@ const Sidebar: React.FC<SidebarProps> = ({
                             </Box>
                           ) : (
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <Typography variant="body2" sx={{ fontWeight: id === activeScenarioId ? 'bold' : 'normal' }}>
-                                {scenarioData.plan[0]?.name || `Scenario ${id}`}
-                              </Typography>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Typography variant="body2" sx={{ fontWeight: id === activeScenarioId ? 'bold' : 'normal' }}>
+                                  {scenarioData.plan[0]?.name || `Scenario ${id}`}
+                                </Typography>
+                                {hasChanges && id === activeScenarioId && (
+                                  <Tooltip title={`변경사항 ${changeCount}건`}>
+                                    <Badge color="warning" badgeContent={changeCount} sx={{ '& .MuiBadge-badge': { fontSize: '0.65rem', height: 18, minWidth: 18 } }}>
+                                      <span style={{ width: 0 }} />
+                                    </Badge>
+                                  </Tooltip>
+                                )}
+                              </Box>
                               <IconButton
                                 size="small"
                                 onClick={(e) => {
@@ -595,6 +558,21 @@ const Sidebar: React.FC<SidebarProps> = ({
                         }
                       />
                     </Box>
+                    {/* 개별 저장 */}
+                    <Tooltip title="개별 저장">
+                      <IconButton
+                        edge="end"
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (onSwitchScenario) onSwitchScenario(id);
+                          onScenarioSave();
+                        }}
+                        sx={{ ml: 1 }}
+                      >
+                        <span>💾</span>
+                      </IconButton>
+                    </Tooltip>
                     {/* 삭제 버튼: 항상 보이되, 1개 남았을 때는 비활성화 */}
                     <IconButton
                       edge="end"
