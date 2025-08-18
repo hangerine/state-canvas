@@ -509,7 +509,15 @@ function App() {
     const getTransition = (tt: any): { dialogState?: string; scenario?: string } => {
       if (!tt) return {};
       if (typeof tt === 'string') return { dialogState: tt };
-      if (typeof tt === 'object') return { dialogState: (tt as any).dialogState, scenario: (tt as any).scenario };
+      if (typeof tt === 'object') {
+        let dialogState = (tt as any).dialogState;
+        let scenarioNameOrId = (tt as any).scenario;
+        // 시나리오 ID가 들어온 경우 이름으로 정규화
+        if (scenarioNameOrId && (scenarios as any)[scenarioNameOrId]) {
+          scenarioNameOrId = (scenarios as any)[scenarioNameOrId]?.plan?.[0]?.name || scenarioNameOrId;
+        }
+        return { dialogState, scenario: scenarioNameOrId };
+      }
       return {};
     };
 
@@ -663,7 +671,13 @@ function App() {
       // Condition handlers에서 전이 관계 추출
       state.conditionHandlers?.forEach((handler, idx) => {
         const { dialogState: targetState, scenario: targetScenario } = getTransition(handler.transitionTarget);
-        if (targetState && targetState !== '__END_SESSION__' && targetState !== '__END_SCENARIO__' && targetState !== '__END_PROCESS__') {
+        if (
+          targetState &&
+          targetState !== '__CURRENT_DIALOG_STATE__' &&
+          targetState !== '__END_SESSION__' &&
+          targetState !== '__END_SCENARIO__' &&
+          targetState !== '__END_PROCESS__'
+        ) {
           
           const currentScenarioName = scenario.plan[0].name;
           
@@ -828,7 +842,13 @@ function App() {
       // Intent handlers에서 전이 관계 추출
       state.intentHandlers?.forEach((handler, idx) => {
         const { dialogState: targetState, scenario: targetScenario } = getTransition(handler.transitionTarget);
-        if (targetState && targetState !== '__END_SESSION__' && targetState !== '__END_SCENARIO__' && targetState !== '__END_PROCESS__') {
+        if (
+          targetState &&
+          targetState !== '__CURRENT_DIALOG_STATE__' &&
+          targetState !== '__END_SESSION__' &&
+          targetState !== '__END_SCENARIO__' &&
+          targetState !== '__END_PROCESS__'
+        ) {
           const currentScenarioName = scenario.plan[0].name;
           
           // 시나리오/플랜 간 전이인 경우

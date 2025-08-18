@@ -531,6 +531,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       // Condition handlers에서 전이 관계 추출
       state.conditionHandlers?.forEach((handler: any, idx: number) => {
         if (handler.transitionTarget.dialogState && 
+            handler.transitionTarget.dialogState !== '__CURRENT_DIALOG_STATE__' &&
             handler.transitionTarget.dialogState !== '__END_SESSION__') {
           const targetNode = nodes.find(n => n.data.dialogState.name === handler.transitionTarget.dialogState);
           if (targetNode) {
@@ -551,7 +552,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
 
       // Intent handlers에서 전이 관계 추출
       state.intentHandlers?.forEach((handler: any, idx: number) => {
-        if (handler.transitionTarget.dialogState) {
+        if (handler.transitionTarget.dialogState && handler.transitionTarget.dialogState !== '__CURRENT_DIALOG_STATE__') {
           const targetNode = nodes.find(n => n.data.dialogState.name === handler.transitionTarget.dialogState);
           if (targetNode) {
             const { sourceHandle, targetHandle } = getOptimalHandles(node, targetNode);

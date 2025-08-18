@@ -80,14 +80,18 @@ class StateEngine:
                 logger.info("🔗 No states with webhook actions found")
         logger.info(f"Scenario loaded for session: {session_id}")
         initial_state = self.get_initial_state(first)
+        # 첫 번째 플랜의 이름을 시나리오명으로, 실제 플랜명은 Main으로 초기화
+        first_plan_name = first.get("plan", [{}])[0].get("name", "")
         self.session_stacks[session_id] = [
             {
-                "scenarioName": first.get("plan", [{}])[0].get("name", ""),
+                "scenarioName": first_plan_name,
+                "planName": "Main",  # 초기 플랜은 항상 Main
                 "dialogStateName": initial_state,
                 "lastExecutedHandlerIndex": -1,
                 "entryActionExecuted": False,
             }
         ]
+        logger.info(f"[STACK INIT] session={session_id}, scenarioName={first_plan_name}, planName=Main, initialState={initial_state}")
 
     def switch_to_scenario(self, session_id: str, target_scenario_name: str, target_state: str = None):
         """다른 시나리오로 전이합니다."""
@@ -102,6 +106,7 @@ class StateEngine:
         # 새로운 시나리오 정보를 스택에 추가
         new_scenario_info = {
             "scenarioName": target_scenario_name,
+            "planName": target_scenario_name,
             "dialogStateName": target_state or "Start",
             "lastExecutedHandlerIndex": -1,
             "entryActionExecuted": False,
@@ -163,6 +168,104 @@ class StateEngine:
                 logger.info(f"🎯 첫 번째 상태를 초기 상태로 설정: {first_state}")
                 return first_state
         return ""
+    
+    # ---------- Plan helpers ----------
+    def _is_plan_name(self, scenario: Dict[str, Any], name: Optional[str]) -> bool:
+        if not name:
+            return False
+        try:
+            # 1) top-level plans
+            if any(pl.get("name") == name for pl in scenario.get("plan", [])):
+                return True
+            # 2) nested plan-as-state (state that contains its own dialogState list)
+            plans = scenario.get("plan", [])
+            for top_pl in plans:
+                for ds in top_pl.get("dialogState", []):
+                    if ds.get("name") == name and isinstance(ds.get("dialogState"), list):
+                        return True
+            return False
+        except Exception:
+            return False
+
+    def _get_start_state_of_plan(self, scenario: Dict[str, Any], plan_name: str) -> Optional[str]:
+        # top-level plans
+        for pl in scenario.get("plan", []):
+            if pl.get("name") == plan_name:
+                states = pl.get("dialogState", [])
+                for st in states:
+                    if st.get("name") == "Start":
+                        return "Start"
+                return states[0].get("name") if states else None
+        # nested plan-as-state
+        for top_pl in scenario.get("plan", []):
+            for ds in top_pl.get("dialogState", []):
+                if ds.get("name") == plan_name and isinstance(ds.get("dialogState"), list):
+                    nested_states = ds.get("dialogState", [])
+                    for st in nested_states:
+                        if st.get("name") == "Start":
+                            return "Start"
+                    return nested_states[0].get("name") if nested_states else None
+        return None
+
+    def _get_current_plan_name(self, session_id: str, scenario: Dict[str, Any]) -> str:
+        stack = self.session_stacks.get(session_id, [])
+        if stack and stack[-1].get("planName"):
+            return stack[-1]["planName"]
+        return scenario.get("plan", [{}])[0].get("name", "")
+
+    def _set_current_plan_name(self, session_id: str, plan_name: str) -> None:
+        stack = self.session_stacks.get(session_id, [])
+        if stack:
+            stack[-1]["planName"] = plan_name
+            self.session_stacks[session_id] = stack
+
+    def _push_plan_frame(self, session_id: str, current_scenario_name: str, plan_name: str, dialog_state_name: str) -> None:
+        stack = self.session_stacks.get(session_id, [])
+        new_frame = {
+            "scenarioName": current_scenario_name,
+            "planName": plan_name,
+            "dialogStateName": dialog_state_name,
+            "lastExecutedHandlerIndex": -1,
+            "entryActionExecuted": False,
+        }
+        stack.append(new_frame)
+        self.session_stacks[session_id] = stack
+
+    def _update_current_dialog_state_name(self, session_id: str, dialog_state_name: str) -> None:
+        stack = self.session_stacks.get(session_id, [])
+        if stack:
+            stack[-1]["dialogStateName"] = dialog_state_name
+            self.session_stacks[session_id] = stack
+
+    def _find_dialog_state_for_session(self, session_id: str, scenario: Dict[str, Any], state_name: str) -> Optional[Dict[str, Any]]:
+        plan_name = self._get_current_plan_name(session_id, scenario)
+        # 1) 현재 plan에서 먼저 검색 (top-level plan)
+        for pl in scenario.get("plan", []):
+            if pl.get("name") == plan_name:
+                for ds in pl.get("dialogState", []):
+                    if ds.get("name") == state_name:
+                        return ds
+                break
+        # 1-2) 현재 plan이 nested plan일 경우 그 내부에서 검색
+        for top_pl in scenario.get("plan", []):
+            for ds in top_pl.get("dialogState", []):
+                if ds.get("name") == plan_name and isinstance(ds.get("dialogState"), list):
+                    for nested_ds in ds.get("dialogState", []):
+                        if nested_ds.get("name") == state_name:
+                            return nested_ds
+                    break
+        # 2) 모든 plan/중첩에서 fallback 검색
+        found = self.scenario_manager.find_dialog_state(scenario, state_name)
+        if found:
+            return found
+        # 2-2) 중첩 구조도 순회해서 검색
+        for top_pl in scenario.get("plan", []):
+            for ds in top_pl.get("dialogState", []):
+                if isinstance(ds.get("dialogState"), list):
+                    for nested_ds in ds.get("dialogState", []):
+                        if nested_ds.get("name") == state_name:
+                            return nested_ds
+        return None
     
     def check_auto_transitions(self, scenario: Dict[str, Any], current_state: str, memory: Optional[Dict[str, Any]] = None) -> List[StateTransition]:
         """자동 전이가 가능한지 확인합니다."""
@@ -256,7 +359,7 @@ class StateEngine:
         
         try:
             # 현재 상태 정보 가져오기
-            current_dialog_state = self.scenario_manager.find_dialog_state(scenario, current_state)
+            current_dialog_state = self._find_dialog_state_for_session(session_id, scenario, current_state)
             if not current_dialog_state:
                 return {
                     "error": f"상태 '{current_state}'를 찾을 수 없습니다.",
@@ -264,8 +367,18 @@ class StateEngine:
                     "response": "❌ 알 수 없는 상태입니다.",
                     "transitions": []
                 }
-            # --- inter-scenario transition 지원 ---
-            # 핸들러 평가 후 transitionTarget.scenario가 현재 시나리오와 다르면 시나리오 전이
+            # --- inter-scenario / plan transition 지원 ---
+            # transitionTarget.scenario 는 plan 또는 scenario 이름을 의미
+            # 동일 파일 내 다른 plan 이름이면 여기서는 시나리오 스위치를 하지 않음 (플랜 전이는 같은 시나리오 컨텍스트 유지)
+            def _is_plan_in_current_scenario(target_name: str) -> bool:
+                try:
+                    for pl in scenario.get("plan", []):
+                        if pl.get("name") == target_name:
+                            return True
+                except Exception:
+                    pass
+                return False
+
             def get_target_scenario_and_state(dialog_state):
                 for handler_type in ["intentHandlers", "conditionHandlers", "eventHandlers"]:
                     for handler in dialog_state.get(handler_type, []):
@@ -274,10 +387,49 @@ class StateEngine:
                         target_state = target.get("dialogState")
                         logger.info(f"[SCENARIO TRANSITION CHECK] handler_type={handler_type}, target={target}")
                         if target_scenario and target_scenario != scenario["plan"][0]["name"]:
+                            if _is_plan_in_current_scenario(target_scenario):
+                                logger.info(f"[PLAN TRANSITION DETECTED] (same file) to plan={target_scenario}, state={str(target_state)} - no scenario switch")
+                                continue
                             logger.info(f"[SCENARIO TRANSITION DETECTED] from={scenario['plan'][0]['name']} to={target_scenario}, state={str(target_state)}")
                             return target_scenario, target_state
+                        # NEW: dialogState가 플랜명인 경우 → 후속 블록에서 플랜 전환 처리
+                        if self._is_plan_name(scenario, target_state):
+                            logger.info(f"[PLAN TRANSITION BY DIALOGSTATE DETECTED] plan={target_state} (from handler_type={handler_type})")
+                            # 여기서는 planName을 바꾸지 않고, 후속 로직이 처리하도록 plan명을 target_scenario로 반환
+                            # target_state는 None으로 두어 후속 로직이 해당 플랜의 Start로 설정
+                            return target_state, None
                 return None, None
             target_scenario, target_state = get_target_scenario_and_state(current_dialog_state)
+            # 동일 파일 내 플랜 전이: 스택에 플랜 프레임을 push 하고 해당 상태로 처리
+            if target_scenario and _is_plan_in_current_scenario(target_scenario):
+                try:
+                    stack = self.session_stacks.get(session_id, [])
+                    current_frame = stack[-1] if stack else None
+                    prev_plan = current_frame.get("planName") if current_frame else scenario["plan"][0]["name"]
+                    # 복귀는 stack pop으로 처리하므로 return* 없이 push
+                    mapped_state = target_state or self._get_start_state_of_plan(scenario, target_scenario) or current_state
+                    # 호출 지점 복귀 상태를 저장
+                    try:
+                        if current_frame:
+                            current_frame["dialogStateName"] = current_state
+                            self.session_stacks[session_id] = stack
+                    except Exception:
+                        pass
+                    self._push_plan_frame(session_id, current_frame.get("scenarioName", scenario["plan"][0]["name"]) if current_frame else scenario["plan"][0]["name"], target_scenario, mapped_state)
+                    logger.info(f"[PLAN PUSH] session={session_id}, prevPlan={prev_plan} -> newPlan={target_scenario}, state={mapped_state}")
+                except Exception as e:
+                    logger.warning(f"[PLAN PUSH] failed: {e}")
+                # target_state가 없으면 해당 플랜의 Start로
+                if not target_state:
+                    target_state = self._get_start_state_of_plan(scenario, target_scenario) or current_state
+                return await self._handle_normal_input(
+                    session_id,
+                    user_input,
+                    target_state,
+                    self._find_dialog_state_for_session(session_id, scenario, target_state),
+                    scenario,
+                    memory
+                )
             if target_scenario and target_state:
                 logger.info(f"[SCENARIO SWITCH] session={session_id}, from={scenario['plan'][0]['name']} to={target_scenario}, state={str(target_state)}")
                 self.switch_to_scenario(session_id, target_scenario, target_state)
@@ -373,7 +525,7 @@ class StateEngine:
             result = webhook_result
             # webhook 처리 후 intent handler 분기 추가
             new_state = webhook_result.get("new_state", current_state)
-            dialog_state_after = self.scenario_manager.find_dialog_state(scenario, new_state)
+            dialog_state_after = self._find_dialog_state_for_session(session_id, scenario, new_state)
             if dialog_state_after and dialog_state_after.get("intentHandlers"):
                 intent_transition = self.transition_manager.check_intent_handlers(
                     dialog_state_after, intent, memory
@@ -388,7 +540,7 @@ class StateEngine:
             result = apicall_result
             # apicall 처리 후 intent handler 분기 추가
             new_state = apicall_result.get("new_state", current_state)
-            dialog_state_after = self.scenario_manager.find_dialog_state(scenario, new_state)
+            dialog_state_after = self._find_dialog_state_for_session(session_id, scenario, new_state)
             if dialog_state_after and dialog_state_after.get("intentHandlers"):
                 intent_transition = self.transition_manager.check_intent_handlers(
                     dialog_state_after, intent, memory
@@ -415,6 +567,35 @@ class StateEngine:
 
         # entities, intent, memory 최신화
         if result is not None:
+            # __END_SCENARIO__ 처리: 플랜/시나리오 복귀 및 다음 핸들러 평가
+            try:
+                if result.get("new_state") == "__END_SCENARIO__":
+                    stack = self.session_stacks.get(session_id, [])
+                    if stack:
+                        prev = stack[-1]
+                        return_state = prev.pop("returnDialogStateName", None)
+                        return_plan = prev.pop("returnPlanPreviousName", None)
+                        if return_plan:
+                            self._set_current_plan_name(session_id, return_plan)
+                            logger.info(f"[PLAN RETURN][_handle_normal_input] plan={return_plan}")
+                        if return_state:
+                            logger.info(f"[PLAN RETURN][_handle_normal_input] resume state={return_state}")
+                            # 복귀 지점에서 entryAction 재실행 없이 핸들러 재평가
+                            prev["entryActionExecuted"] = True
+                            # 복귀 상태로 재처리
+                            resume_dialog_state = self._find_dialog_state_for_session(session_id, scenario, return_state)
+                            resumed = await self._handle_normal_input(
+                                session_id,
+                                user_input,
+                                return_state,
+                                resume_dialog_state,
+                                scenario,
+                                memory
+                            )
+                            if resumed:
+                                result = resumed
+            except Exception as e:
+                logger.warning(f"[PLAN RETURN] handling in _handle_normal_input failed: {e}")
             result["entities"] = entities
             result["intent"] = intent
             result["memory"] = memory
@@ -564,6 +745,12 @@ class StateEngine:
                 if intent_transition:
                     transitions.append(intent_transition)
                     new_state = intent_transition.toState
+                    # 플랜명이 직접 지정된 경우 해당 플랜의 Start로 전환
+                    if self._is_plan_name(scenario, new_state):
+                        self._set_current_plan_name(session_id, new_state)
+                        mapped = self._get_start_state_of_plan(scenario, new_state) or new_state
+                        logger.info(f"[PLAN SWITCH][intent] {new_state} → {mapped}")
+                        new_state = mapped
                     logger.info(f"[STATE] intent 매칭으로 new_state 변경: {new_state}")
                     response_messages.append(f"🎯 인텐트 '{intent}' 처리됨")
                 
@@ -577,8 +764,46 @@ class StateEngine:
                     if condition_transition:
                         transitions.append(condition_transition)
                         new_state = condition_transition.toState
+                        # 플랜명이 직접 지정된 경우 해당 플랜의 Start로 전환
+                        if self._is_plan_name(scenario, new_state):
+                            self._set_current_plan_name(session_id, new_state)
+                            mapped = self._get_start_state_of_plan(scenario, new_state) or new_state
+                            logger.info(f"[PLAN SWITCH][condition] {new_state} → {mapped}")
+                            new_state = mapped
                         logger.info(f"[STATE] condition 매칭으로 new_state 변경: {new_state}")
                         response_messages.append(f"⚡ 조건 만족으로 전이")
+
+                        # NEW: 조건 전이 대상이 동일 파일 내 다른 플랜이면 스택 push 및 planName 전환
+                        try:
+                            condition_handlers = current_dialog_state.get("conditionHandlers", [])
+                            for handler_index, handler in enumerate(condition_handlers):
+                                if not isinstance(handler, dict):
+                                    continue
+                                cond = handler.get("conditionStatement", "")
+                                if self.transition_manager.evaluate_condition(cond, memory):
+                                    target = handler.get("transitionTarget", {})
+                                    target_plan = target.get("scenario")
+                                    if target_plan and any(pl.get("name") == target_plan for pl in scenario.get("plan", [])):
+                                        # 플랜 전이: 스택 push를 먼저 하고, 그 다음에 planName 전환
+                                        stack = self.session_stacks.get(session_id, [])
+                                        if stack:
+                                            current_frame = stack[-1]
+                                            current_frame_plan = current_frame.get("planName")
+                                            # 플랜이 다를 때만 push (중복 push 방지)
+                                            if target_plan != current_frame_plan:
+                                                current_frame["lastExecutedHandlerIndex"] = handler_index
+                                                current_frame["dialogStateName"] = current_state
+                                                current_scenario_name = current_frame.get("scenarioName", scenario.get("plan", [{}])[0].get("name", ""))
+                                                self._push_plan_frame(session_id, current_scenario_name, target_plan, new_state)
+                                                logger.info(f"[PLAN PUSH][normal-cond] session={session_id}, fromState={current_state}, fromIndex={handler_index}, plan={target_plan}, state={new_state}")
+                                                # push 후에 플랜명 변경
+                                                self._set_current_plan_name(session_id, target_plan)
+                                            else:
+                                                logger.info(f"[PLAN SKIP][normal-cond] already in plan={target_plan}, current_state={current_state}")
+                                        logger.info(f"[PLAN SWITCH][condition] session={session_id}, plan={target_plan}, state={new_state}")
+                                    break
+                        except Exception as e:
+                            logger.warning(f"[PLAN SWITCH][condition] check failed: {e}")
                     else:
                         # 3. 매치되지 않은 경우 NO_MATCH_EVENT 처리
                         if intent == "NO_INTENT_FOUND" or not intent_transition:
@@ -605,11 +830,50 @@ class StateEngine:
             
             # Entry Action 실행 후 자동 전이 확인
             auto_transition_result = await self._check_and_execute_auto_transitions(
-                scenario, new_state, memory, response_messages
+                session_id, scenario, new_state, memory, response_messages
             )
             if auto_transition_result:
                 logger.info(f"[AUTO TRANSITION] auto_transition_result: {auto_transition_result}")
                 new_state = auto_transition_result["new_state"]
+                # 디버깅: 스택과 플랜/상태 추적
+                try:
+                    stack = self.session_stacks.get(session_id, [])
+                    logger.info(f"[STACK DEBUG] after auto-transition: stack={stack}")
+                    logger.info(f"[STACK DEBUG] current plan={self._get_current_plan_name(session_id, scenario)} new_state={new_state}")
+                except Exception as e:
+                    logger.warning(f"[STACK DEBUG] logging failed: {e}")
+                # NEW: auto-transition이 __END_SCENARIO__이면 즉시 pop 후 상위 상태에서 이어서 처리
+                if new_state == "__END_SCENARIO__":
+                    stack = self.session_stacks.get(session_id, [])
+                    if stack and len(stack) > 1:
+                        ended_plan = stack.pop()
+                        prev = stack[-1]
+                        resume_state = prev.get("dialogStateName", current_state)
+                        logger.info(f"[PLAN POP][auto] endedPlan={ended_plan.get('planName')}, resume plan={prev.get('planName')}, state={resume_state}")
+                        prev["entryActionExecuted"] = True
+                        self._update_current_dialog_state_name(session_id, resume_state)
+                        # 복귀 즉시 현재 state's conditionHandlers에서 마지막 실행 인덱스 다음부터 평가
+                        resume_dialog_state = self._find_dialog_state_for_session(session_id, scenario, resume_state)
+                        start_idx = int(prev.get("lastExecutedHandlerIndex", -1)) + 1
+                        handlers = resume_dialog_state.get("conditionHandlers", [])
+                        matched = None
+                        for idx, h in enumerate(handlers):
+                            if idx < start_idx or not isinstance(h, dict):
+                                continue
+                            cond = h.get("conditionStatement", "")
+                            if self.transition_manager.evaluate_condition(cond, memory):
+                                target = h.get("transitionTarget", {})
+                                new_state = target.get("dialogState", resume_state)
+                                prev["lastExecutedHandlerIndex"] = idx
+                                entry_response = self.action_executor.execute_entry_action(scenario, new_state)
+                                if entry_response:
+                                    response_messages.append(entry_response)
+                                next_auto = await self._check_and_execute_auto_transitions(session_id, scenario, new_state, memory, response_messages)
+                                if next_auto:
+                                    new_state = next_auto["new_state"]
+                                matched = True
+                                break
+                        # 조건이 더 이상 없으면 그대로 유지
                 response_messages.extend(auto_transition_result.get("messages", []))
                 if auto_transition_result.get("transitions"):
                     transitions.extend(auto_transition_result["transitions"])
@@ -635,10 +899,34 @@ class StateEngine:
         
         if new_state == "__END_SCENARIO__":
             stack = self.session_stacks.get(session_id, [])
-            if len(stack) > 1:
-                stack.pop()
-                prev = stack[-1]
-                new_state = prev.get("dialogStateName", new_state)
+            if stack:
+                # 플랜 프레임 pop하여 이전 플랜으로 복귀
+                if len(stack) > 1:
+                    ended_plan = stack.pop()
+                    prev = stack[-1]
+                    resume_state = prev.get("dialogStateName", new_state)
+                    new_state = resume_state
+                    logger.info(f"[PLAN POP] endedPlan={ended_plan.get('planName')}, resume plan={prev.get('planName')}, state={new_state}")
+                    # 복귀 상태에서 handler를 즉시 재평가
+                    prev["entryActionExecuted"] = True
+                    self._update_current_dialog_state_name(session_id, new_state)
+                    dialog_state = self._find_dialog_state_for_session(session_id, scenario, new_state)
+                    resumed = self.transition_manager.check_intent_handlers(dialog_state, intent, memory)
+                    if resumed:
+                        new_state = resumed.toState
+                    else:
+                        condition_transition = self.transition_manager.check_condition_handlers(dialog_state, memory)
+                        if condition_transition:
+                            new_state = condition_transition.toState
+                    # Entry Action 및 추가 자동 전이 체인 처리
+                    entry_response = self.action_executor.execute_entry_action(scenario, new_state)
+                    if entry_response:
+                        response_messages.append(entry_response)
+                    next_auto = await self._check_and_execute_auto_transitions(session_id, scenario, new_state, memory, response_messages)
+                    if next_auto:
+                        new_state = next_auto["new_state"]
+                else:
+                    prev = stack[-1]
                 # 복귀한 노드에서 entryAction을 실행하지 않고, intent/condition/event 핸들러를 모두 평가
                 prev["entryActionExecuted"] = True  # entryAction 재실행 방지
                 max_reentry = 10
@@ -654,7 +942,7 @@ class StateEngine:
                     scenario_obj = self.scenario_manager.get_scenario_by_name(scenario_name)
                     if not scenario_obj:
                         break
-                    dialog_state = self.scenario_manager.find_dialog_state(scenario_obj, dialog_state_name)
+                    dialog_state = self._find_dialog_state_for_session(session_id, scenario_obj, dialog_state_name)
                     if not dialog_state:
                         break
                     # 1. Intent Handler
@@ -703,6 +991,7 @@ class StateEngine:
     
     async def _check_and_execute_auto_transitions(
         self,
+        session_id: str,
         scenario: Dict[str, Any],
         current_state: str,
         memory: Dict[str, Any],
@@ -711,7 +1000,7 @@ class StateEngine:
         """Entry Action 실행 후 자동 전이가 가능한지 확인하고 실행합니다."""
         
         # 현재 상태 정보 가져오기
-        current_dialog_state = self.scenario_manager.find_dialog_state(scenario, current_state)
+        current_dialog_state = self._find_dialog_state_for_session(session_id, scenario, current_state)
         if not current_dialog_state:
             return None
         
@@ -729,7 +1018,7 @@ class StateEngine:
                 webhook_messages = webhook_result.get("response", "").split("\n")
                 response_messages.extend(webhook_messages)
                 if new_state != current_state:
-                    new_dialog_state = self.scenario_manager.find_dialog_state(scenario, new_state)
+                    new_dialog_state = self._find_dialog_state_for_session(session_id, scenario, new_state)
                     if new_dialog_state:
                         entry_response = self.action_executor.execute_entry_action(scenario, new_state)
                         if entry_response:
@@ -739,7 +1028,7 @@ class StateEngine:
                         if current_depth < max_depth:
                             memory["_AUTO_TRANSITION_DEPTH"] = current_depth + 1
                             next_auto_result = await self._check_and_execute_auto_transitions(
-                                scenario, new_state, memory, response_messages
+                                session_id, scenario, new_state, memory, response_messages
                             )
                             if next_auto_result:
                                 new_state = next_auto_result["new_state"]
@@ -767,7 +1056,7 @@ class StateEngine:
                 apicall_messages = apicall_result.get("response", "").split("\n")
                 response_messages.extend(apicall_messages)
                 if new_state != current_state:
-                    new_dialog_state = self.scenario_manager.find_dialog_state(scenario, new_state)
+                    new_dialog_state = self._find_dialog_state_for_session(session_id, scenario, new_state)
                     if new_dialog_state:
                         entry_response = self.action_executor.execute_entry_action(scenario, new_state)
                         if entry_response:
@@ -777,7 +1066,7 @@ class StateEngine:
                         if current_depth < max_depth:
                             memory["_AUTO_TRANSITION_DEPTH"] = current_depth + 1
                             next_auto_result = await self._check_and_execute_auto_transitions(
-                                scenario, new_state, memory, response_messages
+                                session_id, scenario, new_state, memory, response_messages
                             )
                             if next_auto_result:
                                 new_state = next_auto_result["new_state"]
@@ -797,7 +1086,7 @@ class StateEngine:
         # 3. 둘 다 없으면 conditionHandlers만 체크
         condition_handlers = current_dialog_state.get("conditionHandlers", [])
         auto_transitions = []
-        for handler in condition_handlers:
+        for handler_index, handler in enumerate(condition_handlers):
             if not isinstance(handler, dict):
                 logger.warning(f"Handler is not a dict: {handler}")
                 continue
@@ -805,14 +1094,14 @@ class StateEngine:
             target = handler.get("transitionTarget", {})
             target_scenario = target.get("scenario")
             target_state = target.get("dialogState", current_state)
-            # 시나리오 전이 처리 추가
-            if target_scenario and target_scenario != scenario["plan"][0]["name"]:
+            # 시나리오 전이 처리 추가 (동일 파일 내 플랜 전이는 제외)
+            if target_scenario and target_scenario != scenario["plan"][0]["name"] and not any(pl.get("name") == target_scenario for pl in scenario.get("plan", [])):
                 logger.info(f"[AUTO SCENARIO TRANSITION DETECTED] from={scenario['plan'][0]['name']} to={target_scenario}, state={str(target_state)}")
-                self.switch_to_scenario(memory.get('session_id', ''), target_scenario, target_state)
+                self.switch_to_scenario(memory.get('sessionId', ''), target_scenario, target_state)
                 scenario_obj = self.scenario_manager.get_scenario_by_name(target_scenario)
                 if scenario_obj:
                     # process_input을 재귀적으로 호출하여 시나리오 context를 바꾼다
-                    return await self.process_input(memory.get('session_id', ''), '', target_state, scenario_obj, memory)
+                    return await self.process_input(memory.get('sessionId', ''), '', target_state, scenario_obj, memory)
                 else:
                     logger.error(f"[AUTO SCENARIO NOT FOUND] target_scenario={target_scenario}")
                     return {
@@ -821,7 +1110,54 @@ class StateEngine:
                         "transitions": []
                     }
             if condition.strip() == "True" or condition.strip() == '"True"':
-                new_state = target_state
+                # True 조건: 대상 scenario가 동일 파일 내 플랜이면 플랜 전환 우선
+                if target_scenario and any(pl.get("name") == target_scenario for pl in scenario.get("plan", [])):
+                    mapped_state = target_state or self._get_start_state_of_plan(scenario, target_scenario) or current_state
+                    # 플랜 진입: 스택 push를 먼저 하고, 그 다음에 플랜명 변경
+                    try:
+                        stack = self.session_stacks.get(session_id, [])
+                        if stack:
+                            current_frame = stack[-1]
+                            current_frame_plan = current_frame.get("planName")
+                            # 플랜이 다를 때만 push (중복 push 방지)
+                            if target_scenario != current_frame_plan:
+                                current_frame["lastExecutedHandlerIndex"] = handler_index
+                                current_frame["dialogStateName"] = current_state
+                                current_scenario_name = current_frame.get("scenarioName", scenario.get("plan", [{}])[0].get("name", ""))
+                                self._push_plan_frame(session_id, current_scenario_name, target_scenario, mapped_state)
+                                logger.info(f"[PLAN PUSH][auto-true][scenario] session={session_id}, fromState={current_state}, fromIndex={handler_index}, plan={target_scenario}, state={mapped_state}")
+                                # push 후에 플랜명 변경
+                                self._set_current_plan_name(session_id, target_scenario)
+                            else:
+                                logger.info(f"[PLAN SKIP][auto-true][scenario] already in plan={target_scenario}, current_state={current_state}")
+                    except Exception as e:
+                        logger.warning(f"[PLAN PUSH][auto-true][scenario] failed: {e}")
+                    new_state = mapped_state
+                # 대상 state가 플랜명으로 온 경우 (예외 형태)
+                elif self._is_plan_name(scenario, target_state):
+                    mapped_state = self._get_start_state_of_plan(scenario, target_state) or current_state
+                    # 플랜 진입: 스택 push를 먼저 하고, 그 다음에 플랜명 변경
+                    try:
+                        stack = self.session_stacks.get(session_id, [])
+                        if stack:
+                            current_frame = stack[-1]
+                            current_frame_plan = current_frame.get("planName")
+                            # 플랜이 다를 때만 push (중복 push 방지)
+                            if target_state != current_frame_plan:
+                                current_frame["lastExecutedHandlerIndex"] = handler_index
+                                current_frame["dialogStateName"] = current_state
+                                current_scenario_name = current_frame.get("scenarioName", scenario.get("plan", [{}])[0].get("name", ""))
+                                self._push_plan_frame(session_id, current_scenario_name, target_state, mapped_state)
+                                logger.info(f"[PLAN PUSH][auto-true][state] session={session_id}, fromState={current_state}, fromIndex={handler_index}, plan={target_state}, state={mapped_state}")
+                                # push 후에 플랜명 변경
+                                self._set_current_plan_name(session_id, target_state)
+                            else:
+                                logger.info(f"[PLAN SKIP][auto-true][state] already in plan={target_state}, current_state={current_state}")
+                    except Exception as e:
+                        logger.warning(f"[PLAN PUSH][auto-true][state] failed: {e}")
+                    new_state = mapped_state
+                else:
+                    new_state = target_state
                 transition = StateTransition(
                     fromState=current_state,
                     toState=new_state,
@@ -834,7 +1170,54 @@ class StateEngine:
                 break
             else:
                 if self.transition_manager.evaluate_condition(condition, memory):
-                    new_state = target_state
+                    # 일반 조건: 대상 scenario가 동일 파일 내 플랜이면 플랜 전환 우선
+                    if target_scenario and any(pl.get("name") == target_scenario for pl in scenario.get("plan", [])):
+                        mapped_state = target_state or self._get_start_state_of_plan(scenario, target_scenario) or current_state
+                        # 플랜 진입: 스택 push를 먼저 하고, 그 다음에 플랜명 변경
+                        try:
+                            stack = self.session_stacks.get(session_id, [])
+                            if stack:
+                                current_frame = stack[-1]
+                                current_frame_plan = current_frame.get("planName")
+                                # 플랜이 다를 때만 push (중복 push 방지)
+                                if target_scenario != current_frame_plan:
+                                    current_frame["lastExecutedHandlerIndex"] = handler_index
+                                    current_frame["dialogStateName"] = current_state
+                                    current_scenario_name = current_frame.get("scenarioName", scenario.get("plan", [{}])[0].get("name", ""))
+                                    self._push_plan_frame(session_id, current_scenario_name, target_scenario, mapped_state)
+                                    logger.info(f"[PLAN PUSH][auto-cond][scenario] session={session_id}, fromState={current_state}, fromIndex={handler_index}, plan={target_scenario}, state={mapped_state}")
+                                    # push 후에 플랜명 변경
+                                    self._set_current_plan_name(session_id, target_scenario)
+                                else:
+                                    logger.info(f"[PLAN SKIP][auto-cond][scenario] already in plan={target_scenario}, current_state={current_state}")
+                        except Exception as e:
+                            logger.warning(f"[PLAN PUSH][auto-cond][scenario] failed: {e}")
+                        new_state = mapped_state
+                    # 대상 state가 플랜명으로 온 경우 (예외 형태)
+                    elif self._is_plan_name(scenario, target_state):
+                        mapped_state = self._get_start_state_of_plan(scenario, target_state) or current_state
+                        # 플랜 진입: 스택 push를 먼저 하고, 그 다음에 플랜명 변경
+                        try:
+                            stack = self.session_stacks.get(session_id, [])
+                            if stack:
+                                current_frame = stack[-1]
+                                current_frame_plan = current_frame.get("planName")
+                                # 플랜이 다를 때만 push (중복 push 방지)
+                                if target_state != current_frame_plan:
+                                    current_frame["lastExecutedHandlerIndex"] = handler_index
+                                    current_frame["dialogStateName"] = current_state
+                                    current_scenario_name = current_frame.get("scenarioName", scenario.get("plan", [{}])[0].get("name", ""))
+                                    self._push_plan_frame(session_id, current_scenario_name, target_state, mapped_state)
+                                    logger.info(f"[PLAN PUSH][auto-cond][state] session={session_id}, fromState={current_state}, fromIndex={handler_index}, plan={target_state}, state={mapped_state}")
+                                    # push 후에 플랜명 변경
+                                    self._set_current_plan_name(session_id, target_state)
+                                else:
+                                    logger.info(f"[PLAN SKIP][auto-cond][state] already in plan={target_state}, current_state={current_state}")
+                        except Exception as e:
+                            logger.warning(f"[PLAN PUSH][auto-cond][state] failed: {e}")
+                        new_state = mapped_state
+                    else:
+                        new_state = target_state
                     transition = StateTransition(
                         fromState=current_state,
                         toState=new_state,
@@ -856,7 +1239,7 @@ class StateEngine:
             if current_depth < max_depth:
                 memory["_AUTO_TRANSITION_DEPTH"] = current_depth + 1
                 next_auto_result = await self._check_and_execute_auto_transitions(
-                    scenario, new_state, memory, response_messages
+                    session_id, scenario, new_state, memory, response_messages
                 )
                 if next_auto_result:
                     new_state = next_auto_result["new_state"]
@@ -1012,7 +1395,7 @@ class StateEngine:
                 
                 # Entry Action 실행 후 자동 전이 확인
                 auto_transition_result = await self._check_and_execute_auto_transitions(
-                    scenario, new_state, memory, response_messages
+                    session_id, scenario, new_state, memory, response_messages
                 )
                 if auto_transition_result:
                     new_state = auto_transition_result["new_state"]

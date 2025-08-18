@@ -93,6 +93,30 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
           state: tState,
         };
       });
+    // 플랜 전이 노드
+    const planTransitionOptions = nodes
+      .filter((n: any) => n.type === 'planTransition')
+      .map((n: any) => {
+        const tPlan = n.data.targetPlan || '';
+        const tState = n.data.targetState || '';
+        const label = `${n.data.label || '플랜 전이'}: ${tPlan} → ${tState}`;
+        return {
+          key: `${tPlan}::${tState}`,
+          label,
+          scenario: tPlan,
+          state: tState,
+        };
+      });
+    // 각 플랜의 Start를 옵션으로 추가
+    const planStartOptions = (scenario?.plan || []).map((pl: any) => {
+      const startName = pl?.dialogState?.find((ds: any) => ds?.name === 'Start')?.name || pl?.dialogState?.[0]?.name || '';
+      return {
+        key: `${pl.name}::${startName}`,
+        label: `${pl.name} → ${startName}`,
+        scenario: pl.name,
+        state: startName,
+      };
+    });
     
     // 특수 종료 노드들 추가
     const endNodes = nodes
@@ -104,7 +128,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
         state: n.data.label,
       }));
     
-    return [...stateOptions, ...transitionOptions, ...endNodes];
+    return [...stateOptions, ...transitionOptions, ...planTransitionOptions, ...planStartOptions, ...endNodes];
   }, [nodes, scenario, activeScenarioId]);
 
   // 시나리오 전이 노드용: 선택된 시나리오의 상태 목록
@@ -1192,7 +1216,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                                 console.log('  → 특수값 객체:', t.dialogState);
                                 return t.dialogState;
                               }
-                              // 일반 시나리오 전이인 경우
+                              // 일반 시나리오/상태 전이만 표시
                               const result = `${t.scenario}::${t.dialogState}`;
                               console.log('  → 객체 타입 전이:', result);
                               return result;

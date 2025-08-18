@@ -587,7 +587,7 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
       wlist.push({ type: 'apicall', name: `(${groupName.trim()})${firstEntryName.trim()}`, url: fullUrl, timeout: 5000, retry: 3, timeoutInMilliSecond: 5000, headers: {}, formats: { method: 'POST', headers: {}, requestTemplate: '', responseSchema: {}, responseMappings: {} } });
     }
     updatedScenario.webhooks = wlist;
-    onScenarioUpdate(updatedScenario);
+      onScenarioUpdate(updatedScenario);
     setHandlerGroups(newGroups);
     setIsGroupDialogOpen(false);
   };
@@ -1047,7 +1047,7 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                   const groups = handlerGroups.filter(g => g.type === 'webhook');
                   const renderGroup = (grp: any) => (
                     <React.Fragment key={`wh-group-${grp.name}`}>
-                      <TableRow>
+                  <TableRow>
                         <TableCell colSpan={6}>
                           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                             <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
@@ -1066,26 +1066,26 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                               </IconButton>
                             </Box>
                           </Box>
-                        </TableCell>
-                      </TableRow>
+                    </TableCell>
+                  </TableRow>
                       {webhooks.filter(w => isNameInGroup(w.name, grp.name)).map((webhook) => (
-                        <TableRow key={webhook.name}>
-                          <TableCell>
+                    <TableRow key={webhook.name}>
+                      <TableCell>
                             <Chip label={stripGroupFromName(webhook.name, grp.name)} size="small" color="primary" variant="outlined" />
-                          </TableCell>
-                          <TableCell>
+                      </TableCell>
+                      <TableCell>
                             <Typography variant="body2" sx={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{endpointFromUrl(webhook.url, grp.baseUrl)}</Typography>
-                          </TableCell>
-                          <TableCell>{webhook.timeoutInMilliSecond}ms</TableCell>
-                          <TableCell>{webhook.retry}</TableCell>
-                          <TableCell>
+                      </TableCell>
+                      <TableCell>{webhook.timeoutInMilliSecond}ms</TableCell>
+                      <TableCell>{webhook.retry}</TableCell>
+                      <TableCell>
                             {Object.keys(webhook.headers).length > 0 ? <Chip label={`${Object.keys(webhook.headers).length}개`} size="small" color="secondary" variant="outlined" /> : <Typography variant="body2" color="text.secondary">없음</Typography>}
-                          </TableCell>
-                          <TableCell>
+                      </TableCell>
+                      <TableCell>
                             <IconButton size="small" onClick={() => handleEditWebhook(webhook)} color="primary"><EditIcon /></IconButton>
                             <IconButton size="small" onClick={() => handleDeleteWebhook(webhook)} color="error"><DeleteIcon /></IconButton>
-                          </TableCell>
-                        </TableRow>
+                      </TableCell>
+                    </TableRow>
                       ))}
                     </React.Fragment>
                   );
@@ -1165,14 +1165,14 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                     <TextField label="Endpoint" value={webhookEndpoint} onChange={(e) => setWebhookEndpoint(e.target.value)} sx={{ flex: 1 }} placeholder="예: /webhook" />
                   </Box>
                 ) : (
-                  <TextField
-                    label="URL"
-                    value={webhookFormData.url}
-                    onChange={(e) => setWebhookFormData(prev => ({ ...prev, url: e.target.value }))}
-                    fullWidth
-                    required
-                    helperText="예: http://172.27.31.215:8089/api/sentences/webhook"
-                  />
+                <TextField
+                  label="URL"
+                  value={webhookFormData.url}
+                  onChange={(e) => setWebhookFormData(prev => ({ ...prev, url: e.target.value }))}
+                  fullWidth
+                  required
+                  helperText="예: http://172.27.31.215:8089/api/sentences/webhook"
+                />
                 )}
                 <Box sx={{ display: 'flex', gap: 2 }}>
                   <TextField
@@ -1284,13 +1284,13 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                 <Box sx={{ mt: 2 }}>
                   <Typography variant="h6" sx={{ mb: 1 }}>Webhook 테스트</Typography>
                   <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
-                    <TextField
+                <TextField
                       label="요청 본문 (JSON)"
                       value={webhookTestRequestText}
                       onChange={(e) => setWebhookTestRequestText(e.target.value)}
-                      multiline
-                      rows={4}
-                      fullWidth
+                  multiline
+                  rows={4}
+                  fullWidth
                       placeholder='{"text": "hello"}'
                     />
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 160 }}>
@@ -1427,7 +1427,7 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                   const groups = handlerGroups.filter(g => g.type === 'apicall');
                   const renderGroup = (grp: any) => (
                     <React.Fragment key={`api-group-${grp.name}`}>
-                      <TableRow>
+                  <TableRow>
                         <TableCell colSpan={5}>
                           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                             <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
@@ -1446,24 +1446,24 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                               </IconButton>
                             </Box>
                           </Box>
-                        </TableCell>
-                      </TableRow>
+                    </TableCell>
+                  </TableRow>
                       {apicalls.filter(a => isNameInGroup(a.name, grp.name)).map((apicall) => (
-                        <TableRow key={apicall.name}>
-                          <TableCell>
+                    <TableRow key={apicall.name}>
+                      <TableCell>
                             <Chip label={stripGroupFromName(apicall.name, grp.name)} size="small" color="primary" variant="outlined" />
-                          </TableCell>
-                          <TableCell>
+                      </TableCell>
+                      <TableCell>
                             <Typography variant="body2" sx={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{endpointFromUrl(apicall.url, grp.baseUrl)}</Typography>
-                          </TableCell>
-                          <TableCell>{apicall.timeout}ms</TableCell>
-                          <TableCell>{apicall.retry}</TableCell>
-                          <TableCell>
+                      </TableCell>
+                      <TableCell>{apicall.timeout}ms</TableCell>
+                      <TableCell>{apicall.retry}</TableCell>
+                      <TableCell>
                             <IconButton size="small" onClick={() => loadApiCallToTest(apicall)} title="불러오기"><ContentCopyIcon /></IconButton>
                             <IconButton size="small" onClick={() => handleEditApiCall(apicall)} color="primary" title="편집"><EditIcon /></IconButton>
                             <IconButton size="small" onClick={() => handleDeleteApiCall(apicall)} color="error"><DeleteIcon /></IconButton>
-                          </TableCell>
-                        </TableRow>
+                      </TableCell>
+                    </TableRow>
                       ))}
                     </React.Fragment>
                   );
@@ -1541,14 +1541,14 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                     <TextField label="Endpoint" value={apiEndpoint} onChange={(e) => setApiEndpoint(e.target.value)} sx={{ flex: 1 }} placeholder="예: /search" />
                   </Box>
                 ) : (
-                  <TextField
-                    label="URL"
-                    value={apiCallFormData.url}
-                    onChange={(e) => setApiCallFormData(prev => ({ ...prev, url: e.target.value }))}
-                    fullWidth
-                    required
-                    helperText="예: http://api.example.com/v1/search"
-                  />
+                <TextField
+                  label="URL"
+                  value={apiCallFormData.url}
+                  onChange={(e) => setApiCallFormData(prev => ({ ...prev, url: e.target.value }))}
+                  fullWidth
+                  required
+                  helperText="예: http://api.example.com/v1/search"
+                />
                 )}
                 <Box sx={{ display: 'flex', gap: 2 }}>
                   <TextField
