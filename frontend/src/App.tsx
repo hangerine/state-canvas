@@ -669,68 +669,95 @@ function App() {
           
           // 시나리오 간 전이인 경우
           if (targetScenario && targetScenario !== currentScenarioName) {
-            // 시나리오 전이 노드로의 엣지 생성 (안정적인 ID 사용)
-            let scenarioTransitionNodeId = `scenario-transition-${state.name}-${targetScenario}-${handler.transitionTarget.dialogState}`;
-            
-            
-            // 소스 노드와 타겟 노드 찾기
-            const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
-            const targetNode = newNodes.find(n => n.id === scenarioTransitionNodeId);
-            
-            let sourceHandle: string | undefined;
-            let targetHandle: string | undefined;
-            
-            if (sourceNode && targetNode) {
-              const handles = getHandlesWithConnectionCount(sourceNode, targetNode, newEdges);
-              sourceHandle = handles.sourceHandle;
-              targetHandle = handles.targetHandle;
-            }
-            
-            const edge: FlowEdge = {
-              id: `${state.name}-condition-${idx}-${scenarioTransitionNodeId}`,
-              source: state.name,
-              target: scenarioTransitionNodeId,
-              sourceHandle,
-              targetHandle,
-              label: `조건: ${handler.conditionStatement}`,
-              type: 'custom',
-              style: { stroke: '#ff6b35', strokeWidth: 2 } // 시나리오 전이 색상
-            };
-            newEdges.push(edge);
-            
-            // 시나리오 전이 노드 생성 (중복 체크 강화)
-            const existingTransitionNode = newNodes.find(n => 
-              n.type === 'scenarioTransition' && 
-              n.data.targetScenario === targetScenario && 
-              n.data.targetState === handler.transitionTarget.dialogState
-            );
-            
-            if (!existingTransitionNode) {
-              const transitionNode: FlowNode = {
-                id: scenarioTransitionNodeId,
-                type: 'scenarioTransition',
-                position: { 
-                  x: (dialogStates.length % 3) * 250 + 100, 
-                  y: Math.floor(dialogStates.length / 3) * 150 + 100 
-                }, // 시나리오 전이 노드 위치를 적절하게 배치
-                data: {
-                  label: `→ ${targetScenario}:${handler.transitionTarget.dialogState}`,
-                  dialogState: {
-                    name: '시나리오 전이',
-                    conditionHandlers: [],
-                    eventHandlers: [],
-                    intentHandlers: [],
-                    webhookActions: [],
-                    slotFillingForm: []
-                  },
-                  targetScenario: targetScenario,
-                  targetState: handler.transitionTarget.dialogState
-                }
+            const isPlanInSameScenario = Array.isArray(scenario.plan) && scenario.plan.some(pl => pl.name === targetScenario);
+            if (isPlanInSameScenario) {
+              // 플랜 전이: 보라색
+              let planTransitionNodeId = `plan-transition-${state.name}-${targetScenario}-${handler.transitionTarget.dialogState}`;
+              const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
+              const targetNode = newNodes.find(n => n.id === planTransitionNodeId);
+              let sourceHandle: string | undefined;
+              let targetHandle: string | undefined;
+              if (sourceNode && targetNode) {
+                const handles = getHandlesWithConnectionCount(sourceNode, targetNode, newEdges);
+                sourceHandle = handles.sourceHandle;
+                targetHandle = handles.targetHandle;
+              }
+              const edge: FlowEdge = {
+                id: `${state.name}-condition-${idx}-${planTransitionNodeId}`,
+                source: state.name,
+                target: planTransitionNodeId,
+                sourceHandle,
+                targetHandle,
+                label: `조건: ${handler.conditionStatement}`,
+                type: 'custom',
+                style: { stroke: '#6a1b9a', strokeWidth: 2 }
               };
-              newNodes.push(transitionNode);
+              newEdges.push(edge);
+              const existingTransitionNode = newNodes.find(n => 
+                n.type === 'planTransition' && 
+                n.data.targetPlan === targetScenario && 
+                n.data.targetState === handler.transitionTarget.dialogState
+              );
+              if (!existingTransitionNode) {
+                const transitionNode: any = {
+                  id: planTransitionNodeId,
+                  type: 'planTransition',
+                  position: { x: (dialogStates.length % 3) * 250 + 100, y: Math.floor(dialogStates.length / 3) * 150 + 100 },
+                  data: {
+                    label: `→ ${targetScenario}:${handler.transitionTarget.dialogState}`,
+                    dialogState: { name: '플랜 전이', conditionHandlers: [], eventHandlers: [], intentHandlers: [], webhookActions: [], slotFillingForm: [] },
+                    targetPlan: targetScenario,
+                    targetState: handler.transitionTarget.dialogState
+                  }
+                };
+                newNodes.push(transitionNode);
+              } else {
+                planTransitionNodeId = existingTransitionNode.id;
+              }
             } else {
-              // 기존 노드의 ID를 사용하여 엣지 수정
-              scenarioTransitionNodeId = existingTransitionNode.id;
+              // 시나리오 전이: 주황
+              let scenarioTransitionNodeId = `scenario-transition-${state.name}-${targetScenario}-${handler.transitionTarget.dialogState}`;
+              const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
+              const targetNode = newNodes.find(n => n.id === scenarioTransitionNodeId);
+              let sourceHandle: string | undefined;
+              let targetHandle: string | undefined;
+              if (sourceNode && targetNode) {
+                const handles = getHandlesWithConnectionCount(sourceNode, targetNode, newEdges);
+                sourceHandle = handles.sourceHandle;
+                targetHandle = handles.targetHandle;
+              }
+              const edge: FlowEdge = {
+                id: `${state.name}-condition-${idx}-${scenarioTransitionNodeId}`,
+                source: state.name,
+                target: scenarioTransitionNodeId,
+                sourceHandle,
+                targetHandle,
+                label: `조건: ${handler.conditionStatement}`,
+                type: 'custom',
+                style: { stroke: '#ff6b35', strokeWidth: 2 }
+              };
+              newEdges.push(edge);
+              const existingTransitionNode = newNodes.find(n => 
+                n.type === 'scenarioTransition' && 
+                n.data.targetScenario === targetScenario && 
+                n.data.targetState === handler.transitionTarget.dialogState
+              );
+              if (!existingTransitionNode) {
+                const transitionNode: FlowNode = {
+                  id: scenarioTransitionNodeId,
+                  type: 'scenarioTransition',
+                  position: { x: (dialogStates.length % 3) * 250 + 100, y: Math.floor(dialogStates.length / 3) * 150 + 100 },
+                  data: {
+                    label: `→ ${targetScenario}:${handler.transitionTarget.dialogState}`,
+                    dialogState: { name: '시나리오 전이', conditionHandlers: [], eventHandlers: [], intentHandlers: [], webhookActions: [], slotFillingForm: [] },
+                    targetScenario: targetScenario,
+                    targetState: handler.transitionTarget.dialogState
+                  }
+                };
+                newNodes.push(transitionNode);
+              } else {
+                scenarioTransitionNodeId = existingTransitionNode.id;
+              }
             }
           } 
           // 같은 시나리오 내 전이
@@ -804,67 +831,96 @@ function App() {
         if (targetState && targetState !== '__END_SESSION__' && targetState !== '__END_SCENARIO__' && targetState !== '__END_PROCESS__') {
           const currentScenarioName = scenario.plan[0].name;
           
-          // 시나리오 간 전이인 경우
+          // 시나리오/플랜 간 전이인 경우
           if (targetScenario && targetScenario !== currentScenarioName) {
-            // 시나리오 전이 노드로의 엣지 생성 (안정적인 ID 사용)
-            let scenarioTransitionNodeId = `scenario-transition-${state.name}-${targetScenario}-${handler.transitionTarget.dialogState}`;
-            
-            
-            // 소스 노드와 타겟 노드 찾기
-            const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
-            const targetNode = newNodes.find(n => n.id === scenarioTransitionNodeId);
-            
-            let sourceHandle: string | undefined;
-            let targetHandle: string | undefined;
-            
-            if (sourceNode && targetNode) {
-              const handles = getHandlesWithConnectionCount(sourceNode, targetNode, newEdges);
-              sourceHandle = handles.sourceHandle;
-              targetHandle = handles.targetHandle;
-            }
-            
-            const edge: FlowEdge = {
-              id: `${state.name}-intent-${idx}-${scenarioTransitionNodeId}`,
-              source: state.name,
-              target: scenarioTransitionNodeId,
-              sourceHandle,
-              targetHandle,
-              label: `인텐트: ${handler.intent}`,
-              type: 'custom',
-              style: { stroke: '#ff6b35', strokeWidth: 2 } // 시나리오 전이 색상
-            };
-            newEdges.push(edge);
-            
-            // 시나리오 전이 노드 생성 (중복 체크 강화)
-            const existingTransitionNode = newNodes.find(n => 
-              n.type === 'scenarioTransition' && 
-              n.data.targetScenario === targetScenario && 
-              n.data.targetState === handler.transitionTarget.dialogState
-            );
-            
-            if (!existingTransitionNode) {
-              const transitionNode: FlowNode = {
-                id: scenarioTransitionNodeId,
-                type: 'scenarioTransition',
-                position: { x: 0, y: 0 },
-                data: {
-                  label: `→ ${targetScenario}:${handler.transitionTarget.dialogState}`,
-                  dialogState: {
-                    name: '시나리오 전이',
-                    conditionHandlers: [],
-                    eventHandlers: [],
-                    intentHandlers: [],
-                    webhookActions: [],
-                    slotFillingForm: []
-                  },
-                  targetScenario: targetScenario,
-                  targetState: handler.transitionTarget.dialogState
-                }
+            const isPlanInSameScenario = Array.isArray(scenario.plan) && scenario.plan.some(pl => pl.name === targetScenario);
+            if (isPlanInSameScenario) {
+              let planTransitionNodeId = `plan-transition-${state.name}-${targetScenario}-${handler.transitionTarget.dialogState}`;
+              const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
+              const targetNode = newNodes.find(n => n.id === planTransitionNodeId);
+              let sourceHandle: string | undefined;
+              let targetHandle: string | undefined;
+              if (sourceNode && targetNode) {
+                const handles = getHandlesWithConnectionCount(sourceNode, targetNode, newEdges);
+                sourceHandle = handles.sourceHandle;
+                targetHandle = handles.targetHandle;
+              }
+              const edge: FlowEdge = {
+                id: `${state.name}-intent-${idx}-${planTransitionNodeId}`,
+                source: state.name,
+                target: planTransitionNodeId,
+                sourceHandle,
+                targetHandle,
+                label: `인텐트: ${handler.intent}`,
+                type: 'custom',
+                style: { stroke: '#6a1b9a', strokeWidth: 2 }
               };
-              newNodes.push(transitionNode);
+              newEdges.push(edge);
+              const existingTransitionNode = newNodes.find(n => 
+                n.type === 'planTransition' && 
+                n.data.targetPlan === targetScenario && 
+                n.data.targetState === handler.transitionTarget.dialogState
+              );
+              if (!existingTransitionNode) {
+                const transitionNode: any = {
+                  id: planTransitionNodeId,
+                  type: 'planTransition',
+                  position: { x: 0, y: 0 },
+                  data: {
+                    label: `→ ${targetScenario}:${handler.transitionTarget.dialogState}`,
+                    dialogState: { name: '플랜 전이', conditionHandlers: [], eventHandlers: [], intentHandlers: [], webhookActions: [], slotFillingForm: [] },
+                    targetPlan: targetScenario,
+                    targetState: handler.transitionTarget.dialogState
+                  }
+                };
+                newNodes.push(transitionNode);
+              } else {
+                planTransitionNodeId = existingTransitionNode.id;
+              }
             } else {
-              // 기존 노드의 ID를 사용하여 엣지 수정
-              scenarioTransitionNodeId = existingTransitionNode.id;
+              // 기존 시나리오 전이 로직 유지
+              let scenarioTransitionNodeId = `scenario-transition-${state.name}-${targetScenario}-${handler.transitionTarget.dialogState}`;
+              const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
+              const targetNode = newNodes.find(n => n.id === scenarioTransitionNodeId);
+              let sourceHandle: string | undefined;
+              let targetHandle: string | undefined;
+              if (sourceNode && targetNode) {
+                const handles = getHandlesWithConnectionCount(sourceNode, targetNode, newEdges);
+                sourceHandle = handles.sourceHandle;
+                targetHandle = handles.targetHandle;
+              }
+              const edge: FlowEdge = {
+                id: `${state.name}-intent-${idx}-${scenarioTransitionNodeId}`,
+                source: state.name,
+                target: scenarioTransitionNodeId,
+                sourceHandle,
+                targetHandle,
+                label: `인텐트: ${handler.intent}`,
+                type: 'custom',
+                style: { stroke: '#ff6b35', strokeWidth: 2 }
+              };
+              newEdges.push(edge);
+              const existingTransitionNode = newNodes.find(n => 
+                n.type === 'scenarioTransition' && 
+                n.data.targetScenario === targetScenario && 
+                n.data.targetState === handler.transitionTarget.dialogState
+              );
+              if (!existingTransitionNode) {
+                const transitionNode: FlowNode = {
+                  id: scenarioTransitionNodeId,
+                  type: 'scenarioTransition',
+                  position: { x: 0, y: 0 },
+                  data: {
+                    label: `→ ${targetScenario}:${handler.transitionTarget.dialogState}`,
+                    dialogState: { name: '시나리오 전이', conditionHandlers: [], eventHandlers: [], intentHandlers: [], webhookActions: [], slotFillingForm: [] },
+                    targetScenario: targetScenario,
+                    targetState: handler.transitionTarget.dialogState
+                  }
+                };
+                newNodes.push(transitionNode);
+              } else {
+                scenarioTransitionNodeId = existingTransitionNode.id;
+              }
             }
           }
           // 같은 시나리오 내 전이
@@ -934,65 +990,93 @@ function App() {
           
           // 시나리오 간 전이인 경우
           if (targetScenario && targetScenario !== currentScenarioName) {
-            // 시나리오 전이 노드로의 엣지 생성 (안정적인 ID 사용)
-            let scenarioTransitionNodeId = `scenario-transition-${state.name}-${targetScenario}-${handler.transitionTarget.dialogState}`;
-            
-            
-            // 소스 노드와 타겟 노드 찾기
-            const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
-            const targetNode = newNodes.find(n => n.id === scenarioTransitionNodeId);
-            
-            let sourceHandle: string | undefined;
-            let targetHandle: string | undefined;
-            
-            if (sourceNode && targetNode) {
-              const handles = getOptimalHandles(sourceNode, targetNode);
-              sourceHandle = handles.sourceHandle;
-              targetHandle = handles.targetHandle;
-            }
-            
-            const edge: FlowEdge = {
-              id: `${state.name}-event-${idx}-${scenarioTransitionNodeId}`,
-              source: state.name,
-              target: scenarioTransitionNodeId,
-              sourceHandle,
-              targetHandle,
-              label: `이벤트: ${eventType}`,
-              type: 'custom',
-              style: { stroke: '#ff6b35', strokeWidth: 2 } // 시나리오 전이 색상
-            };
-            newEdges.push(edge);
-            
-            // 시나리오 전이 노드 생성 (중복 체크 강화)
-            const existingTransitionNode = newNodes.find(n => 
-              n.type === 'scenarioTransition' && 
-              n.data.targetScenario === targetScenario && 
-              n.data.targetState === handler.transitionTarget.dialogState
-            );
-            
-            if (!existingTransitionNode) {
-              const transitionNode: FlowNode = {
-                id: scenarioTransitionNodeId,
-                type: 'scenarioTransition',
-                position: { x: 0, y: 0 },
-                data: {
-                  label: `→ ${targetScenario}:${handler.transitionTarget.dialogState}`,
-                  dialogState: {
-                    name: '시나리오 전이',
-                    conditionHandlers: [],
-                    eventHandlers: [],
-                    intentHandlers: [],
-                    webhookActions: [],
-                    slotFillingForm: []
-                  },
-                  targetScenario: targetScenario,
-                  targetState: handler.transitionTarget.dialogState
-                }
+            const isPlanInSameScenario = Array.isArray(scenario.plan) && scenario.plan.some(pl => pl.name === targetScenario);
+            if (isPlanInSameScenario) {
+              let planTransitionNodeId = `plan-transition-${state.name}-${targetScenario}-${handler.transitionTarget.dialogState}`;
+              const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
+              const targetNode = newNodes.find(n => n.id === planTransitionNodeId);
+              let sourceHandle: string | undefined;
+              let targetHandle: string | undefined;
+              if (sourceNode && targetNode) {
+                const handles = getOptimalHandles(sourceNode, targetNode);
+                sourceHandle = handles.sourceHandle;
+                targetHandle = handles.targetHandle;
+              }
+              const edge: FlowEdge = {
+                id: `${state.name}-event-${idx}-${planTransitionNodeId}`,
+                source: state.name,
+                target: planTransitionNodeId,
+                sourceHandle,
+                targetHandle,
+                label: `이벤트: ${eventType}`,
+                type: 'custom',
+                style: { stroke: '#6a1b9a', strokeWidth: 2 }
               };
-              newNodes.push(transitionNode);
+              newEdges.push(edge);
+              const existingTransitionNode = newNodes.find(n => 
+                n.type === 'planTransition' && 
+                n.data.targetPlan === targetScenario && 
+                n.data.targetState === handler.transitionTarget.dialogState
+              );
+              if (!existingTransitionNode) {
+                const transitionNode: any = {
+                  id: planTransitionNodeId,
+                  type: 'planTransition',
+                  position: { x: 0, y: 0 },
+                  data: {
+                    label: `→ ${targetScenario}:${handler.transitionTarget.dialogState}`,
+                    dialogState: { name: '플랜 전이', conditionHandlers: [], eventHandlers: [], intentHandlers: [], webhookActions: [], slotFillingForm: [] },
+                    targetPlan: targetScenario,
+                    targetState: handler.transitionTarget.dialogState
+                  }
+                };
+                newNodes.push(transitionNode);
+              } else {
+                planTransitionNodeId = existingTransitionNode.id;
+              }
             } else {
-              // 기존 노드의 ID를 사용하여 엣지 수정
-              scenarioTransitionNodeId = existingTransitionNode.id;
+              let scenarioTransitionNodeId = `scenario-transition-${state.name}-${targetScenario}-${handler.transitionTarget.dialogState}`;
+              const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
+              const targetNode = newNodes.find(n => n.id === scenarioTransitionNodeId);
+              let sourceHandle: string | undefined;
+              let targetHandle: string | undefined;
+              if (sourceNode && targetNode) {
+                const handles = getOptimalHandles(sourceNode, targetNode);
+                sourceHandle = handles.sourceHandle;
+                targetHandle = handles.targetHandle;
+              }
+              const edge: FlowEdge = {
+                id: `${state.name}-event-${idx}-${scenarioTransitionNodeId}`,
+                source: state.name,
+                target: scenarioTransitionNodeId,
+                sourceHandle,
+                targetHandle,
+                label: `이벤트: ${eventType}`,
+                type: 'custom',
+                style: { stroke: '#ff6b35', strokeWidth: 2 }
+              };
+              newEdges.push(edge);
+              const existingTransitionNode = newNodes.find(n => 
+                n.type === 'scenarioTransition' && 
+                n.data.targetScenario === targetScenario && 
+                n.data.targetState === handler.transitionTarget.dialogState
+              );
+              if (!existingTransitionNode) {
+                const transitionNode: FlowNode = {
+                  id: scenarioTransitionNodeId,
+                  type: 'scenarioTransition',
+                  position: { x: 0, y: 0 },
+                  data: {
+                    label: `→ ${targetScenario}:${handler.transitionTarget.dialogState}`,
+                    dialogState: { name: '시나리오 전이', conditionHandlers: [], eventHandlers: [], intentHandlers: [], webhookActions: [], slotFillingForm: [] },
+                    targetScenario: targetScenario,
+                    targetState: handler.transitionTarget.dialogState
+                  }
+                };
+                newNodes.push(transitionNode);
+              } else {
+                scenarioTransitionNodeId = existingTransitionNode.id;
+              }
             }
           }
           // 같은 시나리오 내 전이
@@ -1007,7 +1091,7 @@ function App() {
             let targetHandle: string | undefined;
             
             if (sourceNode && targetNode) {
-              const handles = getHandlesWithConnectionCount(sourceNode, targetNode, newEdges);
+              const handles = getOptimalHandles(sourceNode, targetNode);
               sourceHandle = handles.sourceHandle;
               targetHandle = handles.targetHandle;
             }
@@ -1047,7 +1131,7 @@ function App() {
             let sourceHandle: string | undefined;
             let targetHandle: string | undefined;
             
-            const handles = getHandlesWithConnectionCount(sourceNode, targetNode, newEdges);
+            const handles = getOptimalHandles(sourceNode, targetNode);
             sourceHandle = handles.sourceHandle;
             targetHandle = handles.targetHandle;
             
@@ -1058,11 +1142,7 @@ function App() {
               sourceHandle,
               targetHandle,
               label: `이벤트: ${eventType}`,
-              type: 'custom',
-              style: { 
-                stroke: getEndNodeVisual(targetState!).stroke,
-                strokeWidth: 2 
-              }
+              type: 'custom'
             };
             newEdges.push(edge);
             console.log(`🔚 이벤트 종료 전이 엣지 생성: ${state.name} → ${endNodeId}`);

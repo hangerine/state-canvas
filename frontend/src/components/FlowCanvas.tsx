@@ -33,6 +33,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import { Switch } from '@mui/material';
 import ReplayIcon from '@mui/icons-material/Replay';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
+import AltRouteIcon from '@mui/icons-material/AltRoute';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
@@ -143,10 +144,52 @@ const ScenarioTransitionNode: React.FC<any> = ({ data, id }) => {
   );
 };
 
+// 플랜 전이 노드 컴포넌트
+const PlanTransitionNode: React.FC<any> = ({ data, id }) => {
+  return (
+    <Box
+      sx={{
+        width: 120,
+        height: 60,
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 1,
+        border: '2px dashed #6a1b9a',
+        borderRadius: 2,
+        backgroundColor: '#f3e5f5',
+        boxShadow: 2,
+        position: 'relative',
+        overflow: 'visible',
+      }}
+    >
+      {/* Input Handle (왼쪽/위) */}
+      <Handle id="left-target" type="target" position={Position.Left} style={{ background: '#6a1b9a', width: 8, height: 8, border: '2px solid #fff' }} />
+      <Handle id="top-target" type="target" position={Position.Top} style={{ background: '#6a1b9a', width: 8, height: 8, border: '2px solid #fff' }} />
+
+      <AltRouteIcon sx={{ color: '#6a1b9a', fontSize: 20, mb: 0.5 }} />
+      <Typography variant="caption" sx={{ fontWeight: 'bold', textAlign: 'center', color: '#6a1b9a', fontSize: '0.7rem', lineHeight: 1.2 }}>
+        {data.targetPlan || '플랜 전이'}
+      </Typography>
+      {data.targetState && (
+        <Typography variant="caption" sx={{ textAlign: 'center', color: '#6a1b9a', fontSize: '0.6rem', opacity: 0.8 }}>
+          → {data.targetState}
+        </Typography>
+      )}
+
+      {/* Output Handle (오른쪽/아래) */}
+      <Handle id="right-source" type="source" position={Position.Right} style={{ background: '#6a1b9a', width: 8, height: 8, border: '2px solid #fff' }} />
+      <Handle id="bottom-source" type="source" position={Position.Bottom} style={{ background: '#6a1b9a', width: 8, height: 8, border: '2px solid #fff' }} />
+    </Box>
+  );
+};
+
 // 커스텀 노드 타입 정의
 const nodeTypes: NodeTypes = {
   custom: CustomNode,
   scenarioTransition: ScenarioTransitionNode,
+  planTransition: PlanTransitionNode,
 };
 
 const edgeTypes = {
@@ -219,7 +262,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
   onLayoutReset,
   ...rest
 }) => {
-  const { project, screenToFlowPosition, getNodes: rfGetNodes, fitView } = useReactFlow();
+  const { project, screenToFlowPosition, getNodes: rfGetNodes, fitView, setNodes, setEdges } = useReactFlow();
   const rfInstanceRef = useRef<ReactFlowInstance | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
@@ -255,6 +298,14 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
     targetScenario: string;
     targetState: string;
   }>({ open: false, sourceNode: '', targetScenario: '', targetState: '' });
+
+  // 플랜 전환 모달 상태
+  const [planTransitionModal, setPlanTransitionModal] = useState<{
+    open: boolean;
+    sourceNode: string;
+    targetPlan: string;
+    targetState: string;
+  }>({ open: false, sourceNode: '', targetPlan: '', targetState: '' });
 
   // Undo 동작
   const handleUndo = useCallback(() => {
@@ -478,7 +529,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       const state = node.data.dialogState;
       
       // Condition handlers에서 전이 관계 추출
-      state.conditionHandlers?.forEach((handler, idx) => {
+      state.conditionHandlers?.forEach((handler: any, idx: number) => {
         if (handler.transitionTarget.dialogState && 
             handler.transitionTarget.dialogState !== '__END_SESSION__') {
           const targetNode = nodes.find(n => n.data.dialogState.name === handler.transitionTarget.dialogState);
@@ -499,7 +550,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       });
 
       // Intent handlers에서 전이 관계 추출
-      state.intentHandlers?.forEach((handler, idx) => {
+      state.intentHandlers?.forEach((handler: any, idx: number) => {
         if (handler.transitionTarget.dialogState) {
           const targetNode = nodes.find(n => n.data.dialogState.name === handler.transitionTarget.dialogState);
           if (targetNode) {
@@ -519,7 +570,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       });
 
       // Event handlers에서 전이 관계 추출
-      state.eventHandlers?.forEach((handler, idx) => {
+      state.eventHandlers?.forEach((handler: any, idx: number) => {
         if (handler.transitionTarget.dialogState && 
             handler.transitionTarget.dialogState !== '__CURRENT_DIALOG_STATE__') {
           const targetNode = nodes.find(n => n.data.dialogState.name === handler.transitionTarget.dialogState);
@@ -544,7 +595,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
   }, []);
 
   // 노드 편집 완료 핸들러
-  const handleNodeEditSave = useCallback((updated: DialogState | { targetScenario: string; targetState: string }) => {
+  const handleNodeEditSave = useCallback((updated: DialogState | { targetScenario: string; targetState: string } | { targetPlan: string; targetState: string }) => {
     // 스냅샷 저장
     setUndoStack(stack => [...stack, { nodes, edges }]);
     setRedoStack([]);
@@ -554,6 +605,19 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
         data: {
           ...editingNode.data,
           targetScenario: updated.targetScenario,
+          targetState: updated.targetState,
+        },
+      };
+      onNodesChange?.(nodes.map(n => n.id === updatedNode.id ? updatedNode : n));
+      setEditingNode(null);
+      return;
+    }
+    if (editingNode?.type === 'planTransition' && 'targetPlan' in updated && 'targetState' in updated) {
+      const updatedNode = {
+        ...editingNode,
+        data: {
+          ...editingNode.data,
+          targetPlan: updated.targetPlan,
           targetState: updated.targetState,
         },
       };
@@ -699,6 +763,14 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
             targetScenario: flowNode.data.targetScenario,
             targetState: flowNode.data.targetState
           });
+          setEditingNode({ ...flowNode, type: 'scenarioTransition' });
+        } else if (flowNode.type === 'planTransition') {
+          console.log('🔍 [DEBUG] FlowCanvas - 플랜 전이 노드 데이터:', {
+            targetPlan: flowNode.data.targetPlan,
+            targetState: flowNode.data.targetState
+          });
+          setEditingNode({ ...flowNode, type: 'planTransition' });
+          return;
         }
         setEditingNode({ ...flowNode, type: flowNode.type || 'custom' });
       }
@@ -952,6 +1024,25 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
     setScenarioTransitionModal({ open: false, sourceNode: '', targetScenario: '', targetState: '' });
   }, [scenarioTransitionModal, nodes, edges, onNodesChange, onEdgesChange]);
 
+  // 플랜 전환 저장 처리
+  const handlePlanTransitionSave = useCallback(() => {
+    const { sourceNode, targetPlan, targetState } = planTransitionModal;
+    const newNodeId = `plan-transition-${sourceNode}-${targetPlan}-${targetState}`;
+    // 중복 체크
+    if (!nodes.find(n => n.id === newNodeId)) {
+      const newNode: FlowNode = {
+        id: newNodeId,
+        type: 'planTransition',
+        position: { x: 0, y: 0 },
+        data: { targetPlan, targetState },
+      } as any;
+      setNodes(prev => [...prev, newNode]);
+      const newEdge: FlowEdge = { id: `${sourceNode}-to-${newNodeId}`, source: sourceNode, target: newNodeId } as any;
+      setEdges(prev => [...prev, newEdge]);
+    }
+    setPlanTransitionModal({ open: false, sourceNode: '', targetPlan: '', targetState: '' });
+  }, [planTransitionModal, nodes, setNodes, setEdges]);
+
   // 초기화 버튼 핸들러
   const handleReset = useCallback(() => {
     setUndoStack([]);
@@ -976,7 +1067,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
   }));
 
   // 새 노드 추가 함수
-  const handleAddNewNode = useCallback((x: number, y: number, nodeType: 'state' | 'scenarioTransition' | 'endScenario' | 'endSession' | 'endProcess' = 'state') => {
+  const handleAddNewNode = useCallback((x: number, y: number, nodeType: 'state' | 'scenarioTransition' | 'planTransition' | 'endScenario' | 'endSession' | 'endProcess' = 'state') => {
     // 스냅샷 저장
     setUndoStack(stack => [...stack, { nodes, edges }]);
     setRedoStack([]);
@@ -1037,6 +1128,25 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
         },
       };
       console.log('🔄 시나리오 전이 노드 생성:', newNodeId, newNode);
+    } else if (nodeType === 'planTransition') {
+      // 플랜 전이 노드 생성 (시나리오 저장에는 포함하지 않음)
+      const newNodeId = `plan-transition-${timestamp}`;
+      newNode = {
+        id: newNodeId,
+        type: 'planTransition',
+        position: { x, y },
+        data: {
+          label: '플랜 전이',
+          dialogState: { name: '플랜 전이', conditionHandlers: [], eventHandlers: [], intentHandlers: [], webhookActions: [], slotFillingForm: [] },
+          onEdit: handleNodeEdit,
+          handleRefs: {},
+          targetPlan: '',
+          targetState: ''
+        },
+        style: { backgroundColor: '#f3e5f5', border: '2px solid #6a1b9a', borderRadius: '8px' },
+      } as any;
+      setPlanTransitionModal({ open: true, sourceNode: '', targetPlan: '', targetState: '' });
+      console.log('🔄 플랜 전이 노드 생성:', newNodeId, newNode);
     } else if (nodeType === 'endScenario') {
       // 시나리오 종료 노드 생성
       const newNodeId = `end-scenario-${timestamp}`;
@@ -1432,6 +1542,12 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
                 시나리오 전이 노드 추가
               </MenuItem>
               <MenuItem onClick={() => {
+                handleAddNewNode(contextMenu.x, contextMenu.y, 'planTransition');
+                handleCloseContextMenu();
+              }}>
+                플랜 전이 노드 추가
+              </MenuItem>
+              <MenuItem onClick={() => {
                 handleAddNewNode(contextMenu.x, contextMenu.y, 'endScenario');
                 handleCloseContextMenu();
               }}>
@@ -1521,6 +1637,47 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
             </Button>
           </DialogActions>
         </Dialog>
+
+        {/* 플랜 전환 모달 */}
+        <Dialog
+          open={planTransitionModal.open}
+          onClose={() => setPlanTransitionModal({ open: false, sourceNode: '', targetPlan: '', targetState: '' })}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>플랜 전환 설정</DialogTitle>
+          <DialogContent>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+              <Typography variant="body2">소스 노드: {planTransitionModal.sourceNode}</Typography>
+              <Typography variant="subtitle2">전환할 플랜 선택:</Typography>
+              <RadioGroup
+                value={planTransitionModal.targetPlan}
+                onChange={(e) => setPlanTransitionModal({ ...planTransitionModal, targetPlan: e.target.value })}
+              >
+                {(scenario?.plan || []).map((pl) => (
+                  <FormControlLabel key={pl.name} value={pl.name} control={<Radio />} label={pl.name} />
+                ))}
+              </RadioGroup>
+              {planTransitionModal.targetPlan && (
+                <>
+                  <Typography variant="subtitle2">시작 상태 선택:</Typography>
+                  <RadioGroup
+                    value={planTransitionModal.targetState}
+                    onChange={(e) => setPlanTransitionModal({ ...planTransitionModal, targetState: e.target.value })}
+                  >
+                    {(scenario?.plan || []).find(pl => pl.name === planTransitionModal.targetPlan)?.dialogState?.map(state => (
+                      <FormControlLabel key={state.name} value={state.name} control={<Radio />} label={state.name} />
+                    ))}
+                  </RadioGroup>
+                </>
+              )}
+            </Box>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setPlanTransitionModal({ open: false, sourceNode: '', targetPlan: '', targetState: '' })}>취소</Button>
+            <Button onClick={handlePlanTransitionSave} disabled={!planTransitionModal.targetPlan || !planTransitionModal.targetState} variant="contained">저장</Button>
+          </DialogActions>
+        </Dialog>
       </Box>
 
       {/* 노드 편집 모달 */}
@@ -1541,7 +1698,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
         nodeType={editingNode?.type}
         scenarios={scenarios}
         activeScenarioId={currentScenarioId}
-        targetScenario={editingNode?.data.targetScenario}
+        targetScenario={editingNode?.type === 'planTransition' ? editingNode?.data.targetPlan : editingNode?.data.targetScenario}
         targetState={editingNode?.data.targetState}
         nodes={nodes}
       />

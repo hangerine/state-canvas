@@ -255,8 +255,9 @@ export interface FlowNode {
   position: { x: number; y: number };
   data: {
     label: string;
-    dialogState: DialogState;
+    dialogState: DialogState | any;
     targetScenario?: string;
+    targetPlan?: string;
     targetState?: string;
     onEdit?: (nodeId: string) => void;
     handleRefs?: {
@@ -266,6 +267,7 @@ export interface FlowNode {
       right?: React.Ref<HTMLDivElement>;
     };
     currentState?: string;
+    [key: string]: any;
   };
   style?: CSSProperties;
 }

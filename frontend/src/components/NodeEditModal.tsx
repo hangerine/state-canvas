@@ -114,13 +114,13 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
   }, [selectedScenario, scenarios]);
 
   useEffect(() => {
-    if (nodeType === 'scenarioTransition') {
+    if (nodeType === 'scenarioTransition' || nodeType === 'planTransition') {
       console.log('🔍 [DEBUG] NodeEditModal - 시나리오 전이 노드 편집 모드');
       console.log('🔍 [DEBUG] NodeEditModal - initialTargetScenario:', initialTargetScenario);
       console.log('🔍 [DEBUG] NodeEditModal - initialTargetState:', initialTargetState);
       console.log('🔍 [DEBUG] NodeEditModal - scenarios:', scenarios);
       
-      // 시나리오 전이 노드의 경우 targetScenario와 targetState를 직접 사용
+      // 전이 노드의 경우 targetScenario/targetPlan 과 targetState를 직접 사용
       // initialTargetScenario와 initialTargetState가 비어있으면 dialogState에서 추출 시도
       let targetScenarioValue = initialTargetScenario;
       let targetStateValue = initialTargetState;
@@ -129,7 +129,9 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
       if (!targetScenarioValue && dialogState) {
         // dialogState가 시나리오 전이 노드의 경우 targetScenario와 targetState를 포함할 수 있음
         const dialogStateAny = dialogState as any; // 타입 단언 사용
-        if (dialogStateAny.targetScenario) {
+        if (nodeType === 'planTransition' && dialogStateAny.targetPlan) {
+          targetScenarioValue = dialogStateAny.targetPlan;
+        } else if (dialogStateAny.targetScenario) {
           targetScenarioValue = dialogStateAny.targetScenario;
         }
         if (dialogStateAny.targetState) {
@@ -137,20 +139,20 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
         }
       }
       
-      // targetScenario가 시나리오 이름인 경우 해당하는 시나리오 ID를 찾기
       let targetScenarioId = targetScenarioValue;
-      if (targetScenarioValue && !scenarios[targetScenarioValue]) {
-        // 시나리오 이름으로 ID 찾기
-        const foundScenarioId = Object.entries(scenarios).find(([id, scenario]) => 
-          scenario.plan[0]?.name === targetScenarioValue
-        )?.[0];
-        
-        if (foundScenarioId) {
-          targetScenarioId = foundScenarioId;
-          console.log('🔍 [DEBUG] NodeEditModal - 시나리오 이름을 ID로 변환:', targetScenarioValue, '→', targetScenarioId);
-        } else {
-          console.warn('⚠️ [WARNING] NodeEditModal - 시나리오 이름에 해당하는 ID를 찾을 수 없음:', targetScenarioValue);
-          targetScenarioId = Object.keys(scenarios)[0] || '';
+      if (nodeType === 'scenarioTransition') {
+        // targetScenario가 시나리오 이름인 경우 해당하는 시나리오 ID를 찾기
+        if (targetScenarioValue && !scenarios[targetScenarioValue]) {
+          const foundScenarioId = Object.entries(scenarios).find(([id, scenario]) => 
+            scenario.plan[0]?.name === targetScenarioValue
+          )?.[0];
+          if (foundScenarioId) {
+            targetScenarioId = foundScenarioId;
+            console.log('🔍 [DEBUG] NodeEditModal - 시나리오 이름을 ID로 변환:', targetScenarioValue, '→', targetScenarioId);
+          } else {
+            console.warn('⚠️ [WARNING] NodeEditModal - 시나리오 이름에 해당하는 ID를 찾을 수 없음:', targetScenarioValue);
+            targetScenarioId = Object.keys(scenarios)[0] || '';
+          }
         }
       }
       
@@ -166,12 +168,21 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
       setSelectedScenario(targetScenarioId);
       
       // targetState가 있으면 해당 시나리오의 상태 목록에서 첫 번째 상태를 기본값으로 설정
-      if (targetStateValue && scenarios[targetScenarioId]) {
-        setSelectedState(targetStateValue);
-      } else if (scenarios[targetScenarioId]) {
-        setSelectedState(scenarios[targetScenarioId].plan[0]?.dialogState[0]?.name || '');
+      if (nodeType === 'planTransition') {
+        if (targetStateValue && Array.isArray(scenario?.plan)) {
+          setSelectedState(targetStateValue);
+        } else {
+          const first = (scenario?.plan || []).find(pl => pl.name === targetScenarioValue)?.dialogState?.[0]?.name || '';
+          setSelectedState(first);
+        }
       } else {
-        setSelectedState('');
+        if (targetStateValue && scenarios[targetScenarioId]) {
+          setSelectedState(targetStateValue);
+        } else if (scenarios[targetScenarioId]) {
+          setSelectedState(scenarios[targetScenarioId].plan[0]?.dialogState[0]?.name || '');
+        } else {
+          setSelectedState('');
+        }
       }
       
       console.log('🔍 [DEBUG] NodeEditModal - selectedScenario:', targetScenarioId);
@@ -1005,15 +1016,15 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
     }
   };
 
-  if (nodeType === 'scenarioTransition') {
+  if (nodeType === 'scenarioTransition' || nodeType === 'planTransition') {
     return (
       <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-        <DialogTitle>시나리오 전이 노드 편집</DialogTitle>
+        <DialogTitle>{nodeType === 'planTransition' ? '플랜 전이 노드 편집' : '시나리오 전이 노드 편집'}</DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
             <TextField
               label="노드 이름"
-              value={editedState?.name || '시나리오 전이'}
+              value={editedState?.name || (nodeType === 'planTransition' ? '플랜 전이' : '시나리오 전이')}
               onChange={(e) => {
                 if (editedState) {
                   setEditedState({
@@ -1026,21 +1037,36 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
               sx={{ mb: 2 }}
             />
             
-            <FormControl fullWidth sx={{ mb: 2 }}>
-              <InputLabel>전이할 시나리오</InputLabel>
-              <Select
-                label="전이할 시나리오"
-                value={selectedScenario}
-                onChange={e => {
-                  const scenarioId = e.target.value;
-                  setSelectedScenario(scenarioId);
-                }}
-              >
-                {Object.entries(scenarios).map(([id, s]) => (
-                  <MenuItem key={id} value={id}>{s.plan[0]?.name || id}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+            {nodeType === 'scenarioTransition' ? (
+              <FormControl fullWidth sx={{ mb: 2 }}>
+                <InputLabel>전이할 시나리오</InputLabel>
+                <Select
+                  label="전이할 시나리오"
+                  value={selectedScenario}
+                  onChange={e => {
+                    const scenarioId = e.target.value;
+                    setSelectedScenario(scenarioId);
+                  }}
+                >
+                  {Object.entries(scenarios).map(([id, s]) => (
+                    <MenuItem key={id} value={id}>{s.plan[0]?.name || id}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            ) : (
+              <FormControl fullWidth sx={{ mb: 2 }}>
+                <InputLabel>전이할 플랜</InputLabel>
+                <Select
+                  label="전이할 플랜"
+                  value={selectedScenario}
+                  onChange={e => setSelectedScenario(e.target.value)}
+                >
+                  {(scenario?.plan || []).map(pl => (
+                    <MenuItem key={pl.name} value={pl.name}>{pl.name}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
             
             <FormControl fullWidth>
               <InputLabel>전이할 상태</InputLabel>
@@ -1049,14 +1075,19 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                 value={selectedState}
                 onChange={e => setSelectedState(e.target.value)}
               >
-                {scenarioStateOptions.map(name => (
+                {(nodeType === 'scenarioTransition'
+                  ? scenarioStateOptions
+                  : ((scenario?.plan || []).find(pl => pl.name === selectedScenario)?.dialogState || []).map(ds => ds.name)
+                ).map(name => (
                   <MenuItem key={name} value={name}>{name}</MenuItem>
                 ))}
               </Select>
             </FormControl>
             
             <Alert severity="info" sx={{ mt: 2 }}>
-              시나리오 전이 노드는 다른 시나리오로의 전환을 담당합니다.
+              {nodeType === 'planTransition' 
+                ? '플랜 전이 노드는 같은 시나리오의 다른 플랜으로 전환을 담당합니다.'
+                : '시나리오 전이 노드는 다른 시나리오로의 전환을 담당합니다.'}
               조건 핸들러나 이벤트 핸들러는 연결된 엣지에서 설정할 수 있습니다.
             </Alert>
           </Box>
@@ -1064,30 +1095,27 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
         <DialogActions>
           <Button onClick={onClose}>취소</Button>
           <Button onClick={() => {
-            // 저장 시에도 항상 이름으로 변환
-            let scenarioName = selectedScenario;
-            if (scenarios && scenarios[selectedScenario]) {
-              scenarioName = scenarios[selectedScenario].plan[0]?.name || selectedScenario;
-            }
-            
-            // 시나리오 전이 노드 정보 검증
-            if (!scenarioName || !selectedState) {
+            if (!selectedScenario || !selectedState) {
               console.error('❌ 시나리오 전이 노드 정보 누락:', {
-                targetScenario: scenarioName,
+                targetScenario: selectedScenario,
                 targetState: selectedState
               });
               alert('시나리오와 상태를 모두 선택해주세요.');
               return;
             }
             
-            console.log('💾 시나리오 전이 노드 저장:', {
-              노드이름: editedState?.name || '시나리오 전이',
-              전환시나리오: scenarioName,
-              전환상태: selectedState,
-              시나리오ID: selectedScenario
-            });
-            
-            onSave({ targetScenario: scenarioName, targetState: selectedState });
+            if (nodeType === 'planTransition') {
+              console.log('💾 플랜 전이 노드 저장:', { targetPlan: selectedScenario, targetState: selectedState });
+              onSave({ targetPlan: selectedScenario, targetState: selectedState } as any);
+            } else {
+              // 저장 시에도 항상 이름으로 변환
+              let scenarioName = selectedScenario;
+              if (scenarios && scenarios[selectedScenario]) {
+                scenarioName = scenarios[selectedScenario].plan[0]?.name || selectedScenario;
+              }
+              console.log('💾 시나리오 전이 노드 저장:', { targetScenario: scenarioName, targetState: selectedState });
+              onSave({ targetScenario: scenarioName, targetState: selectedState });
+            }
           }} variant="contained" color="primary" disabled={!selectedScenario || !selectedState}>저장</Button>
         </DialogActions>
       </Dialog>

@@ -22,6 +22,7 @@ import {
 } from '@mui/material';
 
 import { ExpandMore as ExpandMoreIcon } from '@mui/icons-material';
+import { AddCircleOutline as AddCircleOutlineIcon } from '@mui/icons-material';
 import { Scenario, FlowNode } from '../types/scenario';
 import { compareScenarios } from '../utils/scenarioUtils';
 
@@ -88,6 +89,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [activeTab, setActiveTab] = useState(0);
   const [editingScenarioId, setEditingScenarioId] = useState<string | null>(null);
   const [editingScenarioName, setEditingScenarioName] = useState('');
+  // 각 시나리오별 플랜 표시 순서(이름 기준) 유지
+  const [planOrderByScenario, setPlanOrderByScenario] = useState<Record<string, string[]>>({});
 
   // 변경사항 감지 (노드가 변경될 때마다 체크)
   useEffect(() => {
@@ -142,6 +145,26 @@ const Sidebar: React.FC<SidebarProps> = ({
       // console.log('⏱️ Sidebar: loadingTime 업데이트됨:', loadingTime);
     }
   }, [loadingTime]);
+
+  // 시나리오별 플랜 표시 순서 초기화/동기화 (이름 기준)
+  useEffect(() => {
+    const next: Record<string, string[]> = { ...planOrderByScenario };
+    Object.entries(scenarios).forEach(([id, sc]) => {
+      const planNames = (Array.isArray(sc.plan) ? sc.plan : []).map((pl: any, idx: number) => pl?.name || `Plan ${idx + 1}`);
+      if (!next[id]) {
+        next[id] = planNames;
+      } else {
+        // 기존 순서 유지 + 새 플랜은 뒤에 추가 + 삭제된 플랜은 제거
+        const existing = next[id].filter(name => planNames.includes(name));
+        const additions = planNames.filter(name => !existing.includes(name));
+        next[id] = [...existing, ...additions];
+      }
+    });
+    // 제거된 시나리오 id 청소
+    Object.keys(next).forEach((id) => { if (!scenarios[id]) delete next[id]; });
+    setPlanOrderByScenario(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scenarios]);
 
   // 이벤트 타입을 안전하게 가져오는 헬퍼 함수
   const getEventType = (event: any): string => {
@@ -212,6 +235,9 @@ const Sidebar: React.FC<SidebarProps> = ({
           setLoadingTime(performance.now() - overallStartTime);
           return;
         }
+
+        // 1308 스타일(단일 객체에 plan이 여러 개인 경우)도 단일 시나리오로 로드하여
+        // UI에서 시나리오 하위 플랜 목록을 표시하도록 유지
 
         // 단일 시나리오 객체 처리 (기존 로직)
         if (!validateScenario(parsed)) {
@@ -343,6 +369,37 @@ const Sidebar: React.FC<SidebarProps> = ({
   const handleCancelScenarioNameEdit = () => {
     setEditingScenarioId(null);
     setEditingScenarioName('');
+  };
+
+  // 선택한 시나리오에 새 플랜 추가 후 편집 시작(캔버스는 plan[0]을 표시하므로 새 플랜을 선두에 추가)
+  const handleAddPlanToScenario = (scenarioId: string) => {
+    const sc = scenarios[scenarioId];
+    if (!sc) return;
+    const newPlanName = `Plan_${new Date().toISOString().slice(11,19).replace(/:/g,'')}`;
+    const newPlan = { name: newPlanName, dialogState: [], scenarioTransitionNodes: [] } as any;
+    const updatedScenario = {
+      ...sc,
+      plan: [newPlan, ...(Array.isArray(sc.plan) ? sc.plan : [])]
+    } as Scenario;
+    onScenarioLoad(updatedScenario, scenarioId);
+    // 표시 순서에는 뒤쪽에 추가하여 원래 순서 유지
+    setPlanOrderByScenario(prev => ({
+      ...prev,
+      [scenarioId]: [...(prev[scenarioId] || []), newPlanName]
+    }));
+  };
+
+  // 플랜 선택 시 해당 플랜을 선두로 이동시켜 편집화면을 그 플랜으로 전환 (표시 순서는 유지)
+  const handleSelectPlan = (scenarioId: string, planName: string) => {
+    const sc = scenarios[scenarioId];
+    if (!sc || !Array.isArray(sc.plan)) return;
+    const planIndex = sc.plan.findIndex((pl: any, idx: number) => (pl?.name || `Plan ${idx + 1}`) === planName);
+    if (planIndex < 0) return;
+    if (planIndex === 0) { onScenarioLoad(sc, scenarioId); return; }
+    const selected = sc.plan[planIndex];
+    const others = sc.plan.filter((_, idx) => idx !== planIndex);
+    const updatedScenario = { ...sc, plan: [selected, ...others] } as Scenario;
+    onScenarioLoad(updatedScenario, scenarioId);
   };
 
   return (
@@ -526,7 +583,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                             </Box>
                           ) : (
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'nowrap' }}>
                                 <Typography variant="body2" sx={{ fontWeight: id === activeScenarioId ? 'bold' : 'normal' }}>
                                   {scenarioData.plan[0]?.name || `Scenario ${id}`}
                                 </Typography>
@@ -537,57 +594,98 @@ const Sidebar: React.FC<SidebarProps> = ({
                                     </Badge>
                                   </Tooltip>
                                 )}
+                                {/* 이름 편집 */}
+                                <IconButton
+                                  size="small"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleStartScenarioNameEdit(id, scenarioData.plan[0]?.name || `Scenario ${id}`);
+                                  }}
+                                  sx={{ color: '#1976d2', p: 0.25, opacity: 0.8 }}
+                                >
+                                  <span style={{ fontSize: '0.7rem' }}>✏️</span>
+                                </IconButton>
+                                {/* 플랜 추가 */}
+                                <Tooltip title="플랜 추가">
+                                  <IconButton
+                                    size="small"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleAddPlanToScenario(id);
+                                    }}
+                                    sx={{ p: 0.25 }}
+                                  >
+                                    <AddCircleOutlineIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                                {/* 개별 저장 */}
+                                <Tooltip title="개별 저장">
+                                  <IconButton
+                                    size="small"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (onSwitchScenario) onSwitchScenario(id);
+                                      onScenarioSave();
+                                    }}
+                                    sx={{ p: 0.25 }}
+                                  >
+                                    <span>💾</span>
+                                  </IconButton>
+                                </Tooltip>
+                                {/* 삭제 */}
+                                <IconButton
+                                  size="small"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (onDeleteScenario && Object.keys(scenarios).length > 1) {
+                                      onDeleteScenario(id);
+                                    }
+                                  }}
+                                  sx={{ color: '#f44336', p: 0.25 }}
+                                  disabled={Object.keys(scenarios).length <= 1}
+                                >
+                                  <span style={{ fontSize: '0.8rem' }}>🗑️</span>
+                                </IconButton>
                               </Box>
-                              <IconButton
-                                size="small"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleStartScenarioNameEdit(id, scenarioData.plan[0]?.name || `Scenario ${id}`);
-                                }}
-                                sx={{ color: '#1976d2', p: 0.5, opacity: 0.7 }}
-                              >
-                                <span style={{ fontSize: '0.7rem' }}>✏️</span>
-                              </IconButton>
                             </Box>
                           )
                         }
                         secondary={
-                          <Typography variant="caption" color="text.secondary">
-                            {scenarioData.plan[0]?.dialogState?.length || 0}개 상태
-                          </Typography>
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">
+                              {Array.isArray(scenarioData.plan) ? scenarioData.plan.length : 1}개 플랜
+                            </Typography>
+                            {/* 플랜 하위 리스트 */}
+                            {Array.isArray(scenarioData.plan) && scenarioData.plan.length > 0 && (
+                              <List dense sx={{ p: 0, mt: 0.5 }}>
+                                {(planOrderByScenario[id] || scenarioData.plan.map((pl:any, i:number)=> pl?.name || `Plan ${i+1}`)).map((pname: string) => {
+                                  const idx = scenarioData.plan.findIndex((pl:any, i:number) => (pl?.name || `Plan ${i+1}`) === pname);
+                                  const pl = scenarioData.plan[idx];
+                                  return (
+                                  <ListItem
+                                    key={`${id}-plan-${pname}`}
+                                    sx={{ py: 0.25, cursor: 'pointer', borderRadius: 0.5, bgcolor: idx === 0 ? '#eef7ff' : 'transparent' }}
+                                    onClick={(e) => { e.stopPropagation(); handleSelectPlan(id, pname); }}
+                                  >
+                                    <ListItemText
+                                      primary={
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                          <Chip size="small" label="PLAN" sx={{ height: 18 }} />
+                                          <Typography variant="body2">{pname}</Typography>
+                                          <Typography variant="caption" color="text.secondary">/ 상태 {pl?.dialogState?.length || 0}개</Typography>
+                                        </Box>
+                                      }
+                                    />
+                                  </ListItem>
+                                  );
+                                })}
+                              </List>
+                            )}
+                          </Box>
                         }
                       />
                     </Box>
-                    {/* 개별 저장 */}
-                    <Tooltip title="개별 저장">
-                      <IconButton
-                        edge="end"
-                        size="small"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (onSwitchScenario) onSwitchScenario(id);
-                          onScenarioSave();
-                        }}
-                        sx={{ ml: 1 }}
-                      >
-                        <span>💾</span>
-                      </IconButton>
-                    </Tooltip>
-                    {/* 삭제 버튼: 항상 보이되, 1개 남았을 때는 비활성화 */}
-                    <IconButton
-                      edge="end"
-                      size="small"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (onDeleteScenario && Object.keys(scenarios).length > 1) {
-                          onDeleteScenario(id);
-                        }
-                      }}
-                      sx={{ color: '#f44336', ml: 1 }}
-                      disabled={Object.keys(scenarios).length <= 1}
-                    >
-                      <span style={{ fontSize: '0.8rem' }}>🗑️</span>
-                    </IconButton>
+                    {/* 우측 아이콘 제거로 한 줄 가독성 향상 */}
                   </ListItem>
                 ))}
               </List>
@@ -1014,7 +1112,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               </Box>
             </AccordionSummary>
             <AccordionDetails>
-              {selectedNode.data.dialogState.conditionHandlers?.map((handler, idx) => (
+              {selectedNode.data.dialogState.conditionHandlers?.map((handler: any, idx: number) => (
                 <Box key={idx} sx={{ mb: 1, p: 1, bgcolor: '#f9f9f9', borderRadius: 1 }}>
                   <Typography variant="caption" display="block">
                     조건: {handler.conditionStatement}
@@ -1041,7 +1139,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               </Box>
             </AccordionSummary>
             <AccordionDetails>
-              {selectedNode.data.dialogState.intentHandlers?.map((handler, idx) => (
+              {selectedNode.data.dialogState.intentHandlers?.map((handler: any, idx: number) => (
                 <Box key={idx} sx={{ mb: 1 }}>
                   <Chip 
                     label={handler.intent} 
@@ -1071,7 +1169,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               </Box>
             </AccordionSummary>
             <AccordionDetails>
-              {selectedNode.data.dialogState.eventHandlers?.map((handler, idx) => (
+              {selectedNode.data.dialogState.eventHandlers?.map((handler: any, idx: number) => (
                 <Box key={idx} sx={{ mb: 1 }}>
                   <Chip 
                     label={getEventType(handler.event)} 
@@ -1103,7 +1201,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             <AccordionDetails>
               {selectedNode.data.dialogState.entryAction ? (
                 <Box sx={{ p: 1, bgcolor: '#f9f9f9', borderRadius: 1 }}>
-                  {selectedNode.data.dialogState.entryAction.directives?.map((directive, idx) => (
+                  {selectedNode.data.dialogState.entryAction.directives?.map((directive: any, idx: number) => (
                     <Box key={idx} sx={{ mb: 1 }}>
                       <Typography variant="caption" display="block" sx={{ fontWeight: 'bold' }}>
                         {directive.name}
@@ -1142,7 +1240,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               </Box>
             </AccordionSummary>
             <AccordionDetails>
-              {selectedNode.data.dialogState.apicallHandlers?.map((handler, idx) => {
+              {selectedNode.data.dialogState.apicallHandlers?.map((handler: any, idx: number) => {
                 const apicall = (scenario?.webhooks as any)?.find((w: any) => w.type === 'apicall' && w.name === handler.name);
                 return (
                   <Box key={idx} sx={{ mb: 2, p: 1, bgcolor: '#f9f9f9', borderRadius: 1 }}>
@@ -1245,7 +1343,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                   <Typography variant="caption" color="text.secondary" sx={{ mb: 1 }}>
                     🔗 실제 webhook 호출 → NLU_INTENT 추출 → 조건 처리
                   </Typography>
-                  {selectedNode.data.dialogState.webhookActions.map((webhook, idx) => (
+                  {selectedNode.data.dialogState.webhookActions.map((webhook: any, idx: number) => (
                     <Box key={idx} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <Chip 
                         label={webhook.name} 
@@ -1284,7 +1382,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               </Box>
             </AccordionSummary>
             <AccordionDetails>
-              {selectedNode.data.dialogState.slotFillingForm?.map((slot, idx) => (
+              {selectedNode.data.dialogState.slotFillingForm?.map((slot: any, idx: number) => (
                 <Box key={idx} sx={{ mb: 1, p: 1, bgcolor: '#f9f9f9', borderRadius: 1 }}>
                   <Typography variant="caption" display="block" sx={{ fontWeight: 'bold' }}>
                     {slot.name} {slot.required === 'Y' && <span style={{ color: 'red' }}>*</span>}
