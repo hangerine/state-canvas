@@ -93,15 +93,18 @@ class StateEngine:
         ]
         logger.info(f"[STACK INIT] session={session_id}, scenarioName={first_plan_name}, planName=Main, initialState={initial_state}")
 
-    def switch_to_scenario(self, session_id: str, target_scenario_name: str, target_state: str = None):
+    def switch_to_scenario(self, session_id: str, target_scenario_name: str, target_state: str = None, handler_index: int = -1, current_state: str = None):
         """다른 시나리오로 전이합니다."""
         stack = self.session_stacks.get(session_id, [])
         current_scenario = stack[-1] if stack else None
         
         if current_scenario:
-            # 현재 시나리오 정보를 스택에 저장
-            current_scenario["lastExecutedHandlerIndex"] = -1
+            # 현재 시나리오 정보를 스택에 저장 (복귀 시 사용할 핸들러 인덱스 포함)
+            current_scenario["lastExecutedHandlerIndex"] = handler_index
             current_scenario["entryActionExecuted"] = True
+            # 호출 지점 상태를 명시적으로 저장
+            if current_state:
+                current_scenario["dialogStateName"] = current_state
         
         # 새로운 시나리오 정보를 스택에 추가
         new_scenario_info = {
@@ -399,52 +402,8 @@ class StateEngine:
                             # target_state는 None으로 두어 후속 로직이 해당 플랜의 Start로 설정
                             return target_state, None
                 return None, None
-            target_scenario, target_state = get_target_scenario_and_state(current_dialog_state)
-            # 동일 파일 내 플랜 전이: 스택에 플랜 프레임을 push 하고 해당 상태로 처리
-            if target_scenario and _is_plan_in_current_scenario(target_scenario):
-                try:
-                    stack = self.session_stacks.get(session_id, [])
-                    current_frame = stack[-1] if stack else None
-                    prev_plan = current_frame.get("planName") if current_frame else scenario["plan"][0]["name"]
-                    # 복귀는 stack pop으로 처리하므로 return* 없이 push
-                    mapped_state = target_state or self._get_start_state_of_plan(scenario, target_scenario) or current_state
-                    # 호출 지점 복귀 상태를 저장
-                    try:
-                        if current_frame:
-                            current_frame["dialogStateName"] = current_state
-                            self.session_stacks[session_id] = stack
-                    except Exception:
-                        pass
-                    self._push_plan_frame(session_id, current_frame.get("scenarioName", scenario["plan"][0]["name"]) if current_frame else scenario["plan"][0]["name"], target_scenario, mapped_state)
-                    logger.info(f"[PLAN PUSH] session={session_id}, prevPlan={prev_plan} -> newPlan={target_scenario}, state={mapped_state}")
-                except Exception as e:
-                    logger.warning(f"[PLAN PUSH] failed: {e}")
-                # target_state가 없으면 해당 플랜의 Start로
-                if not target_state:
-                    target_state = self._get_start_state_of_plan(scenario, target_scenario) or current_state
-                return await self._handle_normal_input(
-                    session_id,
-                    user_input,
-                    target_state,
-                    self._find_dialog_state_for_session(session_id, scenario, target_state),
-                    scenario,
-                    memory
-                )
-            if target_scenario and target_state:
-                logger.info(f"[SCENARIO SWITCH] session={session_id}, from={scenario['plan'][0]['name']} to={target_scenario}, state={str(target_state)}")
-                self.switch_to_scenario(session_id, target_scenario, target_state)
-                scenario_obj = self.scenario_manager.get_scenario_by_name(target_scenario)
-                logger.info(f"[SCENARIO OBJ] scenario_obj={scenario_obj}")
-                if scenario_obj:
-                    return await self.process_input(session_id, user_input, target_state, scenario_obj, memory, event_type)
-                else:
-                    logger.error(f"[SCENARIO NOT FOUND] target_scenario={target_scenario}")
-                    return {
-                        "error": f"시나리오 '{target_scenario}'를 찾을 수 없습니다.",
-                        "new_state": current_state,
-                        "response": f"❌ 시나리오 전이 실패: {target_scenario}",
-                        "transitions": []
-                    }
+            # 시나리오/플랜 전이 체크는 _handle_normal_input에서 처리하도록 이동
+            # (핸들러 인덱스 추적을 위해)
             # --- 기존 로직 ---
             return await self._handle_normal_input(
                 session_id,
@@ -570,6 +529,7 @@ class StateEngine:
             # __END_SCENARIO__ 처리: 플랜/시나리오 복귀 및 다음 핸들러 평가
             try:
                 if result.get("new_state") == "__END_SCENARIO__":
+                    logger.info(f"[__END_SCENARIO__][process_input] detected")
                     stack = self.session_stacks.get(session_id, [])
                     if stack:
                         prev = stack[-1]
@@ -757,53 +717,82 @@ class StateEngine:
                 # 2. Condition Handler 확인 (전이가 없었을 경우)
                 if not intent_transition:
                     logger.info(f"[DEBUG] [HANDLER] conditionHandlers 평가 시작: {current_dialog_state.get('conditionHandlers')}")
-                    condition_transition = self.transition_manager.check_condition_handlers(
-                        current_dialog_state, memory
-                    )
-                    logger.info(f"[DEBUG] [HANDLER] condition_transition 결과: {condition_transition}")
-                    if condition_transition:
-                        transitions.append(condition_transition)
-                        new_state = condition_transition.toState
-                        # 플랜명이 직접 지정된 경우 해당 플랜의 Start로 전환
-                        if self._is_plan_name(scenario, new_state):
-                            self._set_current_plan_name(session_id, new_state)
-                            mapped = self._get_start_state_of_plan(scenario, new_state) or new_state
-                            logger.info(f"[PLAN SWITCH][condition] {new_state} → {mapped}")
-                            new_state = mapped
-                        logger.info(f"[STATE] condition 매칭으로 new_state 변경: {new_state}")
-                        response_messages.append(f"⚡ 조건 만족으로 전이")
-
-                        # NEW: 조건 전이 대상이 동일 파일 내 다른 플랜이면 스택 push 및 planName 전환
-                        try:
-                            condition_handlers = current_dialog_state.get("conditionHandlers", [])
-                            for handler_index, handler in enumerate(condition_handlers):
-                                if not isinstance(handler, dict):
-                                    continue
-                                cond = handler.get("conditionStatement", "")
-                                if self.transition_manager.evaluate_condition(cond, memory):
-                                    target = handler.get("transitionTarget", {})
-                                    target_plan = target.get("scenario")
-                                    if target_plan and any(pl.get("name") == target_plan for pl in scenario.get("plan", [])):
-                                        # 플랜 전이: 스택 push를 먼저 하고, 그 다음에 planName 전환
-                                        stack = self.session_stacks.get(session_id, [])
-                                        if stack:
-                                            current_frame = stack[-1]
-                                            current_frame_plan = current_frame.get("planName")
-                                            # 플랜이 다를 때만 push (중복 push 방지)
-                                            if target_plan != current_frame_plan:
-                                                current_frame["lastExecutedHandlerIndex"] = handler_index
-                                                current_frame["dialogStateName"] = current_state
-                                                current_scenario_name = current_frame.get("scenarioName", scenario.get("plan", [{}])[0].get("name", ""))
-                                                self._push_plan_frame(session_id, current_scenario_name, target_plan, new_state)
-                                                logger.info(f"[PLAN PUSH][normal-cond] session={session_id}, fromState={current_state}, fromIndex={handler_index}, plan={target_plan}, state={new_state}")
-                                                # push 후에 플랜명 변경
-                                                self._set_current_plan_name(session_id, target_plan)
-                                            else:
-                                                logger.info(f"[PLAN SKIP][normal-cond] already in plan={target_plan}, current_state={current_state}")
-                                        logger.info(f"[PLAN SWITCH][condition] session={session_id}, plan={target_plan}, state={new_state}")
-                                    break
-                        except Exception as e:
-                            logger.warning(f"[PLAN SWITCH][condition] check failed: {e}")
+                    
+                    # 직접 조건 핸들러를 순회하면서 시나리오/플랜 전이 감지
+                    condition_handlers = current_dialog_state.get("conditionHandlers", [])
+                    condition_matched = False
+                    for handler_index, handler in enumerate(condition_handlers):
+                        if not isinstance(handler, dict):
+                            continue
+                        cond = handler.get("conditionStatement", "")
+                        if self.transition_manager.evaluate_condition(cond, memory):
+                            target = handler.get("transitionTarget", {})
+                            target_plan = target.get("scenario")
+                            target_state_name = target.get("dialogState")
+                            
+                            # 시나리오 전이 (다른 시나리오 파일)
+                            if target_plan and target_plan != scenario["plan"][0]["name"] and not any(pl.get("name") == target_plan for pl in scenario.get("plan", [])):
+                                logger.info(f"[SCENARIO TRANSITION][normal-cond] session={session_id}, fromState={current_state}, fromIndex={handler_index}, scenario={target_plan}, state={target_state_name}")
+                                self.switch_to_scenario(session_id, target_plan, target_state_name, handler_index, current_state)
+                                scenario_obj = self.scenario_manager.get_scenario_by_name(target_plan)
+                                if scenario_obj:
+                                    # 시나리오 전이 후 재귀 호출
+                                    return await self.process_input(session_id, user_input, target_state_name, scenario_obj, memory)
+                                else:
+                                    logger.error(f"[SCENARIO NOT FOUND] target_scenario={target_plan}")
+                                    return {
+                                        "error": f"시나리오 '{target_plan}'를 찾을 수 없습니다.",
+                                        "new_state": current_state,
+                                        "response": f"❌ 시나리오 전이 실패: {target_plan}",
+                                        "transitions": []
+                                    }
+                            # 플랜 전이 (동일 파일 내 다른 플랜)
+                            elif target_plan and any(pl.get("name") == target_plan for pl in scenario.get("plan", [])):
+                                # 플랜 전이: 스택 push를 먼저 하고, 그 다음에 planName 전환
+                                stack = self.session_stacks.get(session_id, [])
+                                if stack:
+                                    current_frame = stack[-1]
+                                    current_frame_plan = current_frame.get("planName")
+                                    # 플랜이 다를 때만 push (중복 push 방지)
+                                    if target_plan != current_frame_plan:
+                                        current_frame["lastExecutedHandlerIndex"] = handler_index
+                                        current_frame["dialogStateName"] = current_state
+                                        current_scenario_name = current_frame.get("scenarioName", scenario.get("plan", [{}])[0].get("name", ""))
+                                        self._push_plan_frame(session_id, current_scenario_name, target_plan, target_state_name)
+                                        logger.info(f"[PLAN PUSH][normal-cond] session={session_id}, fromState={current_state}, fromIndex={handler_index}, plan={target_plan}, state={target_state_name}")
+                                        # push 후에 플랜명 변경
+                                        self._set_current_plan_name(session_id, target_plan)
+                                    else:
+                                        logger.info(f"[PLAN SKIP][normal-cond] already in plan={target_plan}, current_state={current_state}")
+                                new_state = target_state_name
+                                logger.info(f"[PLAN SWITCH][condition] session={session_id}, plan={target_plan}, state={new_state}")
+                            # 일반 상태 전이
+                            else:
+                                new_state = target_state_name
+                            
+                            # 조건 매칭됨
+                            condition_matched = True
+                            response_messages.append(f"⚡ 조건 만족으로 전이")
+                            logger.info(f"[STATE] condition 매칭으로 new_state 변경: {new_state}")
+                            break
+                    
+                    # 매칭된 조건이 없으면 기존 로직 실행
+                    if not condition_matched:
+                        condition_transition = self.transition_manager.check_condition_handlers(
+                            current_dialog_state, memory
+                        )
+                        logger.info(f"[DEBUG] [HANDLER] condition_transition 결과: {condition_transition}")
+                        if condition_transition:
+                            transitions.append(condition_transition)
+                            new_state = condition_transition.toState
+                            # 플랜명이 직접 지정된 경우 해당 플랜의 Start로 전환
+                            if self._is_plan_name(scenario, new_state):
+                                self._set_current_plan_name(session_id, new_state)
+                                mapped = self._get_start_state_of_plan(scenario, new_state) or new_state
+                                logger.info(f"[PLAN SWITCH][condition] {new_state} → {mapped}")
+                                new_state = mapped
+                            logger.info(f"[STATE] condition 매칭으로 new_state 변경: {new_state}")
+                            response_messages.append(f"⚡ 조건 만족으로 전이")
                     else:
                         # 3. 매치되지 않은 경우 NO_MATCH_EVENT 처리
                         if intent == "NO_INTENT_FOUND" or not intent_transition:
@@ -817,11 +806,17 @@ class StateEngine:
                                 response_messages.extend(no_match_result.get("messages", []))
                                 logger.info("🔄 NO_MATCH_EVENT processed")
         
-        # 3. Entry Action 실행 및 자동 전이 확인 (새로운 상태로 전이된 경우)
-        if new_state != current_state:
-            logger.info(f"[STATE] 상태 변경 감지: {current_state} -> {new_state}")
-            # 상태가 변경되면 reprompt handler 해제
-            self.reprompt_manager.clear_reprompt_handlers(memory, current_state)
+        # 3. Entry Action 실행 및 자동 전이 확인 (새로운 상태로 전이된 경우 또는 entryAction이 있는 경우)
+        current_dialog_state_obj = self._find_dialog_state_for_session(session_id, scenario, new_state)
+        has_entry_action = current_dialog_state_obj and current_dialog_state_obj.get("entryAction")
+        
+        if new_state != current_state or has_entry_action:
+            if new_state != current_state:
+                logger.info(f"[STATE] 상태 변경 감지: {current_state} -> {new_state}")
+                # 상태가 변경되면 reprompt handler 해제
+                self.reprompt_manager.clear_reprompt_handlers(memory, current_state)
+            else:
+                logger.info(f"[STATE] entryAction 있는 상태에서 자동 전이 체크: {new_state}")
             
             # Entry Action 실행
             entry_response = self.action_executor.execute_entry_action(scenario, new_state)
@@ -843,8 +838,11 @@ class StateEngine:
                 except Exception as e:
                     logger.warning(f"[STACK DEBUG] logging failed: {e}")
                 # NEW: auto-transition이 __END_SCENARIO__이면 즉시 pop 후 상위 상태에서 이어서 처리
+                logger.info(f"[DEBUG] checking new_state: '{new_state}' == '__END_SCENARIO__': {new_state == '__END_SCENARIO__'}")
                 if new_state == "__END_SCENARIO__":
+                    logger.info(f"[__END_SCENARIO__][auto] detected")
                     stack = self.session_stacks.get(session_id, [])
+                    logger.info(f"[__END_SCENARIO__][auto] stack length: {len(stack)}")
                     if stack and len(stack) > 1:
                         ended_plan = stack.pop()
                         prev = stack[-1]
@@ -852,19 +850,33 @@ class StateEngine:
                         logger.info(f"[PLAN POP][auto] endedPlan={ended_plan.get('planName')}, resume plan={prev.get('planName')}, state={resume_state}")
                         prev["entryActionExecuted"] = True
                         self._update_current_dialog_state_name(session_id, resume_state)
+                        # 시나리오가 다르면 시나리오 객체를 다시 로드
+                        resume_scenario_name = prev.get("scenarioName")
+                        if resume_scenario_name != scenario.get("plan", [{}])[0].get("name", ""):
+                            logger.info(f"[PLAN POP][auto] loading scenario={resume_scenario_name}")
+                            resume_scenario = self.scenario_manager.get_scenario_by_name(resume_scenario_name)
+                            if resume_scenario:
+                                scenario = resume_scenario
+                            else:
+                                logger.error(f"[PLAN POP][auto] scenario not found: {resume_scenario_name}")
+                        
                         # 복귀 즉시 현재 state's conditionHandlers에서 마지막 실행 인덱스 다음부터 평가
                         resume_dialog_state = self._find_dialog_state_for_session(session_id, scenario, resume_state)
                         start_idx = int(prev.get("lastExecutedHandlerIndex", -1)) + 1
-                        handlers = resume_dialog_state.get("conditionHandlers", [])
+                        handlers = resume_dialog_state.get("conditionHandlers", []) if resume_dialog_state else []
+                        logger.info(f"[PLAN POP][auto] Resuming at state={resume_state}, handlers from index {start_idx}, total: {len(handlers)}")
+                        
                         matched = None
                         for idx, h in enumerate(handlers):
                             if idx < start_idx or not isinstance(h, dict):
                                 continue
                             cond = h.get("conditionStatement", "")
+                            logger.info(f"[PLAN POP][auto] Checking condition {idx}: {cond}")
                             if self.transition_manager.evaluate_condition(cond, memory):
                                 target = h.get("transitionTarget", {})
                                 new_state = target.get("dialogState", resume_state)
                                 prev["lastExecutedHandlerIndex"] = idx
+                                logger.info(f"[PLAN POP][auto] Condition {idx} matched, transitioning to {new_state}")
                                 entry_response = self.action_executor.execute_entry_action(scenario, new_state)
                                 if entry_response:
                                     response_messages.append(entry_response)
@@ -874,6 +886,8 @@ class StateEngine:
                                 matched = True
                                 break
                         # 조건이 더 이상 없으면 그대로 유지
+                        if not matched:
+                            logger.info(f"[PLAN POP][auto] No more conditions matched, staying at {resume_state}")
                 response_messages.extend(auto_transition_result.get("messages", []))
                 if auto_transition_result.get("transitions"):
                     transitions.extend(auto_transition_result["transitions"])
@@ -898,33 +912,65 @@ class StateEngine:
             transition_dicts = []
         
         if new_state == "__END_SCENARIO__":
+            logger.info(f"[__END_SCENARIO__][webhook] detected")
             stack = self.session_stacks.get(session_id, [])
             if stack:
-                # 플랜 프레임 pop하여 이전 플랜으로 복귀
+                # 시나리오/플랜 프레임 pop하여 이전 시나리오/플랜으로 복귀
                 if len(stack) > 1:
-                    ended_plan = stack.pop()
+                    ended_frame = stack.pop()
                     prev = stack[-1]
                     resume_state = prev.get("dialogStateName", new_state)
+                    resume_scenario_name = prev.get("scenarioName")
+                    resume_plan_name = prev.get("planName")
                     new_state = resume_state
-                    logger.info(f"[PLAN POP] endedPlan={ended_plan.get('planName')}, resume plan={prev.get('planName')}, state={new_state}")
-                    # 복귀 상태에서 handler를 즉시 재평가
+                    logger.info(f"[FRAME POP] endedFrame={ended_frame.get('scenarioName')}/{ended_frame.get('planName')}, resume scenario={resume_scenario_name}, plan={resume_plan_name}, state={new_state}")
+                    
+                    # 시나리오가 다르면 시나리오 객체를 다시 로드
+                    if resume_scenario_name != scenario.get("plan", [{}])[0].get("name", ""):
+                        logger.info(f"[SCENARIO RETURN] loading scenario={resume_scenario_name}")
+                        scenario = self.scenario_manager.get_scenario_by_name(resume_scenario_name)
+                        if not scenario:
+                            logger.error(f"[SCENARIO RETURN] scenario not found: {resume_scenario_name}")
+                            return {
+                                "new_state": "__END_SCENARIO__",
+                                "messages": [f"❌ 복귀 시나리오를 찾을 수 없습니다: {resume_scenario_name}"],
+                                "transitions": []
+                            }
+                    
+                    # 복귀 상태에서 handler를 즉시 재평가 (lastExecutedHandlerIndex + 1부터)
                     prev["entryActionExecuted"] = True
                     self._update_current_dialog_state_name(session_id, new_state)
                     dialog_state = self._find_dialog_state_for_session(session_id, scenario, new_state)
-                    resumed = self.transition_manager.check_intent_handlers(dialog_state, intent, memory)
-                    if resumed:
-                        new_state = resumed.toState
-                    else:
-                        condition_transition = self.transition_manager.check_condition_handlers(dialog_state, memory)
-                        if condition_transition:
-                            new_state = condition_transition.toState
-                    # Entry Action 및 추가 자동 전이 체인 처리
-                    entry_response = self.action_executor.execute_entry_action(scenario, new_state)
-                    if entry_response:
-                        response_messages.append(entry_response)
-                    next_auto = await self._check_and_execute_auto_transitions(session_id, scenario, new_state, memory, response_messages)
-                    if next_auto:
-                        new_state = next_auto["new_state"]
+                    
+                    logger.info(f"[FRAME POP] Resuming at state={new_state}, dialog_state_found={dialog_state is not None}")
+                    
+                    # 다음 핸들러부터 평가
+                    start_idx = int(prev.get("lastExecutedHandlerIndex", -1)) + 1
+                    handlers = dialog_state.get("conditionHandlers", []) if dialog_state else []
+                    logger.info(f"[FRAME POP] Evaluating handlers from index {start_idx}, total handlers: {len(handlers)}")
+                    
+                    matched = False
+                    for idx, h in enumerate(handlers):
+                        if idx < start_idx or not isinstance(h, dict):
+                            continue
+                        cond = h.get("conditionStatement", "")
+                        logger.info(f"[FRAME POP] Checking condition {idx}: {cond}")
+                        if self.transition_manager.evaluate_condition(cond, memory):
+                            target = h.get("transitionTarget", {})
+                            new_state = target.get("dialogState", resume_state)
+                            prev["lastExecutedHandlerIndex"] = idx
+                            logger.info(f"[FRAME POP] Condition {idx} matched, transitioning to {new_state}")
+                            entry_response = self.action_executor.execute_entry_action(scenario, new_state)
+                            if entry_response:
+                                response_messages.append(entry_response)
+                            next_auto = await self._check_and_execute_auto_transitions(session_id, scenario, new_state, memory, response_messages)
+                            if next_auto:
+                                new_state = next_auto["new_state"]
+                            matched = True
+                            break
+                    
+                    if not matched:
+                        logger.info(f"[FRAME POP] No more conditions to evaluate, staying at {new_state}")
                 else:
                     prev = stack[-1]
                 # 복귀한 노드에서 entryAction을 실행하지 않고, intent/condition/event 핸들러를 모두 평가
@@ -1094,21 +1140,41 @@ class StateEngine:
             target = handler.get("transitionTarget", {})
             target_scenario = target.get("scenario")
             target_state = target.get("dialogState", current_state)
-            # 시나리오 전이 처리 추가 (동일 파일 내 플랜 전이는 제외)
-            if target_scenario and target_scenario != scenario["plan"][0]["name"] and not any(pl.get("name") == target_scenario for pl in scenario.get("plan", [])):
-                logger.info(f"[AUTO SCENARIO TRANSITION DETECTED] from={scenario['plan'][0]['name']} to={target_scenario}, state={str(target_state)}")
-                self.switch_to_scenario(memory.get('sessionId', ''), target_scenario, target_state)
-                scenario_obj = self.scenario_manager.get_scenario_by_name(target_scenario)
-                if scenario_obj:
-                    # process_input을 재귀적으로 호출하여 시나리오 context를 바꾼다
-                    return await self.process_input(memory.get('sessionId', ''), '', target_state, scenario_obj, memory)
-                else:
-                    logger.error(f"[AUTO SCENARIO NOT FOUND] target_scenario={target_scenario}")
-                    return {
-                        "new_state": current_state,
-                        "messages": [f"❌ 시나리오 전이 실패: {target_scenario}"],
-                        "transitions": []
-                    }
+            # 시나리오/플랜 전이를 True 조건보다 먼저 체크
+            if condition.strip() == "True" or condition.strip() == '"True"':
+                # 시나리오 전이 우선 체크 (다른 시나리오 파일)
+                if target_scenario and target_scenario != scenario["plan"][0]["name"] and not any(pl.get("name") == target_scenario for pl in scenario.get("plan", [])):
+                    logger.info(f"[AUTO SCENARIO TRANSITION DETECTED] from={scenario['plan'][0]['name']} to={target_scenario}, state={str(target_state)}")
+                    self.switch_to_scenario(memory.get('sessionId', ''), target_scenario, target_state, handler_index, current_state)
+                    scenario_obj = self.scenario_manager.get_scenario_by_name(target_scenario)
+                    if scenario_obj:
+                        # process_input을 재귀적으로 호출하여 시나리오 context를 바꾼다
+                        return await self.process_input(memory.get('sessionId', ''), '', target_state, scenario_obj, memory)
+                    else:
+                        logger.error(f"[AUTO SCENARIO NOT FOUND] target_scenario={target_scenario}")
+                        return {
+                            "new_state": current_state,
+                            "messages": [f"❌ 시나리오 전이 실패: {target_scenario}"],
+                            "transitions": []
+                        }
+                # 일반 조건에서도 시나리오 전이 체크
+            elif self.transition_manager.evaluate_condition(condition, memory):
+                # 시나리오 전이 우선 체크 (다른 시나리오 파일)
+                if target_scenario and target_scenario != scenario["plan"][0]["name"] and not any(pl.get("name") == target_scenario for pl in scenario.get("plan", [])):
+                    logger.info(f"[AUTO SCENARIO TRANSITION DETECTED] from={scenario['plan'][0]['name']} to={target_scenario}, state={str(target_state)}")
+                    self.switch_to_scenario(memory.get('sessionId', ''), target_scenario, target_state, handler_index, current_state)
+                    scenario_obj = self.scenario_manager.get_scenario_by_name(target_scenario)
+                    if scenario_obj:
+                        # process_input을 재귀적으로 호출하여 시나리오 context를 바꾼다
+                        return await self.process_input(memory.get('sessionId', ''), '', target_state, scenario_obj, memory)
+                    else:
+                        logger.error(f"[AUTO SCENARIO NOT FOUND] target_scenario={target_scenario}")
+                        return {
+                            "new_state": current_state,
+                            "messages": [f"❌ 시나리오 전이 실패: {target_scenario}"],
+                            "transitions": []
+                        }
+            
             if condition.strip() == "True" or condition.strip() == '"True"':
                 # True 조건: 대상 scenario가 동일 파일 내 플랜이면 플랜 전환 우선
                 if target_scenario and any(pl.get("name") == target_scenario for pl in scenario.get("plan", [])):
@@ -1170,8 +1236,23 @@ class StateEngine:
                 break
             else:
                 if self.transition_manager.evaluate_condition(condition, memory):
+                    # 시나리오 전이 (다른 시나리오 파일)
+                    if target_scenario and target_scenario != scenario["plan"][0]["name"] and not any(pl.get("name") == target_scenario for pl in scenario.get("plan", [])):
+                        logger.info(f"[SCENARIO TRANSITION][auto-cond] session={session_id}, fromState={current_state}, fromIndex={handler_index}, scenario={target_scenario}, state={target_state}")
+                        self.switch_to_scenario(memory.get('sessionId', ''), target_scenario, target_state, handler_index, current_state)
+                        scenario_obj = self.scenario_manager.get_scenario_by_name(target_scenario)
+                        if scenario_obj:
+                            # 시나리오 전이 후 재귀 호출
+                            return await self.process_input(memory.get('sessionId', ''), '', target_state, scenario_obj, memory)
+                        else:
+                            logger.error(f"[AUTO SCENARIO NOT FOUND] target_scenario={target_scenario}")
+                            return {
+                                "new_state": current_state,
+                                "messages": [f"❌ 시나리오 전이 실패: {target_scenario}"],
+                                "transitions": []
+                            }
                     # 일반 조건: 대상 scenario가 동일 파일 내 플랜이면 플랜 전환 우선
-                    if target_scenario and any(pl.get("name") == target_scenario for pl in scenario.get("plan", [])):
+                    elif target_scenario and any(pl.get("name") == target_scenario for pl in scenario.get("plan", [])):
                         mapped_state = target_state or self._get_start_state_of_plan(scenario, target_scenario) or current_state
                         # 플랜 진입: 스택 push를 먼저 하고, 그 다음에 플랜명 변경
                         try:
