@@ -231,7 +231,9 @@ export interface Webhook {
 export interface ScenarioPlan {
   name: string;
   dialogState: DialogState[];
-  scenarioTransitionNodes?: FlowNode[];
+  // scenarioTransitionNodes는 더 이상 사용하지 않음
+  // 시나리오 전이는 transitionTarget의 scenarioName으로 판단
+  // scenarioName이 현재 시나리오와 다른 경우 시나리오 전이로 간주
 }
 
 export interface Scenario {

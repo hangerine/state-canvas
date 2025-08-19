@@ -376,7 +376,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     const sc = scenarios[scenarioId];
     if (!sc) return;
     const newPlanName = `Plan_${new Date().toISOString().slice(11,19).replace(/:/g,'')}`;
-    const newPlan = { name: newPlanName, dialogState: [], scenarioTransitionNodes: [] } as any;
+    const newPlan = { name: newPlanName, dialogState: [] } as any;
     const updatedScenario = {
       ...sc,
       plan: [newPlan, ...(Array.isArray(sc.plan) ? sc.plan : [])]

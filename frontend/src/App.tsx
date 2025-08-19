@@ -12,8 +12,10 @@ import {
   convertNodesToScenario, 
   compareScenarios, 
   downloadScenarioAsJSON,
+  validateScenarioTransition,
   ScenarioChanges,
-  removeApiCallUrlsFromScenario // 추가
+  removeApiCallUrlsFromScenario,
+  cleanScenarioForSave
 } from './utils/scenarioUtils';
 
 const theme = createTheme({
@@ -68,7 +70,11 @@ function App() {
     if (Object.keys(scenarios).length > 0) {
       console.log('전체 시나리오 구조:', scenarios);
       Object.entries(scenarios).forEach(([id, scenario]) => {
-        console.log(`[${id}] scenarioTransitionNodes`, scenario.plan[0]?.scenarioTransitionNodes);
+        console.log(`[${id}] 시나리오 정보:`, {
+          name: scenario.plan[0]?.name,
+          dialogStateCount: scenario.plan[0]?.dialogState?.length || 0,
+          botType: scenario.botConfig?.botType
+        });
       });
     }
   }, [scenarios]);
@@ -317,6 +323,12 @@ function App() {
     // 업로드 직후 초기 상태도 재설정하여 화면 반응을 명확히 함
     const initial = getInitialState(loadedScenario);
     setCurrentState(initial);
+
+    console.log('시나리오 로드 완료:', {
+      name: loadedScenario.plan[0]?.name,
+      dialogStateCount: loadedScenario.plan[0]?.dialogState?.length || 0,
+      botType: loadedScenario.botConfig?.botType
+    });
   }, [invokeConvertScenarioToFlow, getInitialState]);
 
   // 여러 시나리오 업로드 시 모두 등록하고 첫 번째 시나리오만 활성화
@@ -512,10 +524,24 @@ function App() {
       if (typeof tt === 'object') {
         let dialogState = (tt as any).dialogState;
         let scenarioNameOrId = (tt as any).scenario;
+        
         // 시나리오 ID가 들어온 경우 이름으로 정규화
-        if (scenarioNameOrId && (scenarios as any)[scenarioNameOrId]) {
-          scenarioNameOrId = (scenarios as any)[scenarioNameOrId]?.plan?.[0]?.name || scenarioNameOrId;
+        if (scenarioNameOrId && typeof scenarioNameOrId === 'string') {
+          // 시나리오 ID 패턴 확인 (scenario-로 시작하는 경우)
+          if (scenarioNameOrId.startsWith('scenario-')) {
+            // scenarios에서 해당 ID로 시나리오 찾기
+            const targetScenario = (scenarios as any)[scenarioNameOrId];
+            if (targetScenario && targetScenario.plan && targetScenario.plan[0]) {
+              scenarioNameOrId = targetScenario.plan[0].name;
+            }
+          }
+          // 시나리오 이름이 직접 들어온 경우 (예: "Scene1")
+          else if (scenarioNameOrId && !scenarioNameOrId.startsWith('scenario-')) {
+            // 그대로 사용 (이미 시나리오 이름)
+            scenarioNameOrId = scenarioNameOrId;
+          }
         }
+        
         return { dialogState, scenario: scenarioNameOrId };
       }
       return {};
@@ -681,11 +707,21 @@ function App() {
           
           const currentScenarioName = scenario.plan[0].name;
           
+          // 디버깅 로그 추가
+          console.log(`🔍 시나리오 전이 분석:`, {
+            sourceState: state.name,
+            targetState,
+            targetScenario,
+            currentScenarioName,
+            isDifferentScenario: targetScenario !== currentScenarioName
+          });
+          
           // 시나리오 간 전이인 경우
           if (targetScenario && targetScenario !== currentScenarioName) {
+            console.log(`🚀 시나리오 전이 감지: ${currentScenarioName} → ${targetScenario}`);
             const isPlanInSameScenario = Array.isArray(scenario.plan) && scenario.plan.some(pl => pl.name === targetScenario);
             if (isPlanInSameScenario) {
-              // 플랜 전이: 보라색
+              console.log(`📋 같은 시나리오 내 플랜 전이: ${targetScenario}`);
               let planTransitionNodeId = `plan-transition-${state.name}-${targetScenario}-${handler.transitionTarget.dialogState}`;
               const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
               const targetNode = newNodes.find(n => n.id === planTransitionNodeId);
@@ -729,6 +765,7 @@ function App() {
                 planTransitionNodeId = existingTransitionNode.id;
               }
             } else {
+              console.log(`🌐 다른 시나리오로 전이: ${targetScenario}`);
               // 시나리오 전이: 주황
               let scenarioTransitionNodeId = `scenario-transition-${state.name}-${targetScenario}-${handler.transitionTarget.dialogState}`;
               const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
@@ -851,10 +888,21 @@ function App() {
         ) {
           const currentScenarioName = scenario.plan[0].name;
           
+          // 디버깅 로그 추가
+          console.log(`🔍 시나리오 전이 분석:`, {
+            sourceState: state.name,
+            targetState,
+            targetScenario,
+            currentScenarioName,
+            isDifferentScenario: targetScenario !== currentScenarioName
+          });
+          
           // 시나리오/플랜 간 전이인 경우
           if (targetScenario && targetScenario !== currentScenarioName) {
+            console.log(`🚀 시나리오 전이 감지: ${currentScenarioName} → ${targetScenario}`);
             const isPlanInSameScenario = Array.isArray(scenario.plan) && scenario.plan.some(pl => pl.name === targetScenario);
             if (isPlanInSameScenario) {
+              console.log(`📋 같은 시나리오 내 플랜 전이: ${targetScenario}`);
               let planTransitionNodeId = `plan-transition-${state.name}-${targetScenario}-${handler.transitionTarget.dialogState}`;
               const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
               const targetNode = newNodes.find(n => n.id === planTransitionNodeId);
@@ -898,6 +946,7 @@ function App() {
                 planTransitionNodeId = existingTransitionNode.id;
               }
             } else {
+              console.log(`🌐 다른 시나리오로 전이: ${targetScenario}`);
               // 기존 시나리오 전이 로직 유지
               let scenarioTransitionNodeId = `scenario-transition-${state.name}-${targetScenario}-${handler.transitionTarget.dialogState}`;
               const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
@@ -1008,10 +1057,21 @@ function App() {
           
           const currentScenarioName = scenario.plan[0].name;
           
+          // 디버깅 로그 추가
+          console.log(`🔍 시나리오 전이 분석:`, {
+            sourceState: state.name,
+            targetState,
+            targetScenario,
+            currentScenarioName,
+            isDifferentScenario: targetScenario !== currentScenarioName
+          });
+          
           // 시나리오 간 전이인 경우
           if (targetScenario && targetScenario !== currentScenarioName) {
+            console.log(`🚀 시나리오 전이 감지: ${currentScenarioName} → ${targetScenario}`);
             const isPlanInSameScenario = Array.isArray(scenario.plan) && scenario.plan.some(pl => pl.name === targetScenario);
             if (isPlanInSameScenario) {
+              console.log(`📋 같은 시나리오 내 플랜 전이: ${targetScenario}`);
               let planTransitionNodeId = `plan-transition-${state.name}-${targetScenario}-${handler.transitionTarget.dialogState}`;
               const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
               const targetNode = newNodes.find(n => n.id === planTransitionNodeId);
@@ -1055,6 +1115,7 @@ function App() {
                 planTransitionNodeId = existingTransitionNode.id;
               }
             } else {
+              console.log(`🌐 다른 시나리오로 전이: ${targetScenario}`);
               let scenarioTransitionNodeId = `scenario-transition-${state.name}-${targetScenario}-${handler.transitionTarget.dialogState}`;
               const sourceNode = newNodes.find(n => n.data.dialogState.name === state.name);
               const targetNode = newNodes.find(n => n.id === scenarioTransitionNodeId);
@@ -1332,21 +1393,106 @@ function App() {
 
     // 현재 노드들을 시나리오로 변환
     const latestName = scenarios[activeScenarioId]?.plan[0]?.name || originalScenario?.plan[0].name;
+    if (!latestName) {
+      console.error('시나리오 이름을 찾을 수 없습니다.');
+      return;
+    }
     const convertedScenario = convertNodesToScenario(nodes, edges, originalScenario, latestName, scenarios);
     
-    // 시나리오 전이 노드 검증
-    const scenarioTransitionNodes = nodes.filter(node => node.type === 'scenarioTransition');
-    if (scenarioTransitionNodes.length > 0) {
-      console.log('🔍 시나리오 전이 노드 검증:', scenarioTransitionNodes.length, '개');
-      scenarioTransitionNodes.forEach((node, index) => {
-        console.log(`  [${index}] ${node.id}: ${node.data.targetScenario} → ${node.data.targetState}`);
+    // 시나리오 저장 시 불필요한 필드 제거
+    const cleanedScenario = cleanScenarioForSave(convertedScenario);
+    
+    // 시나리오 전이 검증 (transitionTarget의 scenarioName으로 판단)
+    const scenarioTransitions = nodes.flatMap(node => {
+      if (!node.data.dialogState) return [];
+      
+      const transitions: Array<{nodeId: string, targetScenario: string, targetState: string, handlerType: string, validation: any}> = [];
+      
+      // conditionHandlers에서 시나리오 전이 확인
+      if (node.data.dialogState.conditionHandlers) {
+        node.data.dialogState.conditionHandlers.forEach((handler: any, index: number) => {
+          if (handler.transitionTarget?.scenario && handler.transitionTarget.scenario !== latestName) {
+            const validation = validateScenarioTransition(
+              handler.transitionTarget.scenario,
+              scenarios,
+              latestName
+            );
+            transitions.push({
+              nodeId: node.id,
+              targetScenario: handler.transitionTarget.scenario,
+              targetState: handler.transitionTarget.dialogState,
+              handlerType: 'conditionHandler',
+              validation
+            });
+          }
+        });
+      }
+      
+      // intentHandlers에서 시나리오 전이 확인
+      if (node.data.dialogState.intentHandlers) {
+        node.data.dialogState.intentHandlers.forEach((handler: any, index: number) => {
+          if (handler.transitionTarget?.scenario && handler.transitionTarget.scenario !== latestName) {
+            const validation = validateScenarioTransition(
+              handler.transitionTarget.scenario,
+              scenarios,
+              latestName
+            );
+            transitions.push({
+              nodeId: node.id,
+              targetScenario: handler.transitionTarget.scenario,
+              targetState: handler.transitionTarget.dialogState,
+              handlerType: 'intentHandler',
+              validation
+            });
+          }
+        });
+      }
+      
+      // eventHandlers에서 시나리오 전이 확인
+      if (node.data.dialogState.eventHandlers) {
+        node.data.dialogState.eventHandlers.forEach((handler: any, index: number) => {
+          if (handler.transitionTarget?.scenario && handler.transitionTarget.scenario !== latestName) {
+            const validation = validateScenarioTransition(
+              handler.transitionTarget.scenario,
+              scenarios,
+              latestName
+            );
+            transitions.push({
+              nodeId: node.id,
+              targetScenario: handler.transitionTarget.scenario,
+              targetState: handler.transitionTarget.dialogState,
+              handlerType: 'eventHandler',
+              validation
+            });
+          }
+        });
+      }
+      
+      return transitions;
+    });
+    
+    if (scenarioTransitions.length > 0) {
+      console.log('🔍 즉시 반영 - 시나리오 전이 검증:', scenarioTransitions.length, '개');
+      
+      // 제약사항 위반 체크
+      const invalidTransitions = scenarioTransitions.filter(transition => !transition.validation.isValid);
+      if (invalidTransitions.length > 0) {
+        const errorMessage = `시나리오 전이 검증 실패:\n${invalidTransitions.map(t => 
+          `- ${t.targetScenario} → ${t.targetState}: ${t.validation.errorMessage}`
+        ).join('\n')}`;
         
-        // targetScenario와 targetState가 제대로 설정되었는지 확인
-        if (!node.data.targetScenario || !node.data.targetState) {
-          console.warn(`⚠️ 시나리오 전이 노드 ${node.id}에 누락된 정보가 있습니다:`, {
-            targetScenario: node.data.targetScenario,
-            targetState: node.data.targetState
-          });
+        alert(`❌ 즉시 반영 실패\n\n${errorMessage}\n\n참조하는 시나리오가 존재하지 않습니다.`);
+        return;
+      }
+      
+      scenarioTransitions.forEach((transition, index) => {
+        console.log(`  [${index}] ${transition.nodeId}: ${transition.targetScenario} → ${transition.targetState} (${transition.handlerType})`);
+        
+        // 시나리오 전이 검증 결과 확인
+        if (transition.validation.isScenarioTransition) {
+          console.log(`✅ 시나리오 전이 검증 성공: ${transition.targetScenario} → ${transition.targetState}`);
+        } else {
+          console.log(`ℹ️ 플랜 전이: ${transition.targetScenario} → ${transition.targetState}`);
         }
       });
     }
@@ -1356,20 +1502,20 @@ function App() {
     
     // 새로 추가된 노드 정보 확인
     if (changes.added.length > 0) {
-      console.log('🆕 새로 추가된 노드:', changes.added.length, '개');
+      console.log('🆕 즉시 반영 - 새로 추가된 노드:', changes.added.length, '개');
       changes.added.forEach((node, index) => {
         console.log(`  [${index}] ${node.name} (타입: ${node.conditionHandlers ? '상태' : '전이'})`);
       });
     }
     
-    setNewScenario(convertedScenario);
+    setNewScenario(cleanedScenario);
     setScenarioChanges(changes);
     setSaveModalOpen(true);
     
     console.log('💾 시나리오 저장 준비 완료:', {
       총노드수: nodes.length,
       상태노드수: nodes.filter(n => n.type !== 'scenarioTransition').length,
-      전이노드수: scenarioTransitionNodes.length,
+      전이노드수: scenarioTransitions.length,
       변경사항: changes
     });
   }, [nodes, originalScenario, scenarios, activeScenarioId, edges]);
@@ -1384,14 +1530,94 @@ function App() {
     try {
       // 현재 노드들을 시나리오로 변환
       const latestName = scenarios[activeScenarioId]?.plan[0]?.name || originalScenario?.plan[0].name;
+      if (!latestName) {
+        console.error('시나리오 이름을 찾을 수 없습니다.');
+        return;
+      }
       const convertedScenario = convertNodesToScenario(nodes, edges, originalScenario, latestName, scenarios);
       
-      // 시나리오 전이 노드 검증
-      const scenarioTransitionNodes = nodes.filter(node => node.type === 'scenarioTransition');
-      if (scenarioTransitionNodes.length > 0) {
-        console.log('🔍 즉시 반영 - 시나리오 전이 노드 검증:', scenarioTransitionNodes.length, '개');
-        scenarioTransitionNodes.forEach((node, index) => {
-          console.log(`  [${index}] ${node.id}: ${node.data.targetScenario} → ${node.data.targetState}`);
+      // 시나리오 전이 검증 (transitionTarget의 scenarioName으로 판단)
+      const scenarioTransitions = nodes.flatMap(node => {
+        if (!node.data.dialogState) return [];
+        
+        const transitions: Array<{nodeId: string, targetScenario: string, targetState: string, handlerType: string, validation: any}> = [];
+        
+        // conditionHandlers에서 시나리오 전이 확인
+        if (node.data.dialogState.conditionHandlers) {
+          node.data.dialogState.conditionHandlers.forEach((handler: any, index: number) => {
+            if (handler.transitionTarget?.scenario && handler.transitionTarget.scenario !== latestName) {
+              const validation = validateScenarioTransition(
+                handler.transitionTarget.scenario,
+                scenarios,
+                latestName
+              );
+              transitions.push({
+                nodeId: node.id,
+                targetScenario: handler.transitionTarget.scenario,
+                targetState: handler.transitionTarget.dialogState,
+                handlerType: 'conditionHandler',
+                validation
+              });
+            }
+          });
+        }
+        
+        // intentHandlers에서 시나리오 전이 확인
+        if (node.data.dialogState.intentHandlers) {
+          node.data.dialogState.intentHandlers.forEach((handler: any, index: number) => {
+            if (handler.transitionTarget?.scenario && handler.transitionTarget.scenario !== latestName) {
+              const validation = validateScenarioTransition(
+                handler.transitionTarget.scenario,
+                scenarios,
+                latestName
+              );
+              transitions.push({
+                nodeId: node.id,
+                targetScenario: handler.transitionTarget.scenario,
+                targetState: handler.transitionTarget.dialogState,
+                handlerType: 'intentHandler',
+                validation
+              });
+            }
+          });
+        }
+        
+        // eventHandlers에서 시나리오 전이 확인
+        if (node.data.dialogState.eventHandlers) {
+          node.data.dialogState.eventHandlers.forEach((handler: any, index: number) => {
+            if (handler.transitionTarget?.scenario && handler.transitionTarget.scenario !== latestName) {
+              const validation = validateScenarioTransition(
+                handler.transitionTarget.scenario,
+                scenarios,
+                latestName
+              );
+              transitions.push({
+                nodeId: node.id,
+                targetScenario: handler.transitionTarget.scenario,
+                targetState: handler.transitionTarget.dialogState,
+                handlerType: 'eventHandler',
+                validation
+              });
+            }
+          });
+        }
+        
+        return transitions;
+      });
+      
+      if (scenarioTransitions.length > 0) {
+        console.log('🔍 시나리오 전이 검증:', scenarioTransitions.length, '개');
+        scenarioTransitions.forEach((transition, index) => {
+          console.log(`  [${index}] ${transition.nodeId}: ${transition.targetScenario} → ${transition.targetState} (${transition.handlerType})`);
+          
+          // 시나리오 전이 검증 결과 확인
+          if (!transition.validation.isValid) {
+            console.error(`❌ 시나리오 전이 검증 실패 ${transition.nodeId}:`, transition.validation.errorMessage);
+          } else if (transition.validation.isScenarioTransition) {
+            console.log(`✅ 시나리오 전이 검증 성공: ${transition.targetScenario} → ${transition.targetState}`);
+          } else {
+            console.log(`ℹ️ 플랜 전이: ${transition.targetScenario} → ${transition.targetState}`);
+          }
         });
       }
       
@@ -1419,7 +1645,7 @@ function App() {
       const newInitialState = getInitialState(convertedScenario);
       if (newInitialState) {
         // 현재 상태가 여전히 존재하는지 확인
-        const currentStateExists = convertedScenario.plan[0]?.dialogState.some(state => state.name === currentState);
+        const currentStateExists = convertedScenario.plan[0]?.dialogState.some((state: any) => state.name === currentState);
         if (!currentStateExists) {
           // 현재 상태가 삭제되었다면 새로운 초기 상태로 설정
           setCurrentState(newInitialState);
@@ -1442,7 +1668,7 @@ function App() {
       console.log('🚀 시나리오 즉시 반영 완료:', {
         총노드수: nodes.length,
         상태노드수: nodes.filter(n => n.type !== 'scenarioTransition').length,
-        전이노드수: scenarioTransitionNodes.length,
+        전이노드수: scenarioTransitions.length,
         변경사항: changes,
         변환된시나리오: convertedScenario
       });
