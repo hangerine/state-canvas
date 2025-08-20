@@ -26,19 +26,34 @@ logger = logging.getLogger(__name__)
 class StateEngine:
     """시나리오 기반 State 전이 엔진"""
     
-    def __init__(self, scenario_manager: Optional[ScenarioManager] = None, webhook_handler: Optional[WebhookHandler] = None, apicall_handler: Optional[ApiCallHandler] = None, nlu_processor: Optional[NLUProcessor] = None, memory_manager: Optional[MemoryManager] = None, action_executor: Optional[ActionExecutor] = None, transition_manager: Optional[TransitionManager] = None, reprompt_manager: Optional[RepromptManager] = None, slot_filling_manager: Optional[SlotFillingManager] = None, chatbot_response_factory: Optional[ChatbotResponseFactory] = None, event_trigger_manager: Optional[EventTriggerManager] = None):
+    def __init__(self, scenario_manager: Optional[ScenarioManager] = None, nlu_processor: Optional[NLUProcessor] = None, chatbot_response_factory: Optional[ChatbotResponseFactory] = None, event_trigger_manager: Optional[EventTriggerManager] = None):
         self.scenario_manager = scenario_manager or ScenarioManager()
-        self.webhook_handler = webhook_handler or WebhookHandler(self.scenario_manager)
-        self.apicall_handler = apicall_handler or ApiCallHandler(self.scenario_manager)
-        self.transition_manager = transition_manager or TransitionManager(self.scenario_manager)
-        self.nlu_processor = nlu_processor or NLUProcessor(self.scenario_manager, self.transition_manager)
-        self.memory_manager = memory_manager or MemoryManager(self.scenario_manager)
-        self.action_executor = action_executor or ActionExecutor(self.scenario_manager)
-        self.reprompt_manager = reprompt_manager or RepromptManager(self.scenario_manager, self.action_executor)
-        self.slot_filling_manager = slot_filling_manager or SlotFillingManager(self.scenario_manager, self.transition_manager, self.reprompt_manager)
+        
+        # NLUProcessor와 EventTriggerManager는 의존성이 필요하므로 직접 생성
+        if nlu_processor is None:
+            # TransitionManager가 필요하므로 먼저 생성
+            from services.transition_manager import TransitionManager
+            transition_manager = TransitionManager(self.scenario_manager)
+            self.nlu_processor = NLUProcessor(self.scenario_manager, transition_manager)
+        else:
+            self.nlu_processor = nlu_processor
+            
         self.chatbot_response_factory = chatbot_response_factory or ChatbotResponseFactory()
-        self.event_trigger_manager = event_trigger_manager or EventTriggerManager(self.action_executor, self.transition_manager)
-        self.sessions: Dict[str, Dict[str, Any]] = {}
+        
+        if event_trigger_manager is None:
+            # ActionExecutor와 TransitionManager가 필요하므로 먼저 생성
+            from services.transition_manager import TransitionManager
+            from services.action_executor import ActionExecutor
+            transition_manager = TransitionManager(self.scenario_manager)
+            action_executor = ActionExecutor(self.scenario_manager)
+            self.event_trigger_manager = EventTriggerManager(action_executor, transition_manager)
+        else:
+            self.event_trigger_manager = event_trigger_manager
+        
+        # directive 타입 응답 매핑을 위한 큐
+        self.directive_queue: List[Dict[str, Any]] = []
+        
+        # 세션별 상태 스택 관리
         self.session_stacks: Dict[str, List[Dict[str, Any]]] = {}
         self.global_intent_mapping: List[Dict[str, Any]] = []
     
@@ -1603,7 +1618,7 @@ class StateEngine:
                         }
                 
                 if mappings:
-                    self._apply_response_mappings(response_data, mappings, memory)
+                    self._apply_response_mappings(response_data, mappings, memory, self.directive_queue)
                 
                 logger.info(f"📋 Memory after response mapping: {memory}")
                 
@@ -1989,7 +2004,7 @@ class StateEngine:
     def _apply_response_mappings(
         self,
         response_data: Dict[str, Any],
-        mappings: Dict[str, str],
+        mappings: Dict[str, Any],
         memory: Dict[str, Any]
     ) -> None:
         """JSONPath를 사용하여 응답 데이터를 메모리에 매핑합니다."""
@@ -1997,8 +2012,39 @@ class StateEngine:
         logger.info(f"📋 Applying response mappings to data: {response_data}")
         logger.info(f"📋 Mappings: {mappings}")
         
-        for memory_key, jsonpath_expr in mappings.items():
+        for memory_key, mapping_config in mappings.items():
             try:
+                # 새로운 구조: {"type": "memory", "NLU_INTENT": "$.NLU_INTENT.value"}
+                if isinstance(mapping_config, dict) and "type" in mapping_config:
+                    mapping_type = mapping_config.get("type")
+                    jsonpath_expr = None
+                    
+                    # memory 타입인 경우 memory_key를 찾아서 JSONPath 추출
+                    if mapping_type == "memory":
+                        # memory_key와 일치하는 키를 찾아서 JSONPath 추출
+                        for key, value in mapping_config.items():
+                            if key != "type" and isinstance(value, str):
+                                jsonpath_expr = value
+                                break
+                    elif mapping_type == "directive":
+                        # directive 타입인 경우 memory_key를 찾아서 JSONPath 추출
+                        for key, value in mapping_config.items():
+                            if key != "type" and isinstance(value, str):
+                                jsonpath_expr = value
+                                break
+                    
+                    if not jsonpath_expr:
+                        logger.warning(f"❌ No JSONPath found in mapping config for {memory_key}: {mapping_config}")
+                        continue
+                        
+                    logger.info(f"🔍 Processing {mapping_type} mapping: {memory_key} <- {jsonpath_expr}")
+                    
+                else:
+                    # 기존 구조: "NLU_INTENT": "$.NLU_INTENT.value"
+                    jsonpath_expr = mapping_config
+                    mapping_type = "memory"  # 기본값
+                    logger.info(f"🔍 Processing legacy mapping: {memory_key} <- {jsonpath_expr}")
+                
                 # JSONPath 파싱 및 실행
                 jsonpath_parser = parse(jsonpath_expr)
                 matches = jsonpath_parser.find(response_data)
@@ -2010,14 +2056,28 @@ class StateEngine:
                     # 값 정규화 및 변환
                     processed_value = utils.normalize_response_value(raw_value)
                     
-                    memory[memory_key] = processed_value
-                    logger.info(f"✅ Mapped {memory_key} <- {jsonpath_expr}: {processed_value} (raw: {raw_value})")
+                    if mapping_type == "memory":
+                        memory[memory_key] = processed_value
+                        logger.info(f"✅ Mapped to memory {memory_key} <- {jsonpath_expr}: {processed_value} (raw: {raw_value})")
+                    elif mapping_type == "directive":
+                        # directive 타입인 경우 directive_queue에 추가
+                        directive_data = {
+                            "key": memory_key,
+                            "value": processed_value,
+                            "source": "apicall_response_mapping"
+                        }
+                        self.directive_queue.append(directive_data)
+                        logger.info(f"✅ Added to directive queue: {memory_key} <- {jsonpath_expr}: {processed_value} (raw: {raw_value})")
+                    else:
+                        # 기본적으로 memory에 저장
+                        memory[memory_key] = processed_value
+                        logger.info(f"✅ Mapped {memory_key} <- {jsonpath_expr}: {processed_value} (raw: {raw_value})")
                 else:
                     logger.warning(f"❌ No matches found for JSONPath: {jsonpath_expr}")
-                    logger.info(f"🔍 Available paths in response: {utils.get_all_paths(response_data)}")
+                    logger.info(f"�� Available paths in response: {utils.get_all_paths(response_data)}")
                     
             except Exception as e:
-                logger.error(f"❌ Error processing JSONPath {jsonpath_expr}: {e}")
+                logger.error(f"❌ Error processing mapping for {memory_key}: {e}")
 
     def _normalize_response_value(self, value: Any) -> Any:
         """응답 값을 정규화합니다."""
@@ -2083,4 +2143,7 @@ class StateEngine:
         return paths 
 
     def create_chatbot_response(self, *args, **kwargs):
+        # directive_queue를 kwargs에 추가
+        if 'directive_queue' not in kwargs:
+            kwargs['directive_queue'] = self.directive_queue
         return self.chatbot_response_factory.create_chatbot_response(*args, **kwargs) 

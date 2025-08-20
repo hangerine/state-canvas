@@ -71,7 +71,7 @@ class ApiCallFormats(BaseModel):
     method: str
     requestTemplate: Optional[str] = None
     responseSchema: Optional[Dict[str, Any]] = None
-    responseMappings: Optional[Dict[str, str]] = None
+    responseMappings: Optional[Dict[str, Union[str, Dict[str, str]]]] = None
     headers: Optional[Dict[str, str]] = None
 
 class ApiCall(BaseModel):

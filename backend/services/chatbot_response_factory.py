@@ -17,10 +17,13 @@ class ChatbotResponseFactory:
         memory: Dict[str, Any],
         scenario: Dict[str, Any],
         used_slots: Optional[List[Dict[str, str]]] = None,
-        event_type: Optional[str] = None
+        event_type: Optional[str] = None,
+        directive_queue: Optional[List[Dict[str, Any]]] = None
     ) -> ChatbotResponse:
         end_session = "Y" if new_state == "__END_SESSION__" else "N"
         directives = []
+        
+        # 기본 응답 메시지를 directive로 변환
         for message in response_messages:
             if message.strip():
                 directive_content = DirectiveContent(
@@ -41,6 +44,39 @@ class ChatbotResponseFactory:
                     ]
                 )
                 directives.append(ChatbotDirective(content=directive_content))
+        
+        # directive_queue에서 추가 directive 처리
+        if directive_queue:
+            for directive_item in directive_queue:
+                try:
+                    key = directive_item.get("key", "")
+                    value = directive_item.get("value", "")
+                    source = directive_item.get("source", "unknown")
+                    
+                    if key and value:
+                        # directive를 ChatbotDirective 형식으로 변환
+                        directive_content = DirectiveContent(
+                            item=[
+                                {
+                                    "section": {
+                                        "class": "cb-section section_1",
+                                        "item": [
+                                            {
+                                                "text": {
+                                                    "class": "cb-text text",
+                                                    "text": f"<p>Directive from {source}: {key} = {value}</p>"
+                                                }
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        )
+                        directives.append(ChatbotDirective(content=directive_content))
+                        logger.info(f"✅ Added directive from queue: {key} = {value} (source: {source})")
+                except Exception as e:
+                    logger.error(f"❌ Error processing directive from queue: {e}")
+                    continue
         used_slots_list = []
         if used_slots:
             for slot in used_slots:

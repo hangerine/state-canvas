@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional, List
 from jsonpath_ng import parse
 import re
 import uuid
@@ -30,23 +30,78 @@ def normalize_response_value(value: Any) -> Any:
             return value
     return str(value)
 
-def apply_response_mappings(response_data: Dict[str, Any], mappings: Dict[str, str], memory: Dict[str, Any]) -> None:
+def apply_response_mappings(response_data: Dict[str, Any], mappings: Dict[str, Any], memory: Dict[str, Any], directive_queue: Optional[List[Dict[str, Any]]] = None) -> None:
     logger.info(f"📋 Applying response mappings to data: {response_data}")
     logger.info(f"📋 Mappings: {mappings}")
-    for memory_key, jsonpath_expr in mappings.items():
+    
+    for memory_key, mapping_config in mappings.items():
         try:
+            # 새로운 구조: {"type": "memory", "NLU_INTENT": "$.NLU_INTENT.value"}
+            if isinstance(mapping_config, dict) and "type" in mapping_config:
+                mapping_type = mapping_config.get("type")
+                jsonpath_expr = None
+                
+                # memory 타입인 경우 memory_key를 찾아서 JSONPath 추출
+                if mapping_type == "memory":
+                    # memory_key와 일치하는 키를 찾아서 JSONPath 추출
+                    for key, value in mapping_config.items():
+                        if key != "type" and isinstance(value, str):
+                            jsonpath_expr = value
+                            break
+                elif mapping_type == "directive":
+                    # directive 타입인 경우 memory_key를 찾아서 JSONPath 추출
+                    for key, value in mapping_config.items():
+                        if key != "type" and isinstance(value, str):
+                            jsonpath_expr = value
+                            break
+                
+                if not jsonpath_expr:
+                    logger.warning(f"❌ No JSONPath found in mapping config for {memory_key}: {mapping_config}")
+                    continue
+                    
+                logger.info(f"🔍 Processing {mapping_type} mapping: {memory_key} <- {jsonpath_expr}")
+                
+            else:
+                # 기존 구조: "NLU_INTENT": "$.NLU_INTENT.value"
+                jsonpath_expr = mapping_config
+                mapping_type = "memory"  # 기본값
+                logger.info(f"🔍 Processing legacy mapping: {memory_key} <- {jsonpath_expr}")
+            
+            # JSONPath 파싱 및 실행
             jsonpath_parser = parse(jsonpath_expr)
             matches = jsonpath_parser.find(response_data)
+            
             if matches:
                 raw_value = matches[0].value
                 processed_value = normalize_response_value(raw_value)
-                memory[memory_key] = processed_value
-                logger.info(f"✅ Mapped {memory_key} <- {jsonpath_expr}: {processed_value} (raw: {raw_value})")
+                
+                if mapping_type == "memory":
+                    memory[memory_key] = processed_value
+                    logger.info(f"✅ Mapped to memory {memory_key} <- {jsonpath_expr}: {processed_value} (raw: {raw_value})")
+                elif mapping_type == "directive":
+                    # directive 타입인 경우 directive_queue에 추가
+                    if directive_queue is not None:
+                        directive_data = {
+                            "key": memory_key,
+                            "value": processed_value,
+                            "source": "apicall_response_mapping"
+                        }
+                        directive_queue.append(directive_data)
+                        logger.info(f"✅ Added to directive queue: {memory_key} <- {jsonpath_expr}: {processed_value} (raw: {raw_value})")
+                    else:
+                        # directive_queue가 없으면 memory에 저장
+                        memory[f"DIRECTIVE_{memory_key}"] = processed_value
+                        logger.info(f"✅ Mapped to directive (no queue): {memory_key} <- {jsonpath_expr}: {processed_value} (raw: {raw_value})")
+                else:
+                    # 기본적으로 memory에 저장
+                    memory[memory_key] = processed_value
+                    logger.info(f"✅ Mapped {memory_key} <- {jsonpath_expr}: {processed_value} (raw: {raw_value})")
             else:
                 logger.warning(f"❌ No matches found for JSONPath: {jsonpath_expr}")
                 logger.info(f"🔍 Available paths in response: {get_all_paths(response_data)}")
+                
         except Exception as e:
-            logger.error(f"❌ Error processing JSONPath {jsonpath_expr}: {e}")
+            logger.error(f"❌ Error processing mapping for {memory_key}: {e}")
 
 def get_all_paths(obj: Any, path: str = '$') -> list:
     paths = []

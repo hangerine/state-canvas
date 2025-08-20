@@ -126,7 +126,7 @@ export interface ApiCallFormats {
   method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
   requestTemplate?: string;
   responseSchema?: Record<string, any>;
-  responseMappings?: Record<string, string>;
+  responseMappings?: Record<string, string | { type: 'memory' | 'directive', [key: string]: string }>;
   headers?: Record<string, string>;
 }
 

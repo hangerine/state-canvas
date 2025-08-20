@@ -121,10 +121,11 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
     responseMappings: '',
   });
   const [apiCallResponseSchemaText, setApiCallResponseSchemaText] = useState('{}');
-  // Response Mappings (key/value UI)
-  const [responseMappingsObj, setResponseMappingsObj] = useState<Record<string, string>>({});
+  // Response Mappings (key/value UI with type selection)
+  const [responseMappingsObj, setResponseMappingsObj] = useState<Record<string, { type: 'memory' | 'directive', jsonpath: string }>>({});
   const [newMappingKey, setNewMappingKey] = useState('');
   const [newMappingValue, setNewMappingValue] = useState('');
+  const [newMappingType, setNewMappingType] = useState<'memory' | 'directive'>('memory');
   const [newHeaderKey, setNewHeaderKey] = useState('');
   const [newHeaderValue, setNewHeaderValue] = useState('');
   // API 테스트 상태
@@ -470,7 +471,27 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
       responseMappings: JSON.stringify(apicall.formats.responseMappings || {}, null, 2),
     });
     setApiCallResponseSchemaText(JSON.stringify(apicall.formats.responseSchema || {}, null, 2));
-    setResponseMappingsObj(apicall.formats.responseMappings || {});
+    
+    // 기존 responseMappings를 새로운 형식으로 변환
+    const existingMappings = apicall.formats.responseMappings || {};
+    const convertedMappings: Record<string, { type: 'memory' | 'directive', jsonpath: string }> = {};
+    
+    Object.entries(existingMappings).forEach(([key, value]) => {
+      if (typeof value === 'string') {
+        // 기존 형식: "NLU_INTENT": "$.NLU_INTENT.value"
+        convertedMappings[key] = { type: 'memory', jsonpath: value };
+      } else if (typeof value === 'object' && value !== null && 'type' in value) {
+        // 새로운 형식: {"type": "memory", "NLU_INTENT": "$.NLU_INTENT.value"}
+        const mappingValue = value as any;
+        const type = mappingValue.type === 'directive' ? 'directive' : 'memory';
+        const jsonpath = Object.entries(mappingValue).find(([k, v]) => k !== 'type' && typeof v === 'string')?.[1] as string || '';
+        if (jsonpath) {
+          convertedMappings[key] = { type, jsonpath };
+        }
+      }
+    });
+    
+    setResponseMappingsObj(convertedMappings);
     setIsApiCallDialogOpen(true);
     // 테스트 섹션 초기화
     try {
@@ -851,6 +872,15 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
         finalName = `(${grp.name})${apiEntryName.trim()}`;
         finalUrl = joinUrl(grp.baseUrl, apiEndpoint.trim());
       }
+      // responseMappingsObj를 새로운 형식으로 변환
+      const convertedResponseMappings: Record<string, { type: 'memory' | 'directive', [key: string]: string }> = {};
+      Object.entries(responseMappingsObj).forEach(([key, mapping]) => {
+        convertedResponseMappings[key] = {
+          type: mapping.type,
+          [key]: mapping.jsonpath
+        };
+      });
+
       const apiCallData: ApiCallWithName = {
         name: finalName,
         url: finalUrl,
@@ -861,7 +891,7 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
           headers: apiCallFormData.headers,
           requestTemplate: apiCallFormData.requestTemplate,
           responseSchema: parsedResponseSchema,
-          responseMappings: responseMappingsObj,
+          responseMappings: convertedResponseMappings,
         },
       };
       let updatedApiCalls: ApiCallWithName[];
@@ -915,9 +945,9 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
     setApiCallFormData(prev => ({ ...prev, responseSchema: value }));
   };
   // Response Mappings 조작 함수들
-  const addResponseMapping = (key: string, value: string = '') => {
+  const addResponseMapping = (key: string, value: string = '', type: 'memory' | 'directive' = 'memory') => {
     if (!key) return;
-    setResponseMappingsObj(prev => ({ ...prev, [key]: value }));
+    setResponseMappingsObj(prev => ({ ...prev, [key]: { type, jsonpath: value } }));
   };
   const removeResponseMapping = (key: string) => {
     setResponseMappingsObj(prev => {
@@ -928,7 +958,7 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
   const updateResponseMappingKey = (oldKey: string, newKey: string) => {
     if (!newKey) return;
     setResponseMappingsObj(prev => {
-      const next = { ...prev } as Record<string, string>;
+      const next = { ...prev };
       const value = next[oldKey];
       delete next[oldKey];
       next[newKey] = value;
@@ -936,7 +966,16 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
     });
   };
   const updateResponseMappingValue = (key: string, newValue: string) => {
-    setResponseMappingsObj(prev => ({ ...prev, [key]: newValue }));
+    setResponseMappingsObj(prev => ({ 
+      ...prev, 
+      [key]: { ...prev[key], jsonpath: newValue } 
+    }));
+  };
+  const updateResponseMappingType = (key: string, newType: 'memory' | 'directive') => {
+    setResponseMappingsObj(prev => ({ 
+      ...prev, 
+      [key]: { ...prev[key], type: newType } 
+    }));
   };
 
   // JSONPath 유틸
@@ -1700,19 +1739,27 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                   placeholder='{"field1": "string", "field2": "number"}'
                   helperText="API 응답의 스키마를 JSON 형식으로 입력하세요."
                 />
-                {/* Response Mappings (Key/Value: JSONPath) */}
+                {/* Response Mappings (Key/Value: JSONPath with Type) */}
                 <Box>
-                  <Typography variant="subtitle2" sx={{ mb: 1 }}>Response Mappings (JSONPath)</Typography>
+                  <Typography variant="subtitle2" sx={{ mb: 1 }}>Response Mappings (JSONPath with Type)</Typography>
                   <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1, minHeight: 60, bgcolor: '#f9f9f9' }}>
                     {Object.entries(responseMappingsObj || {}).length === 0 ? (
                       <Typography variant="caption" color="text.secondary">정의된 매핑이 없습니다.</Typography>
                     ) : (
                       <TableContainer>
                         <Table size="small">
+                          <TableHead>
+                            <TableRow>
+                              <TableCell sx={{ width: '25%' }}>Memory Key</TableCell>
+                              <TableCell sx={{ width: '20%' }}>Type</TableCell>
+                              <TableCell>JSONPath</TableCell>
+                              <TableCell sx={{ width: 56 }} align="right">Action</TableCell>
+                            </TableRow>
+                          </TableHead>
                           <TableBody>
-                            {Object.entries(responseMappingsObj).map(([key, value]) => (
+                            {Object.entries(responseMappingsObj).map(([key, mapping]) => (
                               <TableRow key={key}>
-                                <TableCell sx={{ width: '30%' }}>
+                                <TableCell>
                                   <TextField
                                     size="small"
                                     label="Memory Key"
@@ -1722,16 +1769,27 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                                   />
                                 </TableCell>
                                 <TableCell>
+                                  <Select
+                                    size="small"
+                                    value={mapping.type}
+                                    onChange={(e) => updateResponseMappingType(key, e.target.value as 'memory' | 'directive')}
+                                    fullWidth
+                                  >
+                                    <MenuItem value="memory">Memory</MenuItem>
+                                    <MenuItem value="directive">Directive</MenuItem>
+                                  </Select>
+                                </TableCell>
+                                <TableCell>
                                   <TextField
                                     size="small"
                                     label="JSONPath"
-                                    value={String(value)}
+                                    value={mapping.jsonpath}
                                     onChange={(e) => updateResponseMappingValue(key, e.target.value)}
                                     fullWidth
                                     placeholder='예: $.nlu.intent'
                                   />
                                 </TableCell>
-                                <TableCell sx={{ width: 56 }} align="right">
+                                <TableCell align="right">
                                   <IconButton size="small" color="error" onClick={() => removeResponseMapping(key)}>
                                     <DeleteIcon fontSize="small" />
                                   </IconButton>
@@ -1752,21 +1810,30 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                       sx={{ flex: 1 }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
-                          addResponseMapping(newMappingKey.trim(), newMappingValue.trim());
+                          addResponseMapping(newMappingKey.trim(), newMappingValue.trim(), newMappingType);
                           setNewMappingKey('');
                           setNewMappingValue('');
                         }
                       }}
                     />
+                    <Select
+                      size="small"
+                      value={newMappingType}
+                      onChange={(e) => setNewMappingType(e.target.value as 'memory' | 'directive')}
+                      sx={{ minWidth: 120 }}
+                    >
+                      <MenuItem value="memory">Memory</MenuItem>
+                      <MenuItem value="directive">Directive</MenuItem>
+                    </Select>
                     <TextField
                       size="small"
-                      placeholder="JSONPath (예: $.nlu.intent)"
+                      placeholder="JSONPath (예: $.NLU_INTENT.value)"
                       value={newMappingValue}
                       onChange={(e) => setNewMappingValue(e.target.value)}
                       sx={{ flex: 2 }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
-                          addResponseMapping(newMappingKey.trim(), newMappingValue.trim());
+                          addResponseMapping(newMappingKey.trim(), newMappingValue.trim(), newMappingType);
                           setNewMappingKey('');
                           setNewMappingValue('');
                         }
@@ -1776,7 +1843,7 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                       size="small"
                       variant="outlined"
                       onClick={() => {
-                        addResponseMapping(newMappingKey.trim(), newMappingValue.trim());
+                        addResponseMapping(newMappingKey.trim(), newMappingValue.trim(), newMappingType);
                         setNewMappingKey('');
                         setNewMappingValue('');
                       }}
