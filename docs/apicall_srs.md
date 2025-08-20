@@ -166,7 +166,7 @@
       "retry": 3,
       "formats": {
         "method": "POST",
-        "requestTemplate": "{\"text\":\"{{USER_TEXT_INPUT.[0]}}\",\"sessionId\":\"{{sessionId}}\",\"requestId\":\"{{requestId}}\"}",
+        "requestTemplate": "{\"text\":\"{{USER_TEXT_INPUT.[0]}}\",\"sessionId\":\"{$sessionId}\",\"requestId\":\"{$requestId}\"}",
         "headers": { "X-Trace-Id": "{{requestId}}" },
         "responseMappings": {
           "NLU_INTENT": "$.nlu.intent",

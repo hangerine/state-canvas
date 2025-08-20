@@ -80,8 +80,24 @@ def process_template(template: str, memory: Dict[str, Any]) -> str:
         else:
             replacement = ""
         result = result.replace(f"{{{{memorySlots.{key}.value.[{index}]}}}}", replacement)
+    
+    # {$sessionId} 처리 (새로운 내부 치환 구문)
     session_id = memory.get("sessionId", "")
+    result = result.replace("{$sessionId}", session_id)
+    
+    # {$requestId} 처리 (새로운 내부 치환 구문)
+    if "{$requestId}" in result:
+        request_id = memory.get("requestId", "")
+        if not request_id:
+            request_id = f"req-{uuid.uuid4().hex[:8]}"
+            memory["requestId"] = request_id
+            logger.info(f"🆔 Generated new requestId: {request_id}")
+        result = result.replace("{$requestId}", request_id)
+    
+    # {{sessionId}} 처리 (기존 구문 호환성 유지)
     result = result.replace("{{sessionId}}", session_id)
+    
+    # {{requestId}} 처리 (기존 구문 호환성 유지)
     if "{{requestId}}" in result:
         request_id = memory.get("requestId", "")
         if not request_id:
@@ -89,6 +105,8 @@ def process_template(template: str, memory: Dict[str, Any]) -> str:
             memory["requestId"] = request_id
             logger.info(f"🆔 Generated new requestId: {request_id}")
         result = result.replace("{{requestId}}", request_id)
+    
+    # {{USER_TEXT_INPUT.0}} 또는 {{USER_TEXT_INPUT.[0]}} 형태 처리 (기존 호환성 유지)
     pattern = r'\{\{USER_TEXT_INPUT\.?\[?(\d+)\]?\}\}'
     matches = re.findall(pattern, result)
     for index in matches:
@@ -99,6 +117,17 @@ def process_template(template: str, memory: Dict[str, Any]) -> str:
             replacement = ""
         result = result.replace(f"{{{{USER_TEXT_INPUT.{index}}}}}", replacement)
         result = result.replace(f"{{{{USER_TEXT_INPUT.[{index}]}}}}", replacement)
+    
+    # {$key} 형태 처리 (새로운 내부 치환 구문)
+    pattern = r'\{\$([^}]+)\}'
+    matches = re.findall(pattern, result)
+    for key in matches:
+        if key in memory:
+            value = str(memory[key]) if memory[key] is not None else ""
+            result = result.replace(f"{{${key}}}", value)
+            logger.info(f"🔄 Template replacement: {{${key}}} -> {value}")
+    
+    # 기존 {{key}} 형태 처리 (호환성 유지)
     pattern = r'\{\{([^}]+)\}\}'
     matches = re.findall(pattern, result)
     for key in matches:
@@ -108,5 +137,6 @@ def process_template(template: str, memory: Dict[str, Any]) -> str:
             value = str(memory[key]) if memory[key] is not None else ""
             result = result.replace(f"{{{{{key}}}}}", value)
             logger.info(f"🔄 Template replacement: {{{{{key}}}}} -> {value}")
+    
     logger.info(f"📝 Template processing: '{template}' -> '{result}'")
     return result 

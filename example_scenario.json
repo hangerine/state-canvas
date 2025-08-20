@@ -89,7 +89,7 @@
                 "retry": 3,
                 "formats": {
                   "method": "POST",
-                  "requestTemplate": "{\"text\": \"{{USER_TEXT_INPUT.0}}\", \"sessionId\": \"{{sessionId}}\"}",
+                  "requestTemplate": "{\"text\": \"{{USER_TEXT_INPUT.0}}\", \"sessionId\": \"{$sessionId}\"}",
                   "responseMappings": {
                     "NLU_INTENT": "$.NLU_INTENT.value",
                     "NLU_CONFIDENCE": "$.nlu.confidence"

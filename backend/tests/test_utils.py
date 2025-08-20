@@ -18,20 +18,33 @@ def test_get_all_paths():
     assert "$.c" in paths
 
 def test_process_template_basic():
-    template = "Hello {{sessionId}}!"
+    # 새로운 내부 치환 구문 테스트
+    template = "Hello {$sessionId}!"
     memory = {"sessionId": "abc123"}
     result = utils.process_template(template, memory)
     assert result == "Hello abc123!"
 
-    template2 = "Value: {{memorySlots.foo.value.[0]}}"
-    memory2 = {"foo": [42]}
+    # 기존 구문도 호환성 유지
+    template2 = "Hello {{sessionId}}!"
+    memory2 = {"sessionId": "abc123"}
     result2 = utils.process_template(template2, memory2)
-    assert result2 == "Value: 42"
+    assert result2 == "Hello abc123!"
 
-    template3 = "User: {{USER_TEXT_INPUT.0}}"
-    memory3 = {"USER_TEXT_INPUT": ["hi"]}
+    template3 = "Value: {{memorySlots.foo.value.[0]}}"
+    memory3 = {"foo": [42]}
     result3 = utils.process_template(template3, memory3)
-    assert result3 == "User: hi"
+    assert result3 == "Value: 42"
+
+    template4 = "User: {{USER_TEXT_INPUT.0}}"
+    memory4 = {"USER_TEXT_INPUT": ["hi"]}
+    result4 = utils.process_template(template4, memory4)
+    assert result4 == "User: hi"
+
+    # {$key} 형태의 일반적인 내부 치환 테스트
+    template5 = "Name: {$name}, Age: {$age}"
+    memory5 = {"name": "John", "age": 30}
+    result5 = utils.process_template(template5, memory5)
+    assert result5 == "Name: John, Age: 30"
 
 # apply_response_mappings는 jsonpath_ng가 필요하므로, 간단한 케이스만 테스트
 @pytest.mark.skip(reason="jsonpath_ng 설치 필요 및 복잡한 mocking 필요")
