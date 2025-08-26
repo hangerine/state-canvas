@@ -55,13 +55,15 @@ interface WebhookFormData {
 interface ApiCallFormData {
   name: string;
   url: string;
-  timeout: number;
+  timeoutInMilliSecond: number;
   retry: number;
   method: string;
+  contentType: string;
   headers: Record<string, string>;
+  queryParams: Array<{name: string, value: string}>;
   requestTemplate: string;
-  responseSchema: string;
-  responseMappings: string;
+  responseProcessing: Record<string, any>;
+  responseMappings: Array<{ type: 'memory' | 'directive', map: Record<string, string> }>;
 }
 
 const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({ scenario, onScenarioUpdate }) => {
@@ -92,11 +94,9 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
     retry: 3,
   });
   const [webhookHeadersText, setWebhookHeadersText] = useState('{}');
-  const [webhookBodyObj, setWebhookBodyObj] = useState<Record<string, any>>({});
   const [newWebhookHeaderKey, setNewWebhookHeaderKey] = useState('');
   const [newWebhookHeaderValue, setNewWebhookHeaderValue] = useState('');
-  const [newWebhookBodyKey, setNewWebhookBodyKey] = useState('');
-  const [newWebhookBodyValue, setNewWebhookBodyValue] = useState('');
+
   // Webhook 테스트 상태
   const [webhookTestLoading, setWebhookTestLoading] = useState(false);
   const [webhookTestRequestText, setWebhookTestRequestText] = useState('');
@@ -112,17 +112,19 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
   const [apiCallFormData, setApiCallFormData] = useState<ApiCallFormData>({
     name: '',
     url: '',
-    timeout: 5000,
+    timeoutInMilliSecond: 5000,
     retry: 3,
     method: 'POST',
+    contentType: 'application/json',
     headers: {},
-    requestTemplate: '',
-    responseSchema: '',
-    responseMappings: '',
+    queryParams: [],
+    requestTemplate: '{"sessionId": "{$sessionId}", "requestId": "{$requestId}"}',
+    responseProcessing: {},
+    responseMappings: [],
   });
-  const [apiCallResponseSchemaText, setApiCallResponseSchemaText] = useState('{}');
+
   // Response Mappings (key/value UI with type selection)
-  const [responseMappingsObj, setResponseMappingsObj] = useState<Record<string, { type: 'memory' | 'directive', jsonpath: string }>>({});
+  const [responseMappingsObj, setResponseMappingsObj] = useState<Array<{ type: 'memory' | 'directive', map: Record<string, string> }>>([]);
   const [newMappingKey, setNewMappingKey] = useState('');
   const [newMappingValue, setNewMappingValue] = useState('');
   const [newMappingType, setNewMappingType] = useState<'memory' | 'directive'>('memory');
@@ -166,6 +168,11 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
   const [apiEntryName, setApiEntryName] = useState('');
   const [apiEndpoint, setApiEndpoint] = useState('');
 
+  // Query Parameters 관리
+  const [queryParamObj, setQueryParamObj] = useState<Array<{name: string, value: string}>>([]);
+  const [newQueryParamKey, setNewQueryParamKey] = useState('');
+  const [newQueryParamValue, setNewQueryParamValue] = useState('');
+
   // 시나리오에서 목록 로드 (webhooks 통합 리스트에서 type으로 분리) + 그룹 자동 생성
   useEffect(() => {
     const all = scenario?.webhooks || [];
@@ -176,9 +183,9 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
       apicallOnly.map((w: any) => ({
         name: w.name,
         url: w.url,
-        timeout: w.timeout || w.timeoutInMilliSecond || 5000,
+        timeoutInMilliSecond: w.timeoutInMilliSecond || w.timeout || 5000,
         retry: w.retry || 3,
-        formats: w.formats || { method: 'POST', headers: {}, requestTemplate: '', responseMappings: {}, responseSchema: {} }
+        formats: w.formats || { method: 'POST', headers: {}, requestTemplate: '{"sessionId": "{$sessionId}", "requestId": "{$requestId}"}', responseMappings: [] }
       }))
     );
 
@@ -203,11 +210,8 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
     });
     setWebhookHeadersText('{}');
     setEditingWebhook(null);
-    setWebhookBodyObj({});
     setNewWebhookHeaderKey('');
     setNewWebhookHeaderValue('');
-    setNewWebhookBodyKey('');
-    setNewWebhookBodyValue('');
     setWebhookTestRequestText('');
     setWebhookTestResponseText('');
     setWebhookTestResponseObj(null);
@@ -217,19 +221,22 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
 
   // ApiCall 폼 초기화
   const resetApiCallForm = () => {
-    setApiCallFormData({
-      name: '',
-      url: '',
-      timeout: 5000,
-      retry: 3,
-      method: 'POST',
-      headers: {},
-      requestTemplate: '',
-      responseSchema: '',
-      responseMappings: '',
-    });
-    setApiCallResponseSchemaText('{}');
-    setResponseMappingsObj({});
+          setApiCallFormData({
+        name: '',
+        url: '',
+        timeoutInMilliSecond: 5000,
+        retry: 3,
+        method: 'POST',
+        contentType: 'application/json',
+        headers: {},
+        queryParams: [],
+        requestTemplate: '{"sessionId": "{$sessionId}", "requestId": "{$requestId}"}',
+        responseProcessing: {},
+        responseMappings: [],
+      });
+
+    setResponseMappingsObj([]);
+    setQueryParamObj([]);
     setEditingApiCall(null);
     setNewHeaderKey('');
     setNewHeaderValue('');
@@ -258,13 +265,7 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
     });
     setWebhookHeadersText(JSON.stringify(webhook.headers, null, 2));
     setIsWebhookDialogOpen(true);
-    setWebhookBodyObj(webhook.body || {});
-    try {
-      const body = webhook.body || {};
-      setWebhookTestRequestText(Object.keys(body).length > 0 ? JSON.stringify(body, null, 2) : '');
-    } catch {
-      setWebhookTestRequestText('');
-    }
+    setWebhookTestRequestText('');
     setWebhookTestResponseText('');
     setWebhookTestResponseObj(null);
     setWebhookPastedResponseText('');
@@ -333,12 +334,12 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
         finalUrl = joinUrl(grp.baseUrl, webhookEndpoint.trim());
       }
       const webhookData: Webhook = {
+        type: 'webhook',
         name: finalName,
         url: finalUrl,
         headers: parsedHeaders,
         timeoutInMilliSecond: webhookFormData.timeoutInMilliSecond,
         retry: webhookFormData.retry,
-        body: webhookBodyObj,
       };
       let updatedWebhooks: Webhook[];
       if (editingWebhook) {
@@ -390,30 +391,7 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
     setWebhookHeadersText(JSON.stringify(headers, null, 2));
   };
 
-  // webhook body 조작 (key/value → 저장 시 JSON)
-  const addWebhookBodyField = (key: string, value: string = '') => {
-    if (!key) return;
-    setWebhookBodyObj(prev => ({ ...prev, [key]: value }));
-  };
-  const removeWebhookBodyField = (key: string) => {
-    setWebhookBodyObj(prev => {
-      const { [key]: removed, ...rest } = prev;
-      return rest;
-    });
-  };
-  const updateWebhookBodyKey = (oldKey: string, newKey: string) => {
-    if (!newKey) return;
-    setWebhookBodyObj(prev => {
-      const next = { ...prev } as Record<string, any>;
-      const val = next[oldKey];
-      delete next[oldKey];
-      next[newKey] = val;
-      return next;
-    });
-  };
-  const updateWebhookBodyValue = (key: string, value: string) => {
-    setWebhookBodyObj(prev => ({ ...prev, [key]: value }));
-  };
+
 
   // Webhook 테스트 실행
   const runWebhookTest = async () => {
@@ -426,8 +404,6 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
       let data: any = {};
       if (webhookTestRequestText.trim()) {
         try { data = JSON.parse(webhookTestRequestText); } catch { data = webhookTestRequestText; }
-      } else {
-        data = webhookBodyObj || {};
       }
       const resp = await axios.post(url, data, { headers });
       const text = typeof resp.data === 'string' ? resp.data : JSON.stringify(resp.data, null, 2);
@@ -462,36 +438,38 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
     setApiCallFormData({
       name: apicall.name,
       url: apicall.url,
-      timeout: apicall.timeout,
+              timeoutInMilliSecond: apicall.timeoutInMilliSecond || 5000,
       retry: apicall.retry,
       method: apicall.formats.method,
+      contentType: apicall.formats.contentType || 'application/json',
       headers: apicall.formats.headers || {},
+      queryParams: apicall.formats.queryParams || [],
       requestTemplate: apicall.formats.requestTemplate || '',
-      responseSchema: JSON.stringify(apicall.formats.responseSchema || {}, null, 2),
-      responseMappings: JSON.stringify(apicall.formats.responseMappings || {}, null, 2),
-    });
-    setApiCallResponseSchemaText(JSON.stringify(apicall.formats.responseSchema || {}, null, 2));
-    
-    // 기존 responseMappings를 새로운 형식으로 변환
-    const existingMappings = apicall.formats.responseMappings || {};
-    const convertedMappings: Record<string, { type: 'memory' | 'directive', jsonpath: string }> = {};
-    
-    Object.entries(existingMappings).forEach(([key, value]) => {
-      if (typeof value === 'string') {
-        // 기존 형식: "NLU_INTENT": "$.NLU_INTENT.value"
-        convertedMappings[key] = { type: 'memory', jsonpath: value };
-      } else if (typeof value === 'object' && value !== null && 'type' in value) {
-        // 새로운 형식: {"type": "memory", "NLU_INTENT": "$.NLU_INTENT.value"}
-        const mappingValue = value as any;
-        const type = mappingValue.type === 'directive' ? 'directive' : 'memory';
-        const jsonpath = Object.entries(mappingValue).find(([k, v]) => k !== 'type' && typeof v === 'string')?.[1] as string || '';
-        if (jsonpath) {
-          convertedMappings[key] = { type, jsonpath };
-        }
-      }
+      responseProcessing: apicall.formats.responseProcessing || {},
+      responseMappings: apicall.formats.responseMappings || [],
     });
     
-    setResponseMappingsObj(convertedMappings);
+    // responseMappings 설정
+    const existingResponseMappings = apicall.formats.responseMappings || [];
+    if (Array.isArray(existingResponseMappings)) {
+      setResponseMappingsObj(existingResponseMappings);
+    } else {
+      setResponseMappingsObj([]);
+    }
+    
+    // queryParams 설정
+    const existingQueryParams = apicall.formats.queryParams || [];
+    if (Array.isArray(existingQueryParams)) {
+      setQueryParamObj(existingQueryParams);
+    } else {
+      // 기존 객체 형태를 리스트 형태로 변환
+      const convertedQueryParams = Object.entries(existingQueryParams).map(([key, value]) => ({
+        name: key,
+        value: String(value)
+      }));
+      setQueryParamObj(convertedQueryParams);
+    }
+    
     setIsApiCallDialogOpen(true);
     // 테스트 섹션 초기화
     try {
@@ -570,11 +548,19 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
         type: 'apicall',
         name: a.name,
         url: a.url,
-        timeout: a.timeout,
+        timeoutInMilliSecond: a.timeoutInMilliSecond,
         retry: a.retry,
         headers: a.formats.headers || {},
-        timeoutInMilliSecond: a.timeout, // for uniformity, although unused
-        formats: a.formats,
+        formats: {
+          method: a.formats.method,
+          contentType: a.formats.contentType,
+          requestTemplate: a.formats.requestTemplate,
+
+          responseProcessing: a.formats.responseProcessing || {},
+          responseMappings: a.formats.responseMappings || [],
+          headers: a.formats.headers || {},
+          queryParams: a.formats.queryParams || []
+        },
       }));
       const updatedScenario = {
         ...scenario,
@@ -605,7 +591,15 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
     if (groupType === 'webhook') {
       wlist.push({ type: 'webhook', name: `(${groupName.trim()})${firstEntryName.trim()}`, url: fullUrl, headers: {}, timeoutInMilliSecond: 5000, retry: 3 });
     } else {
-      wlist.push({ type: 'apicall', name: `(${groupName.trim()})${firstEntryName.trim()}`, url: fullUrl, timeout: 5000, retry: 3, timeoutInMilliSecond: 5000, headers: {}, formats: { method: 'POST', headers: {}, requestTemplate: '', responseSchema: {}, responseMappings: {} } });
+      wlist.push({ type: 'apicall', name: `(${groupName.trim()})${firstEntryName.trim()}`, url: fullUrl, timeoutInMilliSecond: 5000, retry: 3, headers: {}, formats: { 
+        method: 'POST', 
+        contentType: 'application/json',
+        headers: {}, 
+        requestTemplate: '{"sessionId": "{$sessionId}", "requestId": "{$requestId}"}', 
+        responseProcessing: {},
+        responseMappings: [], 
+        queryParams: []
+      } });
     }
     updatedScenario.webhooks = wlist;
       onScenarioUpdate(updatedScenario);
@@ -666,29 +660,7 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
     (newArr || []).forEach(g => { const k = `${g.type}::${g.name}`; if (!map.has(k)) map.set(k, g); });
     return Array.from(map.values());
   };
-  // JSONPath 트리 유틸 (TestPanel 스타일)
-  const generateJsonPath = (obj: any, path: string = '$'): string[] => {
-    const paths: string[] = [];
-    if (obj === null || obj === undefined) return paths;
-    if (Array.isArray(obj)) {
-      paths.push(path);
-      obj.forEach((item, index) => {
-        const newPath = `${path}[${index}]`;
-        paths.push(newPath);
-        paths.push(...generateJsonPath(item, newPath));
-      });
-    } else if (typeof obj === 'object') {
-      paths.push(path);
-      Object.keys(obj).forEach(key => {
-        const newPath = `${path}.${key}`;
-        paths.push(newPath);
-        paths.push(...generateJsonPath(obj[key], newPath));
-      });
-    } else {
-      paths.push(path);
-    }
-    return paths;
-  };
+
   const getValueByPath = (obj: any, path: string): any => {
     try {
       const cleanPath = path.replace(/^\$\.?/, '');
@@ -856,7 +828,6 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
   };
   const handleSaveApiCall = () => {
     try {
-      const parsedResponseSchema = JSON.parse(apiCallResponseSchemaText);
       let finalName = apiCallFormData.name;
       let finalUrl = apiCallFormData.url;
       if (apiUseGroup && apiSelectedGroup) {
@@ -872,44 +843,39 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
         finalName = `(${grp.name})${apiEntryName.trim()}`;
         finalUrl = joinUrl(grp.baseUrl, apiEndpoint.trim());
       }
-      // responseMappingsObj를 새로운 형식으로 변환
-      const convertedResponseMappings: Record<string, { type: 'memory' | 'directive', [key: string]: string }> = {};
-      Object.entries(responseMappingsObj).forEach(([key, mapping]) => {
-        convertedResponseMappings[key] = {
-          type: mapping.type,
-          [key]: mapping.jsonpath
-        };
-      });
 
-      const apiCallData: ApiCallWithName = {
+      const apiCallWithName: ApiCallWithName = {
         name: finalName,
         url: finalUrl,
-        timeout: apiCallFormData.timeout,
+        timeoutInMilliSecond: apiCallFormData.timeoutInMilliSecond,
         retry: apiCallFormData.retry,
         formats: {
           method: apiCallFormData.method as any,
+          contentType: apiCallFormData.contentType,
           headers: apiCallFormData.headers,
+          queryParams: apiCallFormData.queryParams,
           requestTemplate: apiCallFormData.requestTemplate,
-          responseSchema: parsedResponseSchema,
-          responseMappings: convertedResponseMappings,
+
+          responseProcessing: apiCallFormData.responseProcessing || {},
+          responseMappings: responseMappingsObj,
         },
       };
       let updatedApiCalls: ApiCallWithName[];
       if (editingApiCall) {
-        updatedApiCalls = apicalls.map(a => a.name === editingApiCall.name ? apiCallData : a);
+        updatedApiCalls = apicalls.map(a => a.name === editingApiCall.name ? apiCallWithName : a);
       } else {
-        if (apicalls.some(a => a.name === apiCallData.name)) {
+        if (apicalls.some(a => a.name === apiCallWithName.name)) {
           alert('같은 이름의 API Call이 이미 존재합니다.');
           return;
         }
-        updatedApiCalls = [...apicalls, apiCallData];
+        updatedApiCalls = [...apicalls, apiCallWithName];
       }
       setApicalls(updatedApiCalls);
       updateScenarioApiCalls(updatedApiCalls);
       setIsApiCallDialogOpen(false);
       resetApiCallForm();
     } catch (error) {
-      alert('ResponseSchema JSON 형식이 올바르지 않습니다.');
+      alert('API Call 저장 중 오류가 발생했습니다.');
     }
   };
   const handleCancelApiCallEdit = () => {
@@ -940,41 +906,46 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
   const updateHeaderValueInApiForm = (key: string, newValue: string) => {
     setApiCallFormData(prev => ({ ...prev, headers: { ...prev.headers, [key]: newValue } }));
   };
-  const handleApiCallResponseSchemaChange = (value: string) => {
-    setApiCallResponseSchemaText(value);
-    setApiCallFormData(prev => ({ ...prev, responseSchema: value }));
-  };
+
   // Response Mappings 조작 함수들
   const addResponseMapping = (key: string, value: string = '', type: 'memory' | 'directive' = 'memory') => {
     if (!key) return;
-    setResponseMappingsObj(prev => ({ ...prev, [key]: { type, jsonpath: value } }));
+    const newMapping = {
+      type,
+      map: { [key]: value }
+    };
+    setResponseMappingsObj(prev => [...prev, newMapping]);
   };
-  const removeResponseMapping = (key: string) => {
-    setResponseMappingsObj(prev => {
-      const { [key]: removed, ...rest } = prev;
-      return rest;
-    });
+  const removeResponseMapping = (index: number) => {
+    setResponseMappingsObj(prev => prev.filter((_, i) => i !== index));
   };
-  const updateResponseMappingKey = (oldKey: string, newKey: string) => {
+  const updateResponseMappingKey = (index: number, oldKey: string, newKey: string) => {
     if (!newKey) return;
-    setResponseMappingsObj(prev => {
-      const next = { ...prev };
-      const value = next[oldKey];
-      delete next[oldKey];
-      next[newKey] = value;
-      return next;
-    });
-  };
-  const updateResponseMappingValue = (key: string, newValue: string) => {
-    setResponseMappingsObj(prev => ({ 
-      ...prev, 
-      [key]: { ...prev[key], jsonpath: newValue } 
+    setResponseMappingsObj(prev => prev.map((mapping, i) => {
+      if (i === index) {
+        const newMap = { ...mapping.map };
+        const value = newMap[oldKey];
+        delete newMap[oldKey];
+        newMap[newKey] = value;
+        return { ...mapping, map: newMap };
+      }
+      return mapping;
     }));
   };
-  const updateResponseMappingType = (key: string, newType: 'memory' | 'directive') => {
-    setResponseMappingsObj(prev => ({ 
-      ...prev, 
-      [key]: { ...prev[key], type: newType } 
+  const updateResponseMappingValue = (index: number, key: string, newValue: string) => {
+    setResponseMappingsObj(prev => prev.map((mapping, i) => {
+      if (i === index) {
+        return { ...mapping, map: { ...mapping.map, [key]: newValue } };
+      }
+      return mapping;
+    }));
+  };
+  const updateResponseMappingType = (index: number, newType: 'memory' | 'directive') => {
+    setResponseMappingsObj(prev => prev.map((mapping, i) => {
+      if (i === index) {
+        return { ...mapping, type: newType };
+      }
+      return mapping;
     }));
   };
 
@@ -1043,6 +1014,26 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
     } finally {
       setApiTestLoading(false);
     }
+  };
+
+  // Query Parameters 조작 함수들
+  const addQueryParam = (key: string, value: string = '') => {
+    if (!key) return;
+    setQueryParamObj(prev => [...prev, { name: key, value }]);
+  };
+  const removeQueryParam = (index: number) => {
+    setQueryParamObj(prev => prev.filter((_, i) => i !== index));
+  };
+  const updateQueryParamKey = (index: number, newKey: string) => {
+    if (!newKey) return;
+    setQueryParamObj(prev => prev.map((item, i) => 
+      i === index ? { ...item, name: newKey } : item
+    ));
+  };
+  const updateQueryParamValue = (index: number, newValue: string) => {
+    setQueryParamObj(prev => prev.map((item, i) => 
+      i === index ? { ...item, value: newValue } : item
+    ));
   };
 
   return (
@@ -1279,45 +1270,7 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                   </Box>
                 </Box>
 
-                {/* Body: key/value → 전송 시 JSON */}
-                <Box sx={{ mt: 2 }}>
-                  <Typography variant="subtitle2" sx={{ mb: 1 }}>Request Body (key/value)</Typography>
-                  <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1, bgcolor: '#f9f9f9' }}>
-                    {Object.entries(webhookBodyObj || {}).length === 0 ? (
-                      <Typography variant="caption" color="text.secondary">정의된 Body 필드가 없습니다.</Typography>
-                    ) : (
-                      <TableContainer>
-                        <Table size="small">
-                          <TableBody>
-                            {Object.entries(webhookBodyObj).map(([key, value]) => (
-                              <TableRow key={key}>
-                                <TableCell sx={{ width: '30%' }}>
-                                  <TextField size="small" label="Key" value={key} onChange={(e) => updateWebhookBodyKey(key, e.target.value)} fullWidth />
-                                </TableCell>
-                                <TableCell>
-                                  <TextField size="small" label="Value" value={String(value)} onChange={(e) => updateWebhookBodyValue(key, e.target.value)} fullWidth />
-                                </TableCell>
-                                <TableCell sx={{ width: 56 }} align="right">
-                                  <IconButton size="small" color="error" onClick={() => removeWebhookBodyField(key)}>
-                                    <DeleteIcon fontSize="small" />
-                                  </IconButton>
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </TableContainer>
-                    )}
-                  </Box>
-                  <Box sx={{ mt: 1, display: 'flex', gap: 1 }}>
-                    <TextField size="small" placeholder="Body Key" value={newWebhookBodyKey} onChange={(e) => setNewWebhookBodyKey(e.target.value)} sx={{ flex: 1 }} />
-                    <TextField size="small" placeholder="Body Value" value={newWebhookBodyValue} onChange={(e) => setNewWebhookBodyValue(e.target.value)} sx={{ flex: 2 }} />
-                    <Button size="small" variant="outlined" onClick={() => { addWebhookBodyField(newWebhookBodyKey.trim(), newWebhookBodyValue.trim()); setNewWebhookBodyKey(''); setNewWebhookBodyValue(''); }}>추가</Button>
-                  </Box>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                    전송 시 JSON으로 변환되어 POST 본문으로 사용됩니다.
-                  </Typography>
-                </Box>
+
 
                 {/* Webhook 테스트 섹션 */}
                 <Box sx={{ mt: 2 }}>
@@ -1495,7 +1448,7 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                       <TableCell>
                             <Typography variant="body2" sx={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{endpointFromUrl(apicall.url, grp.baseUrl)}</Typography>
                       </TableCell>
-                      <TableCell>{apicall.timeout}ms</TableCell>
+                      <TableCell>{apicall.timeoutInMilliSecond}ms</TableCell>
                       <TableCell>{apicall.retry}</TableCell>
                       <TableCell>
                             <IconButton size="small" onClick={() => loadApiCallToTest(apicall)} title="불러오기"><ContentCopyIcon /></IconButton>
@@ -1525,7 +1478,7 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                               <TableCell>
                                 <Typography variant="body2" sx={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{apicall.url}</Typography>
                               </TableCell>
-                              <TableCell>{apicall.timeout}ms</TableCell>
+                              <TableCell>{apicall.timeoutInMilliSecond}ms</TableCell>
                               <TableCell>{apicall.retry}</TableCell>
                               <TableCell>
                                 <IconButton size="small" onClick={() => handleEditApiCall(apicall)} color="primary"><EditIcon /></IconButton>
@@ -1593,8 +1546,8 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                   <TextField
                     label="타임아웃 (ms)"
                     type="number"
-                    value={apiCallFormData.timeout}
-                    onChange={(e) => setApiCallFormData(prev => ({ ...prev, timeout: parseInt(e.target.value) || 5000 }))}
+                    value={apiCallFormData.timeoutInMilliSecond}
+                    onChange={(e) => setApiCallFormData(prev => ({ ...prev, timeoutInMilliSecond: parseInt(e.target.value) || 5000 }))}
                     sx={{ flex: 1 }}
                   />
                   <TextField
@@ -1620,14 +1573,28 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                   <option value="PATCH">PATCH</option>
                 </TextField>
                 <TextField
-                  label="Request Template"
+                  label="Content Type"
+                  value={apiCallFormData.contentType}
+                  onChange={(e) => setApiCallFormData(prev => ({ ...prev, contentType: e.target.value }))}
+                  fullWidth
+                  select
+                  SelectProps={{ native: true }}
+                >
+                  <option value="application/json">application/json</option>
+                  <option value="text/plain">text/plain</option>
+                  <option value="application/x-www-form-urlencoded">application/x-www-form-urlencoded</option>
+                  <option value="multipart/form-data">multipart/form-data</option>
+                </TextField>
+                <TextField
+                  label="Request Template *"
                   value={apiCallFormData.requestTemplate}
                   onChange={(e) => setApiCallFormData(prev => ({ ...prev, requestTemplate: e.target.value }))}
                   multiline
                   rows={4}
                   fullWidth
-                  placeholder='{"text": "{{USER_TEXT_INPUT.[0]}}", "sessionId": "{{sessionId}}", "requestId": "{{requestId}}"}'
-                  helperText="사용 가능한 변수: {{sessionId}}, {{requestId}}, {{USER_TEXT_INPUT.[0]}}, {{memorySlots.KEY.value.[0]}}, {{customKey}} 등"
+                  required
+                  placeholder='{"text": "{$USER_TEXT_INPUT.[0]}", "sessionId": "{$sessionId}", "requestId": "{$requestId}"}'
+                  helperText="사용 가능한 변수: {$sessionId}, {$requestId}, {$USER_TEXT_INPUT.[0]}, {$memorySlots.KEY.value.[0]}, {$customKey} 등"
                 />
                 {/* Headers 설정 (Key/Value + 빠른 추가) */}
                 <Box>
@@ -1728,22 +1695,12 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                     </Button>
                   </Box>
                 </Box>
-                <TextField
-                  label="Response Schema (JSON)"
-                  value={apiCallResponseSchemaText}
-                  onChange={(e) => handleApiCallResponseSchemaChange(e.target.value)}
-                  multiline
-                  rows={3}
-                  fullWidth
-                  sx={{ mt: 1 }}
-                  placeholder='{"field1": "string", "field2": "number"}'
-                  helperText="API 응답의 스키마를 JSON 형식으로 입력하세요."
-                />
+
                 {/* Response Mappings (Key/Value: JSONPath with Type) */}
                 <Box>
                   <Typography variant="subtitle2" sx={{ mb: 1 }}>Response Mappings (JSONPath with Type)</Typography>
                   <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1, minHeight: 60, bgcolor: '#f9f9f9' }}>
-                    {Object.entries(responseMappingsObj || {}).length === 0 ? (
+                    {responseMappingsObj.length === 0 ? (
                       <Typography variant="caption" color="text.secondary">정의된 매핑이 없습니다.</Typography>
                     ) : (
                       <TableContainer>
@@ -1757,45 +1714,49 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                             </TableRow>
                           </TableHead>
                           <TableBody>
-                            {Object.entries(responseMappingsObj).map(([key, mapping]) => (
-                              <TableRow key={key}>
-                                <TableCell>
-                                  <TextField
-                                    size="small"
-                                    label="Memory Key"
-                                    value={key}
-                                    onChange={(e) => updateResponseMappingKey(key, e.target.value)}
-                                    fullWidth
-                                  />
-                                </TableCell>
-                                <TableCell>
-                                  <Select
-                                    size="small"
-                                    value={mapping.type}
-                                    onChange={(e) => updateResponseMappingType(key, e.target.value as 'memory' | 'directive')}
-                                    fullWidth
-                                  >
-                                    <MenuItem value="memory">Memory</MenuItem>
-                                    <MenuItem value="directive">Directive</MenuItem>
-                                  </Select>
-                                </TableCell>
-                                <TableCell>
-                                  <TextField
-                                    size="small"
-                                    label="JSONPath"
-                                    value={mapping.jsonpath}
-                                    onChange={(e) => updateResponseMappingValue(key, e.target.value)}
-                                    fullWidth
-                                    placeholder='예: $.nlu.intent'
-                                  />
-                                </TableCell>
-                                <TableCell align="right">
-                                  <IconButton size="small" color="error" onClick={() => removeResponseMapping(key)}>
-                                    <DeleteIcon fontSize="small" />
-                                  </IconButton>
-                                </TableCell>
-                              </TableRow>
-                            ))}
+                            {responseMappingsObj.map((mapping, index) => {
+                              const memoryKey = Object.keys(mapping.map)[0];
+                              const jsonPath = mapping.map[memoryKey];
+                              return (
+                                <TableRow key={index}>
+                                  <TableCell>
+                                    <TextField
+                                      size="small"
+                                      label="Memory Key"
+                                      value={memoryKey}
+                                      onChange={(e) => updateResponseMappingKey(index, memoryKey, e.target.value)}
+                                      fullWidth
+                                    />
+                                  </TableCell>
+                                  <TableCell>
+                                    <Select
+                                      size="small"
+                                      value={mapping.type}
+                                      onChange={(e) => updateResponseMappingType(index, e.target.value as 'memory' | 'directive')}
+                                      fullWidth
+                                    >
+                                      <MenuItem value="memory">Memory</MenuItem>
+                                      <MenuItem value="directive">Directive</MenuItem>
+                                    </Select>
+                                  </TableCell>
+                                  <TableCell>
+                                    <TextField
+                                      size="small"
+                                      label="JSONPath"
+                                      value={jsonPath}
+                                      onChange={(e) => updateResponseMappingValue(index, memoryKey, e.target.value)}
+                                      fullWidth
+                                      placeholder='예: $.nlu.intent'
+                                    />
+                                  </TableCell>
+                                  <TableCell align="right">
+                                    <IconButton size="small" color="error" onClick={() => removeResponseMapping(index)}>
+                                      <DeleteIcon />
+                                    </IconButton>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
                           </TableBody>
                         </Table>
                       </TableContainer>
@@ -1955,6 +1916,116 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                     )}
                   </Box>
                 </Box>
+                
+                {/* Query Parameters */}
+                <Box>
+                  <Typography variant="subtitle2" sx={{ mb: 1 }}>Query Parameters</Typography>
+                  <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1, minHeight: 60, bgcolor: '#f9f9f9' }}>
+                    {queryParamObj.length === 0 ? (
+                      <Typography variant="caption" color="text.secondary">정의된 쿼리 파라미터가 없습니다.</Typography>
+                    ) : (
+                      <TableContainer>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow>
+                              <TableCell sx={{ width: '40%' }}>Parameter Key</TableCell>
+                              <TableCell>Parameter Value</TableCell>
+                              <TableCell sx={{ width: 56 }} align="right">Action</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {queryParamObj.map((param, index) => (
+                              <TableRow key={index}>
+                                <TableCell>
+                                  <TextField
+                                    size="small"
+                                    label="Parameter Key"
+                                    value={param.name}
+                                    onChange={(e) => updateQueryParamKey(index, e.target.value)}
+                                    fullWidth
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <TextField
+                                    size="small"
+                                    label="Parameter Value"
+                                    value={param.value}
+                                    onChange={(e) => updateQueryParamValue(index, e.target.value)}
+                                    fullWidth
+                                    placeholder='예: {$sessionId} 또는 고정값'
+                                  />
+                                </TableCell>
+                                <TableCell align="right">
+                                  <IconButton size="small" color="error" onClick={() => removeQueryParam(index)}>
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    )}
+                  </Box>
+                  {/* 새 쿼리 파라미터 추가 */}
+                  <Box sx={{ mt: 1, display: 'flex', gap: 1 }}>
+                    <TextField
+                      size="small"
+                      placeholder="Parameter Key (예: api_key)"
+                      value={newQueryParamKey}
+                      onChange={(e) => setNewQueryParamKey(e.target.value)}
+                      sx={{ flex: 1 }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          addQueryParam(newQueryParamKey.trim(), newQueryParamValue.trim());
+                          setNewQueryParamKey('');
+                          setNewQueryParamValue('');
+                        }
+                      }}
+                    />
+                    <TextField
+                      size="small"
+                      placeholder="Parameter Value (예: {$apiKey} 또는 고정값)"
+                      value={newQueryParamValue}
+                      onChange={(e) => setNewQueryParamValue(e.target.value)}
+                      sx={{ flex: 2 }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          addQueryParam(newQueryParamKey.trim(), newQueryParamValue.trim());
+                          setNewQueryParamKey('');
+                          setNewQueryParamValue('');
+                        }
+                      }}
+                    />
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => {
+                        addQueryParam(newQueryParamKey.trim(), newQueryParamValue.trim());
+                        setNewQueryParamKey('');
+                        setNewQueryParamValue('');
+                      }}
+                    >
+                      추가
+                    </Button>
+                  </Box>
+                </Box>
+
+                <TextField
+                  label="Response Processing (JSON)"
+                  value={JSON.stringify(apiCallFormData.responseProcessing || {}, null, 2)}
+                  onChange={(e) => {
+                    try {
+                      const parsed = JSON.parse(e.target.value);
+                      setApiCallFormData(prev => ({ ...prev, responseProcessing: parsed }));
+                    } catch {}
+                  }}
+                  multiline
+                  rows={3}
+                  fullWidth
+                  placeholder='{"validation": {}, "transformation": {}}'
+                  helperText="응답 검증/가공/분기 정의 (확장 가능)"
+                />
               </Box>
             </DialogContent>
             <DialogActions>

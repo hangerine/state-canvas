@@ -72,17 +72,47 @@ class ApiCallHandler(BaseHandler):
                     logger.warning(f"API call failed for handler: {handler}")
                     continue
                 logger.info(f"📥 API response received: {response_data}")
-                mappings = apicall_config.get("formats", {}).get("responseMappings", {})
+                mappings = apicall_config.get("formats", {}).get("responseMappings", [])
                 if not mappings:
-                    if "memorySlots" in response_data and "NLU_INTENT" in response_data["memorySlots"]:
-                        logger.info("📋 Detected standard webhook response format, applying default mappings")
-                        mappings = {
-                            "NLU_INTENT": "$.memorySlots.NLU_INTENT.value[0]",
-                            "STS_CONFIDENCE": "$.memorySlots.STS_CONFIDENCE.value[0]",
-                            "USER_TEXT_INPUT": "$.memorySlots.USER_TEXT_INPUT.value[0]"
-                        }
-                if mappings:
-                    self.scenario_manager._apply_response_mappings(response_data, mappings, memory)
+                    logger.info("No response mappings defined, skipping response processing")
+                    continue
+                
+                # 새로운 responseMappings 배열 구조 처리
+                for mapping in mappings:
+                    if not isinstance(mapping, dict):
+                        logger.warning(f"Invalid mapping format: {mapping}")
+                        continue
+                    
+                    mapping_type = mapping.get("type")
+                    mapping_map = mapping.get("map")
+                    
+                    if not mapping_type or not mapping_map:
+                        logger.warning(f"Invalid mapping structure: {mapping}")
+                        continue
+                    
+                    # 메모리에 응답 데이터 매핑
+                    for memory_key, jsonpath in mapping_map.items():
+                        if not isinstance(jsonpath, str) or not jsonpath.startswith('$'):
+                            logger.warning(f"Invalid JSONPath: {jsonpath}")
+                            continue
+                        
+                        try:
+                            # JSONPath를 사용하여 응답에서 값 추출
+                            extracted_value = utils.extract_jsonpath_value(response_data, jsonpath)
+                            if extracted_value is not None:
+                                if mapping_type == "memory":
+                                    memory[memory_key] = extracted_value
+                                    logger.info(f"📝 Memory updated: {memory_key} = {extracted_value}")
+                                elif mapping_type == "directive":
+                                    # directive 타입은 향후 확장 가능
+                                    logger.info(f"📝 Directive mapping: {memory_key} = {extracted_value}")
+                                else:
+                                    logger.warning(f"Unknown mapping type: {mapping_type}")
+                            else:
+                                logger.warning(f"JSONPath {jsonpath} not found in response")
+                        except Exception as e:
+                            logger.error(f"Error processing mapping {memory_key}: {jsonpath} - {str(e)}")
+                            continue
                 logger.info(f"📋 Memory after response mapping: {memory}")
                 condition_handlers = current_dialog_state.get("conditionHandlers", [])
                 matched_condition = False
@@ -176,78 +206,98 @@ class ApiCallHandler(BaseHandler):
                 continue
         return None
 
-    async def execute_api_call(
-        self,
-        apicall_config: Dict[str, Any],
-        memory: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
+    async def execute_api_call(self, apicall_config: Dict[str, Any], memory: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """API 호출 실행"""
         try:
             url = apicall_config.get("url", "")
-            timeout = apicall_config.get("timeout", 5000) / 1000
-            retry_count = apicall_config.get("retry", 3)
+            if not url:
+                logger.error("API call URL is empty")
+                return None
+
+            # 기본 설정
+            timeout = apicall_config.get("timeoutInMilliSecond", 5000)
+            retry_count = apicall_config.get("retry", 0)
             formats = apicall_config.get("formats", {})
+            
+            # HTTP 메서드와 헤더
             method = formats.get("method", "POST").upper()
-            request_template = formats.get("requestTemplate", "")
-            request_data = None
-            if request_template and method in ['POST', 'PUT', 'PATCH']:
-                request_body = utils.process_template(request_template, memory)
-                try:
-                    request_data = json.loads(request_body)
-                except json.JSONDecodeError as e:
-                    logger.error(f"Invalid JSON in request template: {e}")
-                    return None
-            headers = {"Content-Type": "application/json"}
-            custom_headers = formats.get("headers", {})
-            if custom_headers:
-                processed_headers = {}
-                for key, value in custom_headers.items():
-                    processed_value = utils.process_template(str(value), memory)
-                    processed_headers[key] = processed_value
-                    logger.info(f"🔧 Header processed: {key}: {value} -> {processed_value}")
-                headers.update(processed_headers)
-            logger.info(f"[APICALL] 📡 URL: {url}")
-            logger.info(f"[APICALL] 📦 Method: {method}")
-            logger.info(f"[APICALL] 📋 Headers: {headers}")
-            logger.info(f"[APICALL] 📤 Request body: {json.dumps(request_data, ensure_ascii=False) if request_data else None}")
+            headers = formats.get("headers", {})
+            contentType = formats.get("contentType", "application/json")
+            
+            # Content-Type 헤더 자동 설정
+            if contentType and "Content-Type" not in headers:
+                headers["Content-Type"] = contentType
+            
+            # 쿼리 파라미터 처리
+            query_params = formats.get("queryParams", [])
+            if query_params:
+                # 메모리 변수 치환
+                processed_params = []
+                for param in query_params:
+                    name = param.get("name", "")
+                    value = param.get("value", "")
+                    if name:
+                        # {$var} 형태의 변수 치환
+                        processed_value = utils.replace_template_variables(value, memory)
+                        processed_params.append((name, processed_value))
+                
+                # URL에 쿼리 파라미터 추가
+                if processed_params:
+                    from urllib.parse import urlencode
+                    separator = '&' if '?' in url else '?'
+                    url += separator + urlencode(processed_params)
+
+            # 요청 본문 처리
+            data = None
+            if method in ["POST", "PUT", "PATCH"]:
+                request_template = formats.get("requestTemplate")
+                if request_template:
+                    # 템플릿 변수 치환
+                    processed_template = utils.replace_template_variables(request_template, memory)
+                    try:
+                        data = json.loads(processed_template)
+                    except json.JSONDecodeError:
+                        logger.warning(f"Invalid JSON in request template: {processed_template}")
+                        data = processed_template
+                
+
+
+            # 재시도 로직
+            last_exception = None
             for attempt in range(retry_count + 1):
                 try:
-                    timeout_config = aiohttp.ClientTimeout(total=timeout)
-                    async with aiohttp.ClientSession(timeout=timeout_config) as session:
+                    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout/1000)) as session:
+                        logger.info(f"API call attempt {attempt + 1}/{retry_count + 1}: {method} {url}")
+                        
                         if method == "GET":
                             async with session.get(url, headers=headers) as response:
-                                logger.info(f"[APICALL] ⏳ Status: {response.status}")
-                                if response.status == 200:
-                                    resp_json = await response.json()
-                                    logger.info(f"[APICALL] ✅ Response: {resp_json}")
-                                    return resp_json
-                        elif method in ["POST", "PUT", "PATCH"]:
-                            async with session.request(
-                                method.lower(), 
-                                url, 
-                                headers=headers, 
-                                json=request_data
-                            ) as response:
-                                logger.info(f"[APICALL] ⏳ Status: {response.status}")
-                                if response.status in [200, 201]:
-                                    resp_json = await response.json()
-                                    logger.info(f"[APICALL] ✅ Response: {resp_json}")
-                                    return resp_json
+                                response.raise_for_status()
+                                response_data = await response.json()
                         elif method == "DELETE":
                             async with session.delete(url, headers=headers) as response:
-                                logger.info(f"[APICALL] ⏳ Status: {response.status}")
-                                if response.status in [200, 204]:
-                                    resp_json = await response.json() if response.content_length else {}
-                                    logger.info(f"[APICALL] ✅ Response: {resp_json}")
-                                    return resp_json
-                        logger.warning(f"[APICALL] ❌ API call failed with status {response.status}, attempt {attempt + 1}")
-                except asyncio.TimeoutError:
-                    logger.warning(f"[APICALL] ❌ API call timeout, attempt {attempt + 1}")
+                                response.raise_for_status()
+                                response_data = await response.json()
+                        else:
+                            async with session.request(method, url, headers=headers, json=data if contentType == "application/json" else data) as response:
+                                response.raise_for_status()
+                                response_data = await response.json()
+                        
+                        logger.info(f"API call successful: {response_data}")
+                        return response_data
+                        
                 except Exception as e:
-                    logger.warning(f"[APICALL] ❌ API call error: {e}, attempt {attempt + 1}")
-                if attempt < retry_count:
-                    await asyncio.sleep(1)
-            logger.error(f"[APICALL] ❌ API call failed after {retry_count + 1} attempts")
+                    last_exception = e
+                    if attempt < retry_count:
+                        wait_time = (2 ** attempt) * 0.1  # 지수 백오프
+                        logger.warning(f"API call attempt {attempt + 1} failed, retrying in {wait_time}s: {str(e)}")
+                        await asyncio.sleep(wait_time)
+                    else:
+                        logger.error(f"API call failed after {retry_count + 1} attempts: {str(e)}")
+            
+            if last_exception:
+                logger.error(f"Final API call error: {str(last_exception)}")
             return None
+            
         except Exception as e:
-            logger.error(f"[APICALL] ❌ Error executing API call: {e}")
+            logger.error(f"Error executing API call: {str(e)}")
             return None 

@@ -195,3 +195,39 @@ def process_template(template: str, memory: Dict[str, Any]) -> str:
     
     logger.info(f"📝 Template processing: '{template}' -> '{result}'")
     return result 
+
+def replace_template_variables(template: str, memory: Dict[str, Any]) -> str:
+    """템플릿 문자열의 변수를 메모리 값으로 치환"""
+    if not isinstance(template, str):
+        return str(template)
+    
+    def replace_var(match):
+        var_name = match.group(1)
+        if var_name in memory:
+            return str(memory[var_name])
+        else:
+            # {$var} 형태의 변수가 메모리에 없으면 빈 문자열로 치환
+            return ""
+    
+    # {$var} 형태의 변수 치환
+    result = re.sub(r'\{(\$[^}]+)\}', replace_var, template)
+    
+    # {{var}} 형태의 변수 치환 (기존 호환성)
+    result = re.sub(r'\{\{([^}]+)\}\}', replace_var, result)
+    
+    return result
+
+def extract_jsonpath_value(data: Any, jsonpath_expr: str) -> Any:
+    """JSONPath 표현식을 사용하여 데이터에서 값 추출"""
+    try:
+        jsonpath_parser = parse(jsonpath_expr)
+        matches = jsonpath_parser.find(data)
+        
+        if matches:
+            raw_value = matches[0].value
+            return normalize_response_value(raw_value)
+        else:
+            return None
+    except Exception as e:
+        logger.error(f"Error extracting JSONPath {jsonpath_expr}: {str(e)}")
+        return None 

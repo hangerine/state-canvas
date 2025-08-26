@@ -289,15 +289,29 @@ const Sidebar: React.FC<SidebarProps> = ({
         const existing = new Set((webhooks || []).filter((w: any) => w.type === 'apicall').map((w: any) => w.name));
         apicalls.forEach((a) => {
           if (existing.has(a.name)) return;
+          
+          // 새로운 spec에 맞춰 변환
+          const formats = a.formats || {};
+          const newFormats = {
+            method: formats.method || 'POST',
+            contentType: formats.contentType || 'application/json',
+            requestTemplate: formats.requestTemplate,
+
+            responseProcessing: formats.responseProcessing || {},
+            responseMappings: formats.responseMappings || [],
+            headers: formats.headers || {},
+            queryParams: formats.queryParams || []
+          };
+          
           webhooks.push({
             type: 'apicall',
             name: a.name,
             url: a.url,
-            timeout: a.timeout,
+            timeoutInMilliSecond: a.timeoutInMilliSecond || a.timeout || 5000,
             retry: a.retry,
-            timeoutInMilliSecond: a.timeout,
-            headers: (a.formats || {}).headers || {},
-            formats: a.formats || {}
+            
+            headers: formats.headers || {},
+            formats: newFormats
           });
         });
         s.webhooks = webhooks;
@@ -1254,7 +1268,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                       Method: {apicall?.formats?.method || 'Unknown'}
                     </Typography>
                     <Typography variant="caption" display="block" color="text.secondary">
-                      Timeout: {apicall?.timeout ?? 'Unknown'}ms
+                      Timeout: {apicall?.timeoutInMilliSecond ?? 'Unknown'}ms
                     </Typography>
                     {apicall?.formats?.requestTemplate && (
                       <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 1 }}>

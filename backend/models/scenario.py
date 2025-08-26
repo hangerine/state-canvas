@@ -69,16 +69,26 @@ class IntentHandler(BaseModel):
 
 class ApiCallFormats(BaseModel):
     method: str
-    requestTemplate: Optional[str] = None
-    responseSchema: Optional[Dict[str, Any]] = None
-    responseMappings: Optional[Dict[str, Union[str, Dict[str, str]]]] = None
+    contentType: str
+    requestTemplate: str
+    responseProcessing: Optional[Dict[str, Any]] = None
+    responseMappings: List[Dict[str, Any]]
     headers: Optional[Dict[str, str]] = None
+    queryParams: Optional[List[Dict[str, str]]] = None
 
 class ApiCall(BaseModel):
     url: str
-    timeout: int
+    timeoutInMilliSecond: int
     retry: int
     formats: ApiCallFormats
+
+class Webhook(BaseModel):
+    type: str
+    name: str
+    url: str
+    timeoutInMilliSecond: int
+    retry: int
+    headers: Dict[str, str]
 
 class ApiCallHandler(BaseModel):
     name: str
@@ -112,13 +122,6 @@ class IntentMapping(BaseModel):
     intents: List[str]
     conditionStatement: str
     dmIntent: str
-
-class Webhook(BaseModel):
-    name: str
-    url: str
-    headers: Dict[str, str]
-    timeoutInMilliSecond: int
-    retry: int
 
 class BotConfig(BaseModel):
     botType: str

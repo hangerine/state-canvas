@@ -130,17 +130,31 @@ async def download_scenario(session_id: str):
                     name = a.get("name")
                     if name in existing_apicall_names:
                         continue
+                    
+                    # 새로운 spec에 맞춰 변환
+                    formats = a.get("formats", {}) or {}
+                    new_formats = {
+                        "method": formats.get("method", "POST"),
+                        "contentType": formats.get("contentType", "application/json"),
+                        "requestTemplate": formats.get("requestTemplate"),
+    
+                        "responseProcessing": formats.get("responseProcessing", {}),
+                        "responseMappings": formats.get("responseMappings", []),
+                        "headers": formats.get("headers", {}),
+                        "queryParams": formats.get("queryParams", [])
+                    }
+                    
                     webhooks.append({
                         "type": "apicall",
                         "name": name,
                         "url": a.get("url", ""),
-                        "timeout": a.get("timeout", 5000),
+                        "timeoutInMilliSecond": a.get("timeoutInMilliSecond", a.get("timeout", 5000)),
                         "retry": a.get("retry", 3),
                         # webhook 공통 인터페이스 호환 필드
                         "timeoutInMilliSecond": a.get("timeout", 5000),
-                        "headers": (a.get("formats", {}) or {}).get("headers", {}) or {},
+                        "headers": formats.get("headers", {}) or {},
                         # apicall 고유 포맷 보관
-                        "formats": a.get("formats", {}) or {}
+                        "formats": new_formats
                     })
                 scenario["webhooks"] = webhooks
                 # legacy 삭제

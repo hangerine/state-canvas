@@ -127,6 +127,7 @@ const WebhookManager: React.FC<WebhookManagerProps> = ({ scenario, onScenarioUpd
       const parsedHeaders = JSON.parse(headersText);
       
       const webhookData: Webhook = {
+        type: 'webhook',
         name: formData.name,
         url: formData.url,
         headers: parsedHeaders,

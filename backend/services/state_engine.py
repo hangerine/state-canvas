@@ -1603,22 +1603,48 @@ class StateEngine:
                 
                 logger.info(f"📥 API response received: {response_data}")
                 
-                # 응답 매핑 처리
-                mappings = apicall_config.get("formats", {}).get("responseMappings", {})
-                
-                # 기본 매핑이 없는 경우 표준 webhook 형식에 맞는 기본 매핑 적용
-                if not mappings:
-                    # 표준 webhook 응답 형식 감지 (memorySlots 구조)
-                    if "memorySlots" in response_data and "NLU_INTENT" in response_data["memorySlots"]:
-                        logger.info("📋 Detected standard webhook response format, applying default mappings")
-                        mappings = {
-                            "NLU_INTENT": "$.memorySlots.NLU_INTENT.value[0]",
-                            "STS_CONFIDENCE": "$.memorySlots.STS_CONFIDENCE.value[0]",
-                            "USER_TEXT_INPUT": "$.memorySlots.USER_TEXT_INPUT.value[0]"
-                        }
-                
+                # 응답 매핑 처리 (새로운 구조)
+                mappings = apicall_config.get("formats", {}).get("responseMappings", [])
                 if mappings:
-                    self._apply_response_mappings(response_data, mappings, memory, self.directive_queue)
+                    logger.info(f"📝 Processing {len(mappings)} response mappings")
+                    for mapping in mappings:
+                        if not isinstance(mapping, dict):
+                            logger.warning(f"Invalid mapping format: {mapping}")
+                            continue
+                        
+                        mapping_type = mapping.get("type")
+                        mapping_map = mapping.get("map")
+                        
+                        if not mapping_type or not mapping_map:
+                            logger.warning(f"Invalid mapping structure: {mapping}")
+                            continue
+                        
+                        # 메모리에 응답 데이터 매핑
+                        for memory_key, jsonpath in mapping_map.items():
+                            if not isinstance(jsonpath, str) or not jsonpath.startswith('$'):
+                                logger.warning(f"Invalid JSONPath: {jsonpath}")
+                                continue
+                            
+                            try:
+                                # JSONPath를 사용하여 응답에서 값 추출
+                                from services.utils import extract_jsonpath_value
+                                extracted_value = extract_jsonpath_value(response_data, jsonpath)
+                                if extracted_value is not None:
+                                    if mapping_type == "memory":
+                                        memory[memory_key] = extracted_value
+                                        logger.info(f"📝 Memory updated: {memory_key} = {extracted_value}")
+                                    elif mapping_type == "directive":
+                                        # directive 타입은 향후 확장 가능
+                                        logger.info(f"📝 Directive mapping: {memory_key} = {extracted_value}")
+                                    else:
+                                        logger.warning(f"Unknown mapping type: {mapping_type}")
+                                else:
+                                    logger.warning(f"JSONPath {jsonpath} not found in response")
+                            except Exception as e:
+                                logger.error(f"Error processing mapping {memory_key}: {jsonpath} - {str(e)}")
+                                continue
+                else:
+                    logger.info("No response mappings defined, skipping response processing")
                 
                 logger.info(f"📋 Memory after response mapping: {memory}")
                 

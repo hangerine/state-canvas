@@ -123,16 +123,21 @@ export interface MemoryAction {
 }
 
 export interface ApiCallFormats {
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
-  requestTemplate?: string;
-  responseSchema?: Record<string, any>;
-  responseMappings?: Record<string, string | { type: 'memory' | 'directive', [key: string]: string }>;
+  method: string;
+  contentType: string;
+  requestTemplate: string;
+  responseProcessing?: Record<string, any>;
+  responseMappings: Array<{
+    type: 'memory' | 'directive';
+    map: Record<string, string>;
+  }>;
   headers?: Record<string, string>;
+  queryParams?: Array<{name: string, value: string}>;
 }
 
 export interface ApiCall {
   url: string;
-  timeout: number;
+  timeoutInMilliSecond: number;
   retry: number;
   formats: ApiCallFormats;
 }
@@ -214,17 +219,14 @@ export interface IntentMapping {
 }
 
 export interface Webhook {
+  type: 'webhook' | 'apicall';
   name: string;
   url: string;
-  headers: Record<string, string>;
   timeoutInMilliSecond: number;
   retry: number;
-  // optional: additional body fields for webhook requests
-  body?: Record<string, any>;
-  // unified list support
-  type?: 'webhook' | 'apicall';
-  // when type === 'apicall'
-  timeout?: number;
+  headers: Record<string, string>;
+  // apicall 타입일 때만 필요한 필드들
+  queryParams?: Array<{name: string, value: string}>;
   formats?: ApiCallFormats;
 }
 

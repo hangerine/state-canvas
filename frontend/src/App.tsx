@@ -538,7 +538,7 @@ function App() {
           // 시나리오 이름이 직접 들어온 경우 (예: "Scene1")
           else if (scenarioNameOrId && !scenarioNameOrId.startsWith('scenario-')) {
             // 그대로 사용 (이미 시나리오 이름)
-            scenarioNameOrId = scenarioNameOrId;
+            // scenarioNameOrId is already set
           }
         }
         
@@ -1708,15 +1708,29 @@ function App() {
         const existing = new Set((webhooks || []).filter((w: any) => w.type === 'apicall').map((w: any) => w.name));
         apicalls.forEach((a) => {
           if (existing.has(a.name)) return;
+          
+          // 새로운 spec에 맞춰 변환
+          const formats = a.formats || {};
+          const newFormats = {
+            method: formats.method || 'POST',
+            contentType: formats.contentType || 'application/json',
+            requestTemplate: formats.requestTemplate,
+
+            responseProcessing: formats.responseProcessing || {},
+            responseMappings: formats.responseMappings || [],
+            headers: formats.headers || {},
+            queryParams: formats.queryParams || []
+          };
+          
           webhooks.push({
             type: 'apicall',
             name: a.name,
             url: a.url,
-            timeout: a.timeout,
+            timeoutInMilliSecond: a.timeoutInMilliSecond || a.timeout || 5000,
             retry: a.retry,
-            timeoutInMilliSecond: a.timeout,
-            headers: (a.formats || {}).headers || {},
-            formats: a.formats || {}
+            
+            headers: formats.headers || {},
+            formats: newFormats
           });
         });
         s.webhooks = webhooks;

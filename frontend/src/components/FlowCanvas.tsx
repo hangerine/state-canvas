@@ -1691,9 +1691,9 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
         availableApiCalls={((scenario?.webhooks || []).filter(w => w.type === 'apicall') as any).map((w: any) => ({
           name: w.name,
           url: w.url,
-          timeout: w.timeout || w.timeoutInMilliSecond || 5000,
+          timeoutInMilliSecond: w.timeoutInMilliSecond || w.timeout || 5000,
           retry: w.retry || 3,
-          formats: w.formats || { method: 'POST', headers: {}, requestTemplate: '', responseMappings: {}, responseSchema: {} }
+          formats: w.formats || { method: 'POST', headers: {}, requestTemplate: '', responseMappings: [] }
         }))}
         scenario={scenario || undefined}
         nodeType={editingNode?.type}

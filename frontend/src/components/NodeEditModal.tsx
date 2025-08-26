@@ -276,14 +276,21 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
     // Response Mappings 문자열을 JSON 객체로 변환
     const updatedApiCallHandlers = editedState.apicallHandlers?.map((handler, index) => {
       const mappingString = getSafeResponseMappingString(index);
-      let parsedMappings = {};
+      let parsedMappings: Array<{ type: 'memory' | 'directive', map: Record<string, string> }> = [];
       
       try {
-        parsedMappings = JSON.parse(mappingString);
+        const parsed = JSON.parse(mappingString);
+        // 배열인지 확인하고, 객체인 경우 배열로 변환
+        if (Array.isArray(parsed)) {
+          parsedMappings = parsed;
+        } else if (typeof parsed === 'object' && parsed !== null) {
+          // 객체인 경우 배열로 변환 (기존 형식 호환성)
+          parsedMappings = [parsed];
+        }
       } catch (e) {
         // console.warn(`Invalid JSON in Response Mappings for handler ${index}:`, mappingString);
-        // 유효하지 않은 JSON의 경우 빈 객체 사용
-        parsedMappings = {};
+        // 유효하지 않은 JSON의 경우 빈 배열 사용
+        parsedMappings = [];
       }
       
       return {
@@ -709,13 +716,13 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
       name: "API_CALL",
       apicall: {
         url: "",
-        timeout: 5000,
+        timeoutInMilliSecond: 5000,
         retry: 3,
         formats: {
           method: "POST",
+          contentType: "application/json",
           requestTemplate: "",
-          responseSchema: {},
-          responseMappings: {},
+          responseMappings: [],
           headers: {
             "Content-Type": "application/json"
           }
@@ -1770,7 +1777,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                                   apicall: {
                                     ...h.apicall!,
                                     url: selected.url,
-                                    timeout: selected.timeout,
+                                    timeoutInMilliSecond: selected.timeoutInMilliSecond,
                                     retry: selected.retry,
                                     formats: {
                                       ...h.apicall!.formats,
@@ -1827,7 +1834,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                       <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1, bgcolor: '#f9f9f9' }}>
                         <Typography variant="body2"><strong>URL:</strong> {handler.apicall?.url || '-'}</Typography>
                         <Typography variant="body2"><strong>Method:</strong> {handler.apicall?.formats.method || '-'}</Typography>
-                        <Typography variant="body2"><strong>Timeout:</strong> {handler.apicall?.timeout ?? '-' } ms</Typography>
+                        <Typography variant="body2"><strong>Timeout:</strong> {handler.apicall?.timeoutInMilliSecond ?? '-' } ms</Typography>
                         <Typography variant="body2"><strong>Retry:</strong> {handler.apicall?.retry ?? '-'}</Typography>
                         <Typography variant="body2" sx={{ mt: 0.5 }}>
                           <strong>Headers:</strong> {Object.keys(handler.apicall?.formats.headers || {}).length}개
@@ -1846,13 +1853,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                         <Typography variant="body2" sx={{ mt: 0.5 }}>
                           <strong>Response Schema:</strong>
                         </Typography>
-                        <Typography variant="caption" sx={{ display: 'block', whiteSpace: 'pre-wrap', fontFamily: 'monospace', ml: 1.5 }}>
-                          {(() => {
-                            try { return JSON.stringify(handler.apicall?.formats.responseSchema || {}, null, 2).slice(0, 400); } catch { return '-'; }
-                          })()}{(() => {
-                            try { return JSON.stringify(handler.apicall?.formats.responseSchema || {}, null, 2).length > 400 ? ' ...' : ''; } catch { return ''; }
-                          })()}
-                        </Typography>
+
                         <Typography variant="body2" sx={{ mt: 0.5 }}>
                           <strong>Response Mappings:</strong>
                         </Typography>
