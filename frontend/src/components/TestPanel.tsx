@@ -926,7 +926,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
           context: defaultContext,
           headers: defaultHeaders,
           currentState,
-          scenario: scenarios && Object.values(scenarios).length > 0 ? Object.values(scenarios) as Scenario[] : [scenario!]
+          scenario: scenario!
         };
 
         const response = await axios.post('http://localhost:8000/api/process-chatbot-input', chatbotRequestData);
@@ -947,32 +947,32 @@ const TestPanel: React.FC<TestPanelProps> = ({
         let jsonRequest = JSON.parse(inputText);
         // eventType만 입력된 경우 보조 처리
         if (typeof jsonRequest === 'string') {
-          // eventType만 입력된 경우 userInput 포맷으로 감싸기
-          jsonRequest = {
-            userId,
-            botId,
-            botVersion,
-            botName,
-            botResourcePath: `${botId}-${botVersion}.json`,
-            sessionId,
-            requestId: 'chatbot-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
-            userInput: {
-              type: 'customEvent',
-              content: {
-                type: jsonRequest,
-                value: {
-                  scope: null,
+                      // eventType만 입력된 경우 userInput 포맷으로 감싸기
+            jsonRequest = {
+              userId,
+              botId,
+              botVersion,
+              botName,
+              botResourcePath: `${botId}-${botVersion}.json`,
+              sessionId,
+              requestId: 'chatbot-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+              userInput: {
+                type: 'customEvent',
+                content: {
                   type: jsonRequest,
-                  value: {},
-                  version: '1.0'
+                  value: {
+                    scope: null,
+                    type: jsonRequest,
+                    value: {},
+                                         version: '1.0'
+                  }
                 }
-              }
-            },
-            context: defaultContext,
-            headers: defaultHeaders,
-            currentState,
-            scenario: scenarios && Object.values(scenarios).length > 0 ? Object.values(scenarios) as Scenario[] : [scenario!]
-          };
+              },
+              context: defaultContext,
+              headers: defaultHeaders,
+              currentState,
+              scenario: scenario!
+            };
         }
         // 필수 필드 확인
         if (!jsonRequest.userId || !jsonRequest.sessionId || !jsonRequest.userInput) {
@@ -983,7 +983,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
         const requestData = {
           ...jsonRequest,
           currentState,
-          scenario: scenarios && Object.values(scenarios).length > 0 ? Object.values(scenarios) as Scenario[] : [scenario!]
+          scenario: scenario!
         };
         addMessage('user', `[JSON] ${JSON.stringify(jsonRequest.userInput, null, 2)}`);
         addMessage('system', '📤 JSON 요청을 전송합니다...');
@@ -1120,6 +1120,13 @@ const TestPanel: React.FC<TestPanelProps> = ({
       
       const cleanedScenario = scenario ? cleanScenarioApiCallHandlers(scenario) : scenario;
       const cleanedScenarios = scenarios ? Object.fromEntries(Object.entries(scenarios).map(([k, v]) => [k, cleanScenarioApiCallHandlers(v)])) : scenarios;
+      
+      // === 디버깅 로그 추가 ===
+      console.log('🔍 [DEBUG] 원본 scenario:', scenario);
+      console.log('🔍 [DEBUG] cleanedScenario:', cleanedScenario);
+      console.log('🔍 [DEBUG] cleanedScenario 타입:', typeof cleanedScenario);
+      console.log('🔍 [DEBUG] cleanedScenario 배열 여부:', Array.isArray(cleanedScenario));
+      
       const chatbotRequestData: ChatbotProcessRequest = {
         userId,
         botId,
@@ -1132,11 +1139,13 @@ const TestPanel: React.FC<TestPanelProps> = ({
         context: defaultContext,
         headers: defaultHeaders,
         currentState,
-        scenario: cleanedScenarios && Object.values(cleanedScenarios).length > 0 ? Object.values(cleanedScenarios) as Scenario[] : [cleanedScenario!]
+        scenario: cleanedScenario  // scenario 필드 추가
       };
 
       // === 추가: 백엔드로 전송되는 시나리오 배열 로그 ===
-      console.log('🛫 백엔드로 전송되는 시나리오 배열:', chatbotRequestData.scenario);
+      console.log('🛫 백엔드로 전송되는 시나리오:', chatbotRequestData.scenario);
+      console.log('🛫 [DEBUG] 최종 scenario 타입:', typeof chatbotRequestData.scenario);
+      console.log('🛫 [DEBUG] 최종 scenario 배열 여부:', Array.isArray(chatbotRequestData.scenario));
 
       if (proxyMode && proxyEndpoint.trim()) {
         response = await axios.post('http://localhost:8000/api/proxy', {
@@ -1256,7 +1265,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
         context: defaultContext,
         headers: defaultHeaders,
         currentState,
-        scenario: scenarios && Object.values(scenarios).length > 0 ? Object.values(scenarios) as Scenario[] : [scenario!]
+        scenario: scenario!
       };
 
       let response;

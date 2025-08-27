@@ -30,181 +30,107 @@ class ApiCallHandler(BaseHandler):
         apicall_handlers = current_dialog_state.get("apicallHandlers", [])
         if not apicall_handlers:
             return None
+            
         logger.info(f"Processing {len(apicall_handlers)} apicall handlers in state {current_state}")
+        
         if "sessionId" not in memory:
             memory["sessionId"] = str(uuid.uuid4())
             logger.info(f"🆔 Generated sessionId: {memory['sessionId']}")
-        new_state = current_state
+        
+        results = []
         for handler in apicall_handlers:
             if not isinstance(handler, dict):
                 logger.warning(f"Apicall handler is not a dict: {handler}")
                 continue
+                
             try:
                 apicall_name = handler.get("name")
-                apicall_config = None
-                # 우선 unified webhooks(type='apicall')에서 검색
-                for ap in scenario.get("webhooks", []):
-                    try:
-                        if ap.get("type") == "apicall" and ap.get("name") == apicall_name:
-                            apicall_config = {
-                                "name": ap.get("name"),
-                                "url": ap.get("url", ""),
-                                "timeout": ap.get("timeout", ap.get("timeoutInMilliSecond", 5000)),
-                                "retry": ap.get("retry", 3),
-                                "formats": ap.get("formats", {})
-                            }
-                            break
-                    except Exception:
-                        continue
-                # 레거시 apicalls fallback
+                apicall_config = handler.get("apicall", {})
+                
                 if not apicall_config:
-                    for apicall in scenario.get("apicalls", []):
-                        if apicall.get("name") == apicall_name:
-                            apicall_config = apicall
-                            break
-                if not apicall_config:
-                    logger.warning(f"No apicall config found for name: {apicall_name}")
-                    continue
-                logger.info(f"🚀 Executing API call: {handler.get('name', 'Unknown')}")
-                logger.info(f"📋 Memory before API call: {memory}")
-                response_data = await self.execute_api_call(apicall_config, memory)
-                if response_data is None:
-                    logger.warning(f"API call failed for handler: {handler}")
-                    continue
-                logger.info(f"📥 API response received: {response_data}")
-                mappings = apicall_config.get("formats", {}).get("responseMappings", [])
-                if not mappings:
-                    logger.info("No response mappings defined, skipping response processing")
+                    logger.warning(f"No apicall config found for handler: {apicall_name}")
                     continue
                 
-                # 새로운 responseMappings 배열 구조 처리
-                for mapping in mappings:
-                    if not isinstance(mapping, dict):
-                        logger.warning(f"Invalid mapping format: {mapping}")
-                        continue
-                    
-                    mapping_type = mapping.get("type")
-                    mapping_map = mapping.get("map")
-                    
-                    if not mapping_type or not mapping_map:
-                        logger.warning(f"Invalid mapping structure: {mapping}")
-                        continue
-                    
-                    # 메모리에 응답 데이터 매핑
-                    for memory_key, jsonpath in mapping_map.items():
-                        if not isinstance(jsonpath, str) or not jsonpath.startswith('$'):
-                            logger.warning(f"Invalid JSONPath: {jsonpath}")
-                            continue
-                        
-                        try:
-                            # JSONPath를 사용하여 응답에서 값 추출
-                            extracted_value = utils.extract_jsonpath_value(response_data, jsonpath)
-                            if extracted_value is not None:
-                                if mapping_type == "memory":
-                                    memory[memory_key] = extracted_value
-                                    logger.info(f"📝 Memory updated: {memory_key} = {extracted_value}")
-                                elif mapping_type == "directive":
-                                    # directive 타입은 향후 확장 가능
-                                    logger.info(f"📝 Directive mapping: {memory_key} = {extracted_value}")
-                                else:
-                                    logger.warning(f"Unknown mapping type: {mapping_type}")
-                            else:
-                                logger.warning(f"JSONPath {jsonpath} not found in response")
-                        except Exception as e:
-                            logger.error(f"Error processing mapping {memory_key}: {jsonpath} - {str(e)}")
-                            continue
-                logger.info(f"📋 Memory after response mapping: {memory}")
-                condition_handlers = current_dialog_state.get("conditionHandlers", [])
-                matched_condition = False
-                transitions = []
-                response_messages = [f"🔄 API 호출 완료: {handler.get('name', 'Unknown')}"]
-                for cond_handler in condition_handlers:
-                    if not isinstance(cond_handler, dict):
-                        logger.warning(f"Condition handler is not a dict: {cond_handler}")
-                        continue
-                    condition = cond_handler.get("conditionStatement", "")
-                    if condition.strip() == "True" or condition.strip() == '"True"':
-                        continue
-                    logger.info(f"🔍 Evaluating condition: '{condition}' with memory: {memory}")
-                    logger.info(f"🔍 NLU_INTENT in memory: {memory.get('NLU_INTENT', 'NOT_FOUND')}")
-                    condition_result = self.transition_manager.evaluate_condition(condition, memory)
-                    logger.info(f"🔍 Condition result: {condition_result}")
-                    if condition_result:
-                        cond_target = cond_handler.get("transitionTarget", {})
-                        new_state = cond_target.get("dialogState", current_state)
-                        transition = None
-                        if hasattr(self.scenario_manager, 'StateTransition'):
-                            transition = StateTransition(
-                                fromState=current_state,
-                                toState=new_state,
-                                reason=f"API Call + 조건 매칭: {condition}",
-                                conditionMet=True,
-                                handlerType="apicall_condition"
-                            )
-                        transitions.append(transition)
-                        response_messages.append(f"✅ 조건 '{condition}' 매칭됨 → {new_state}")
-                        matched_condition = True
-                        break
-                if not matched_condition:
-                    for cond_handler in condition_handlers:
-                        if not isinstance(cond_handler, dict):
-                            logger.warning(f"Condition handler is not a dict: {cond_handler}")
-                            continue
-                        condition = cond_handler.get("conditionStatement", "")
-                        if condition.strip() == "True" or condition.strip() == '"True"':
-                            cond_target = cond_handler.get("transitionTarget", {})
-                            new_state = cond_target.get("dialogState", current_state)
-                            transition = None
-                            if hasattr(self.scenario_manager, 'StateTransition'):
-                                transition = StateTransition(
-                                    fromState=current_state,
-                                    toState=new_state,
-                                    reason="API Call + 조건 불일치 - fallback 실행",
-                                    conditionMet=True,
-                                    handlerType="apicall_condition"
-                                )
-                            transitions.append(transition)
-                            response_messages.append(f"❌ 조건 불일치 - fallback으로 {new_state}로 이동")
-                            break
-                if not condition_handlers:
-                    target = handler.get("transitionTarget", {})
-                    new_state = target.get("dialogState", current_state)
-                    response_messages.append(f"조건 없음 → {new_state}")
-                if new_state != current_state:
-                    try:
-                        logger.info(f"Executing entry action for transition: {current_state} -> {new_state}")
-                        entry_response = self.scenario_manager._execute_entry_action(scenario, new_state)
-                        logger.info(f"Entry action completed: {entry_response}")
-                        if entry_response:
-                            response_messages.append(entry_response)
-                    except Exception as e:
-                        logger.error(f"Error executing entry action: {e}")
-                        response_messages.append(f"⚠️ Entry action 실행 중 에러: {str(e)}")
-                try:
-                    transition_dicts = []
-                    for t in transitions:
-                        if hasattr(t, 'dict'):
-                            transition_dicts.append(t.dict())
-                        elif hasattr(t, 'model_dump'):
-                            transition_dicts.append(t.model_dump())
-                        else:
-                            logger.warning(f"Transition object has no dict method: {t}")
-                            transition_dicts.append(str(t))
-                except Exception as e:
-                    logger.error(f"Error processing transitions in API call handler: {e}")
-                    transition_dicts = []
-                return {
-                    "new_state": new_state,
-                    "response": "\n".join(response_messages),
-                    "transitions": transition_dicts,
-                    "intent": "API_CALL_CONDITION",
-                    "entities": {},
-                    "memory": memory
-                }
+                logger.info(f"🚀 Executing API call: {apicall_name}")
+                logger.info(f"📋 Memory before API call: {memory}")
+                
+                # API 호출 실행
+                response_data = await self.execute_api_call(apicall_config, memory)
+                
+                if response_data is None:
+                    logger.warning(f"API call failed for handler: {apicall_name}")
+                    continue
+                
+                logger.info(f"📥 API response received: {response_data}")
+                
+                # 응답 매핑 처리
+                response_mappings = apicall_config.get("formats", {}).get("responseMappings", {})
+                if response_mappings:
+                    self._process_response_mappings(response_mappings, response_data, memory)
+                
+                results.append({
+                    "name": apicall_name,
+                    "response": response_data,
+                    "config": apicall_config
+                })
+                
             except Exception as e:
-                logger.error(f"Error processing apicall handler: {e}")
+                logger.error(f"Error processing apicall handler {handler}: {e}")
                 continue
-        return None
+        
+        return results if results else None
+
+    def _process_response_mappings(self, response_mappings: Dict[str, Any], response_data: Dict[str, Any], memory: Dict[str, Any]):
+        """응답 매핑 처리 (새로운 구조 지원)"""
+        
+        for mapping_key, mapping_config in response_mappings.items():
+            if not isinstance(mapping_config, dict):
+                continue
+                
+            mapping_type = mapping_config.get("type")
+            json_path = mapping_config.get(mapping_key)
+            
+            if not mapping_type or not json_path:
+                continue
+            
+            try:
+                # JSONPath를 사용하여 응답에서 값 추출
+                value = self._extract_value_from_response(response_data, json_path)
+                
+                if value is not None:
+                    if mapping_type == "memory":
+                        # 메모리 슬롯에 저장
+                        memory[mapping_key] = value
+                        logger.info(f"💾 Stored response mapping in memory: {mapping_key} = {value}")
+                    
+                    elif mapping_type == "directive":
+                        # 지시사항으로 처리 (필요시 구현)
+                        logger.info(f"📋 Response directive mapping: {mapping_key} = {value}")
+                        
+            except Exception as e:
+                logger.error(f"Error processing response mapping {mapping_key}: {e}")
+
+    def _extract_value_from_response(self, response: Dict[str, Any], json_path: str) -> Any:
+        """JSON 응답에서 특정 경로의 값 추출"""
+        try:
+            if not json_path.startswith("$."):
+                return response.get(json_path)
+            
+            # JSONPath 표현식 처리 (예: $.NLU_INTENT.value)
+            path_parts = json_path[2:].split(".")
+            current = response
+            
+            for part in path_parts:
+                if isinstance(current, dict) and part in current:
+                    current = current[part]
+                else:
+                    return None
+            
+            return current
+            
+        except Exception as e:
+            logger.error(f"Error extracting value from response: {e}")
+            return None
 
     async def execute_api_call(self, apicall_config: Dict[str, Any], memory: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """API 호출 실행"""

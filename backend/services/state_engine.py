@@ -56,6 +56,15 @@ class StateEngine:
         # 세션별 상태 스택 관리
         self.session_stacks: Dict[str, List[Dict[str, Any]]] = {}
         self.global_intent_mapping: List[Dict[str, Any]] = []
+        
+        # 누락된 속성들 초기화
+        self.memory_manager = MemoryManager(self.scenario_manager)
+        self.webhook_handler = WebhookHandler(self.scenario_manager)
+        self.apicall_handler = ApiCallHandler(self.scenario_manager)
+        self.transition_manager = TransitionManager(self.scenario_manager)
+        self.action_executor = ActionExecutor(self.scenario_manager)
+        self.reprompt_manager = RepromptManager(self.scenario_manager, self.action_executor)
+        self.slot_filling_manager = SlotFillingManager(self.scenario_manager, self.transition_manager, self.reprompt_manager)
     
     def load_scenario(self, session_id: str, scenario_data: Union[List[Dict[str, Any]], Dict[str, Any]]):
         """여러 시나리오를 한 세션에 로드할 수 있도록 확장"""
@@ -456,6 +465,25 @@ class StateEngine:
 
         webhook_actions = current_dialog_state.get("webhookActions", [])
         apicall_handlers = current_dialog_state.get("apicallHandlers", [])
+        
+        # 2. apicallHandlers 처리 (새로 추가)
+        if apicall_handlers:
+            logger.info(f" Processing {len(apicall_handlers)} apicall handlers in state {current_state}")
+            try:
+                apicall_result = await self.apicall_handler.handle_apicall_handlers(
+                    current_state,
+                    current_dialog_state,
+                    scenario,
+                    memory
+                )
+                
+                if apicall_result:
+                    # apicall 응답을 memory에 저장
+                    self._store_apicall_response(apicall_result, memory)
+                    
+            except Exception as e:
+                logger.error(f"Error processing apicall handlers: {e}")
+
         webhook_result = None
         apicall_result = None
         transitions = []
@@ -1603,46 +1631,68 @@ class StateEngine:
                 
                 logger.info(f"📥 API response received: {response_data}")
                 
-                # 응답 매핑 처리 (새로운 구조)
+                # 응답 매핑 처리 (새로운 구조 + 레거시 호환)
                 mappings = apicall_config.get("formats", {}).get("responseMappings", [])
                 if mappings:
                     logger.info(f"📝 Processing {len(mappings)} response mappings")
+                    logger.info(f"📝 Mappings data: {mappings}")
+                    
+                    # mappings가 리스트가 아닌 경우 리스트로 변환
+                    if not isinstance(mappings, list):
+                        mappings = [mappings]
+                        logger.info(f"📝 Converted single mapping to list: {mappings}")
+                    
                     for mapping in mappings:
-                        if not isinstance(mapping, dict):
-                            logger.warning(f"Invalid mapping format: {mapping}")
-                            continue
+                        logger.info(f"📝 Processing mapping: {mapping} (type: {type(mapping)})")
                         
+                        if not isinstance(mapping, dict):
+                            logger.warning(f"📝 Invalid mapping format: {mapping}")
+                            continue
+                            
+                        # 표준 구조 추출
                         mapping_type = mapping.get("type")
                         mapping_map = mapping.get("map")
+                        
+                        # 레거시 구조 정규화
+                        if not mapping_type or not mapping_map:
+                            try:
+                                if len(mapping) == 1:
+                                    k, v = next(iter(mapping.items()))
+                                    # 형태 1) { "NLU_INTENT": "$.NLU_INTENT.value" }
+                                    if isinstance(v, str):
+                                        mapping_type = "memory"
+                                        mapping_map = {k: v}
+                                    # 형태 2) { "NLU_INTENT": { "type": "memory", "NLU_INTENT": "$.NLU_INTENT.value" } }
+                                    elif isinstance(v, dict):
+                                        inferred_type = v.get("type")
+                                        inferred_path = v.get(k)
+                                        if inferred_type and isinstance(inferred_path, str):
+                                            mapping_type = inferred_type
+                                            mapping_map = {k: inferred_path}
+                            except Exception as e:
+                                logger.warning(f"📝 Failed to normalize legacy mapping: {e}")
                         
                         if not mapping_type or not mapping_map:
                             logger.warning(f"Invalid mapping structure: {mapping}")
                             continue
                         
-                        # 메모리에 응답 데이터 매핑
-                        for memory_key, jsonpath in mapping_map.items():
-                            if not isinstance(jsonpath, str) or not jsonpath.startswith('$'):
-                                logger.warning(f"Invalid JSONPath: {jsonpath}")
-                                continue
-                            
-                            try:
-                                # JSONPath를 사용하여 응답에서 값 추출
-                                from services.utils import extract_jsonpath_value
-                                extracted_value = extract_jsonpath_value(response_data, jsonpath)
-                                if extracted_value is not None:
-                                    if mapping_type == "memory":
-                                        memory[memory_key] = extracted_value
-                                        logger.info(f"📝 Memory updated: {memory_key} = {extracted_value}")
-                                    elif mapping_type == "directive":
-                                        # directive 타입은 향후 확장 가능
-                                        logger.info(f"📝 Directive mapping: {memory_key} = {extracted_value}")
+                        logger.info(f"📝 Mapping type: {mapping_type}, map: {mapping_map}")
+                        
+                        if mapping_type == "memory":
+                            for key, jsonpath_expr in mapping_map.items():
+                                logger.info(f"📝 Processing memory mapping: {key} -> {jsonpath_expr}")
+                                try:
+                                    from services.utils import extract_jsonpath_value
+                                    extracted_value = extract_jsonpath_value(response_data, jsonpath_expr)
+                                    if extracted_value is not None:
+                                        memory[key] = extracted_value
+                                        logger.info(f"📝 Memory set: {key} = {extracted_value}")
                                     else:
-                                        logger.warning(f"Unknown mapping type: {mapping_type}")
-                                else:
-                                    logger.warning(f"JSONPath {jsonpath} not found in response")
-                            except Exception as e:
-                                logger.error(f"Error processing mapping {memory_key}: {jsonpath} - {str(e)}")
-                                continue
+                                        logger.warning(f"📝 Failed to extract value for {key} using {jsonpath_expr}")
+                                except Exception as e:
+                                    logger.error(f"📝 Error extracting value for {key}: {e}")
+                        else:
+                            logger.warning(f"📝 Unsupported mapping type: {mapping_type}")
                 else:
                     logger.info("No response mappings defined, skipping response processing")
                 

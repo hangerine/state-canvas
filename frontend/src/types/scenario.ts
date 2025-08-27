@@ -96,7 +96,7 @@ export interface ChatbotProcessRequest {
   
   // 추가 처리 필드들
   currentState: string;
-  scenario: Scenario | Scenario[];
+  scenario?: Scenario | Scenario[];  // 선택적 필드로 변경
   eventType?: string;
 }
 
