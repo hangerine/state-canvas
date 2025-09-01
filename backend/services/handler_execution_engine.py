@@ -196,12 +196,25 @@ class HandlerExecutionEngine:
         # 새 요청 시작 시에는 기본적으로 유예 없음 (동일 요청 내 전이에서만 유예 적용)
         intent_deferred = False
         
+        # 🚀 핵심 수정: memory에서 user_input 추출
+        extracted_user_input = None
+        if memory.get("USER_TEXT_INPUT"):
+            user_text_input = memory["USER_TEXT_INPUT"]
+            if isinstance(user_text_input, list) and len(user_text_input) > 0:
+                extracted_user_input = user_text_input[0]
+            elif isinstance(user_text_input, str):
+                extracted_user_input = user_text_input
+        
+        self.logger.info(f"[CONTEXT DEBUG] User input extraction:")
+        self.logger.info(f"  - memory['USER_TEXT_INPUT']: {memory.get('USER_TEXT_INPUT')}")
+        self.logger.info(f"  - extracted_user_input: '{extracted_user_input}'")
+        
         context = ExecutionContext(
             session_id=session_id,
             current_state=current_state,
             scenario=scenario,
             memory=memory,
-            user_input=user_input,
+            user_input=extracted_user_input,
             current_dialog_state=current_dialog_state,
             intent_deferred=intent_deferred
         )
@@ -283,6 +296,18 @@ class HandlerExecutionEngine:
                             context = await self._update_context_for_new_state(
                                 context, new_state
                             )
+                            
+                            # 🚀 핵심 수정: 상태 전이 후 사용자 입력 초기화
+                            # 이전 상태에서 사용한 사용자 입력이 새로운 상태에서 재사용되지 않도록 보장
+                            if context.memory.get("_CLEAR_USER_INPUT_ON_NEXT_REQUEST", False):
+                                self.logger.info(f"[CYCLE {execution_count}] 🚨 Clearing user input after state transition")
+                                context.memory.pop("USER_TEXT_INPUT", None)
+                                context.memory.pop("USER_INPUT", None)
+                                context.memory["_CLEAR_USER_INPUT_ON_NEXT_REQUEST"] = False
+                                # 새로운 컨텍스트에서 user_input도 초기화
+                                context.user_input = None
+                                context.has_user_input = False
+                                self.logger.info(f"[CYCLE {execution_count}] 🚨 User input cleared: user_input='{context.user_input}', has_user_input={context.has_user_input}")
                             
                             # 🚀 핵심 수정: 전이가 발생했으면 현재 사이클을 중단하고 사용자 입력을 기다림
                             self.logger.info(f"[CYCLE {execution_count}] State transition occurred: {context.current_state} -> {new_state}")

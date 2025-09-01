@@ -194,6 +194,10 @@ class SlotFillingManager:
                 elif "type" in entity and "text" in entity:
                     entity_type = entity.get("type")
                     entity_value = entity.get("text")
+                # 🚀 추가: 구조 4: {"entity": "CITY", "value": "서울"}
+                elif "entity" in entity and "value" in entity:
+                    entity_type = entity.get("entity")
+                    entity_value = entity.get("value")
                 
                 if entity_type and entity_value:
                     entities[entity_type] = entity_value

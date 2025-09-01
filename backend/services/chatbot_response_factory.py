@@ -146,5 +146,6 @@ class ChatbotResponseFactory:
             directives=directives,
             dialogResult={},
             meta=meta,
-            log={}
+            log={},
+            memory=memory  # 🚀 메모리 필드 추가
         ) 

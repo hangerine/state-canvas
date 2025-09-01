@@ -195,6 +195,23 @@ class IntentHandlerV2(BaseHandler):
             self.logger.info(f"[INTENT DEBUG] No user input")
             return False
         
+        # 🚀 핵심 수정: 빈 문자열 입력일 때 __ANY_INTENT__ 처리하지 않음
+        if context.user_input and context.user_input.strip() == "":
+            self.logger.info(f"[INTENT DEBUG] Empty user input, not processing __ANY_INTENT__")
+            return False
+        
+        # 🚀 추가 수정: 빈 입력일 때 이전 인텐트 결과도 무시
+        if context.user_input and context.user_input.strip() == "":
+            # 이전 NLU_RESULT도 삭제하여 이전 인텐트가 처리되지 않도록 함
+            context.memory.pop("NLU_RESULT", None)
+            self.logger.info(f"[INTENT DEBUG] Empty user input, cleared previous NLU_RESULT")
+            return False
+        
+        # 🚀 핵심 수정: 빈 입력일 때는 무조건 intent 처리하지 않음
+        if not context.user_input or context.user_input.strip() == "":
+            self.logger.info(f"[INTENT DEBUG] Empty or no user input, skipping intent processing")
+            return False
+        
         # 🚀 핵심 수정: __ANY_INTENT__만 있는 상태에서는 사용자 입력을 기다려야 함
         # __ANY_INTENT__는 사용자가 명시적으로 입력을 제공했을 때만 처리되어야 함
         intent_handlers = context.current_dialog_state.get("intentHandlers", [])
@@ -203,26 +220,40 @@ class IntentHandlerV2(BaseHandler):
             intent_handlers[0].get("intent") == "__ANY_INTENT__"
         )
         
+        self.logger.info(f"[INTENT DEBUG] 🚨 __ANY_INTENT__ 체크:")
+        self.logger.info(f"[INTENT DEBUG] intent_handlers: {intent_handlers}")
+        self.logger.info(f"[INTENT DEBUG] len(intent_handlers): {len(intent_handlers)}")
+        self.logger.info(f"[INTENT DEBUG] has_only_any_intent: {has_only_any_intent}")
+        
         if has_only_any_intent:
             self.logger.info(f"[INTENT DEBUG] State has only __ANY_INTENT__, requiring explicit user input")
-            # __ANY_INTENT__만 있는 상태에서는 사용자 입력이 명시적으로 있어야 함
-            # 단순히 has_user_input이 True인 것만으로는 부족함
-            # 실제로 사용자가 이번 요청에서 입력을 제공했는지 확인
-            if not context.user_input or not context.user_input.strip():
-                self.logger.info(f"[INTENT DEBUG] __ANY_INTENT__ state but no explicit user input")
+            # 🚀 핵심 수정: 세션 기반으로 사용자 입력 확인
+            # 현재 요청에서 새로운 사용자 입력이 있는지 확인
+            current_user_input = context.memory.get("USER_TEXT_INPUT")
+            if not current_user_input or not current_user_input[0].strip():
+                self.logger.info(f"[INTENT DEBUG] __ANY_INTENT__ state but no explicit user input in current request")
                 return False
             else:
-                self.logger.info(f"[INTENT DEBUG] __ANY_INTENT__ state with explicit user input: '{context.user_input}'")
-        
-        # 🚀 추가: 이전 user input 재사용 방지
+                self.logger.info(f"[INTENT DEBUG] __ANY_INTENT__ state with explicit user input: '{current_user_input[0]}'")
+        else:
+            self.logger.info(f"[INTENT DEBUG] State does not have only __ANY_INTENT__, allowing normal processing")
         # State 전이 후 이전 user input이 새로운 state에서 재사용되지 않도록 보장
         if context.memory.get("_CLEAR_USER_INPUT_ON_NEXT_REQUEST", False):
             self.logger.info(f"[INTENT CLEAR] Clearing previous user input for new state: {context.current_state}")
-            # 이전 user input과 NLU 결과 삭제
-            context.memory.pop("USER_TEXT_INPUT", None)
-            context.memory.pop("NLU_RESULT", None)
-            context.memory.pop("_CLEAR_USER_INPUT_ON_NEXT_REQUEST", None)
-            self.logger.info(f"[INTENT CLEAR] Previous user input cleared")
+            # 🚀 핵심 수정: 연속적인 대화에서 사용자 입력 보존
+            # 현재 요청에서 새로운 사용자 입력이 있으면 보존
+            current_user_input = context.memory.get("USER_TEXT_INPUT")
+            if current_user_input and current_user_input[0].strip():
+                self.logger.info(f"[INTENT CLEAR] Preserving current user input: '{current_user_input[0]}'")
+                # 현재 사용자 입력은 보존하고 플래그만 제거
+                context.memory.pop("_CLEAR_USER_INPUT_ON_NEXT_REQUEST", None)
+            else:
+                # 이전 user input과 NLU 결과 삭제
+                context.memory.pop("USER_TEXT_INPUT", None)
+                context.memory.pop("NLU_RESULT", None)
+                context.memory.pop("_CLEAR_USER_INPUT_ON_NEXT_REQUEST", None)
+                self.logger.info(f"[INTENT CLEAR] Previous user input cleared")
+            
             # 🚀 수정: user input을 정리한 후에도 intent 처리가 필요한지 확인
             # 새로운 user input이 있으면 intent 처리를 계속 진행
             if context.has_user_input and context.user_input and context.user_input.strip():

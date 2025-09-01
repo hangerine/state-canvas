@@ -30,7 +30,7 @@ StateCanvas Development Rules
 포트: 8000번 포트에서 실행
 2. 시나리오 파일 관리
 시나리오 위치: ​./backend/scenarios 폴더에 저장
-기본 시나리오: ​9000-1002.json​ 사용
+기본 시나리오: ​9000-0002.json​ 사용
 ⚠️ 중요: 실행 중 절대 시나리오 JSON 파일을 수정하지 않음
 수정 필요 시: User에게 먼저 물어보고 진행
 🔧 코드 수정 규칙
@@ -65,7 +65,7 @@ curl -X POST http://localhost:8000/api/v1/execute \
     "userInput": {"type": "text", "content": {"text": "테스트", "nluResult": {"intent": "test"}}},
     "currentState": "시작상태",
     "botId": "9000",
-    "botVersion": "1002"
+    "botVersion": "0002"
   }'
 
 # 기본 테스트
@@ -77,7 +77,7 @@ curl -X POST http://localhost:8000/api/v1/execute \
     "userInput": {"type": "text", "content": {"text": "테스트", "nluResult": {"intent": "test"}}},
     "currentState": "시작상태",
     "botId": "9000",
-    "botVersion": "1002"
+    "botVersion": "0002"
   }'
 🚨 주의사항
 시나리오 파일 보호: 실행 중 시나리오 파일 수정 금지

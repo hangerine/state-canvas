@@ -71,7 +71,19 @@ def update_session_memory(session_id: str, memory: Dict[str, Any]) -> None:
             "scenario": None
         }
     else:
-        active_sessions[session_id]["memory"] = memory
+        # 🚀 핵심 수정: 기존 메모리를 보존하면서 새로운 메모리로 업데이트
+        existing_memory = active_sessions[session_id].get("memory", {})
+        if existing_memory:
+            # 기존 메모리를 보존하면서 새로운 메모리로 업데이트
+            merged_memory = existing_memory.copy()
+            merged_memory.update(memory)
+            active_sessions[session_id]["memory"] = merged_memory
+            logger.info(f"[MEMORY UPDATE] Merged memory for session: {session_id}")
+            logger.info(f"[MEMORY UPDATE] Existing keys: {list(existing_memory.keys())}")
+            logger.info(f"[MEMORY UPDATE] New keys: {list(memory.keys())}")
+            logger.info(f"[MEMORY UPDATE] Merged keys: {list(merged_memory.keys())}")
+        else:
+            active_sessions[session_id]["memory"] = memory
 
 @app.get("/")
 async def root():
@@ -488,15 +500,30 @@ async def execute_endpoint(req: FastApiRequest):
     context_key = f"{session_id}__bot_builder_dm"
     snapshot = await context_store.get(context_key)
     memory = get_or_create_session_memory(session_id)
+    
+    # 🚀 핵심 수정: 메모리 병합 로직 정리
+    # 1. context_store에서 메모리 복원 (우선순위 1)
     if snapshot and isinstance(snapshot, dict):
-        # merge snapshot memory into memory
         mem_data = snapshot.get("memory", {})
         if isinstance(mem_data, dict):
             memory.update(mem_data)
+            logger.info(f"[MEMORY DEBUG] Restored from context_store: {list(mem_data.keys())}")
         # restore session stack if available
         stack_data = snapshot.get("stack")
         if isinstance(stack_data, list):
             state_engine.session_stacks[session_id] = stack_data
+    
+    # 2. active_sessions에서 메모리 병합 (우선순위 2)
+    if session_id in active_sessions:
+        previous_memory = active_sessions[session_id].get("memory", {})
+        if previous_memory:
+            # 기존 메모리를 보존하면서 새로운 메모리로 업데이트
+            for key, value in previous_memory.items():
+                if key not in memory:
+                    memory[key] = value
+            logger.info(f"[MEMORY DEBUG] Merged from active_sessions: {list(previous_memory.keys())}")
+    
+    logger.info(f"[MEMORY DEBUG] Final memory keys: {list(memory.keys())}")
 
     # hydrate metadata
     memory["sessionId"] = session_id
@@ -573,12 +600,17 @@ async def execute_endpoint(req: FastApiRequest):
     except Exception:
         pass
 
-    # persist snapshot
-    save_snapshot = {
-        "memory": active_sessions.get(session_id, {}).get("memory", {}),
-        "stack": state_engine.session_stacks.get(session_id, [])
-    }
-    await context_store.set(context_key, save_snapshot)
+    # 🚀 핵심 수정: 메모리 저장 로직 정리
+    # context_store에 최종 메모리와 스택 저장
+    final_memory = active_sessions.get(session_id, {}).get("memory", {})
+    final_stack = state_engine.session_stacks.get(session_id, [])
+    
+    await context_store.set(context_key, {
+        "memory": final_memory,
+        "stack": final_stack
+    })
+    
+    logger.info(f"[MEMORY SAVE] Saved to context_store: {list(final_memory.keys())}")
 
     # build response using factory honoring botType
     chatbot_response = state_engine.create_chatbot_response(

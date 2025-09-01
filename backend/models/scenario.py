@@ -227,4 +227,5 @@ class ChatbotResponse(BaseModel):
     directives: List[ChatbotDirective] = []
     dialogResult: Dict[str, Any] = {}
     meta: ResponseMeta = ResponseMeta()
-    log: Dict[str, Any] = {} 
+    log: Dict[str, Any] = {}
+    memory: Dict[str, Any] = {}  # 🚀 메모리 필드 추가 
