@@ -59,6 +59,10 @@ class NLUProcessor:
                 condition_statement = mapping.get("conditionStatement", "")
                 logger.info(f"🔍 Condition check - condition: {condition_statement}")
                 if condition_statement:
+                    # 🚀 추가: 조건 평가 전 메모리 상태 상세 로깅
+                    logger.info(f"🔍 [DM DEBUG] Memory before condition evaluation: {memory}")
+                    logger.info(f"🔍 [DM DEBUG] negInterSentence value: {memory.get('negInterSentence', 'NOT_FOUND')}")
+                    
                     condition_result = self.transition_manager.evaluate_condition(condition_statement, memory)
                     logger.info(f"🔍 Condition result: {condition_result}")
                     if not condition_result:

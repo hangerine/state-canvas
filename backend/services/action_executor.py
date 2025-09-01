@@ -10,19 +10,49 @@ class ActionExecutor:
 
     def execute_entry_action(self, scenario: Dict[str, Any], state_name: str) -> Optional[str]:
         logger.info(f"Executing entry action for state: {state_name}")
+        logger.info(f"🔍 Scenario structure: {scenario}")
+        
+        # 🚀 핵심 수정: 현재 플랜 컨텍스트에서 상태 찾기
+        # 먼저 Scene1 플랜에서 찾기
+        for plan in scenario.get("plan", []):
+            plan_name = plan.get("name")
+            logger.info(f"🔍 Checking plan: {plan_name}")
+            if plan_name == "Scene1":  # Scene1 플랜에서 먼저 검색
+                logger.info(f"🔍 Found Scene1 plan, searching for state: {state_name}")
+                for dialog_state in plan.get("dialogState", []):
+                    dialog_state_name = dialog_state.get("name")
+                    logger.info(f"🔍 Checking dialog state: {dialog_state_name}")
+                    if dialog_state_name == state_name:
+                        logger.info(f"✅ Found state '{state_name}' in Scene1 plan")
+                        entry_action = dialog_state.get("entryAction")
+                        if entry_action:
+                            logger.info(f"✅ Found entry action: {entry_action}")
+                            return self._process_entry_action(entry_action, state_name)
+                        else:
+                            logger.info(f"❌ No entry action for state: {state_name}")
+                            return None
+                logger.info(f"❌ State '{state_name}' not found in Scene1 plan")
+        
+        # Scene1에서 찾지 못한 경우 기존 로직 사용
+        logger.info(f"🔍 Falling back to scenario_manager.find_dialog_state")
         dialog_state = self.scenario_manager.find_dialog_state(scenario, state_name)
         if not dialog_state:
-            logger.info(f"Dialog state not found: {state_name}")
+            logger.info(f"❌ Dialog state not found: {state_name}")
             return None
-        logger.info(f"Found dialog state: {dialog_state}")
+        logger.info(f"✅ Found dialog state: {dialog_state}")
         entry_action = dialog_state.get("entryAction")
         if not entry_action:
-            logger.info(f"No entry action for state: {state_name}")
+            logger.info(f"❌ No entry action for state: {state_name}")
             return None
-        logger.info(f"Entry action: {entry_action}, type: {type(entry_action)}")
+        logger.info(f"✅ Entry action: {entry_action}, type: {type(entry_action)}")
         if not isinstance(entry_action, dict):
-            logger.warning(f"Entry action is not a dict: {entry_action}")
+            logger.warning(f"⚠️ Entry action is not a dict: {entry_action}")
             return None
+        
+        return self._process_entry_action(entry_action, state_name)
+    
+    def _process_entry_action(self, entry_action: Dict[str, Any], state_name: str) -> Optional[str]:
+        """Entry action 처리"""
         directives = entry_action.get("directives", [])
         logger.info(f"Directives: {directives}")
         messages = []
@@ -31,6 +61,18 @@ class ActionExecutor:
             if not isinstance(directive, dict):
                 logger.warning(f"Directive is not a dict: {directive}")
                 continue
+            
+            # 🚀 핵심 수정: speak 타입 directive 처리 추가
+            directive_name = directive.get("name", "")
+            if directive_name == "speak":
+                # speak 타입 directive 처리
+                content = directive.get("content", "")
+                if content:
+                    messages.append(content)
+                    logger.info(f"Speak directive content: {content}")
+                continue
+            
+            # 기존 customPayload 타입 directive 처리
             content = directive.get("content", {})
             logger.info(f"Content: {content}, type: {type(content)}")
             if not isinstance(content, dict):
@@ -65,6 +107,7 @@ class ActionExecutor:
                     if text_content:
                         clean_text = re.sub(r'<[^>]+>', '', text_content)
                         messages.append(clean_text)
+        
         result = f"🤖 {'; '.join(messages)}" if messages else None
         logger.info(f"Entry action result: {result}")
         return result

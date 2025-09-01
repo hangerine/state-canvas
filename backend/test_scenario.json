@@ -1,0 +1,213 @@
+{
+  "name": "TestAnyIntentScenario",
+  "plan": [
+    {
+      "name": "MainPlan",
+      "dialogState": [
+        {
+          "name": "Start",
+          "entryAction": {
+            "directives": [
+              {
+                "content": {
+                  "text": "안녕하세요! 무엇을 도와드릴까요?"
+                }
+              }
+            ]
+          },
+          "intentHandlers": [
+            {
+              "intent": "greeting",
+              "transitionTarget": {
+                "dialogState": "GreetingState"
+              },
+              "action": {
+                "memoryActions": [
+                  {
+                    "actionType": "ADD",
+                    "memorySlotKey": "GREETING_COUNT",
+                    "memorySlotValue": "1"
+                  }
+                ]
+              }
+            },
+            {
+              "intent": "__ANY_INTENT__",
+              "transitionTarget": {
+                "dialogState": "AnyIntentState"
+              },
+              "action": {
+                "memoryActions": [
+                  {
+                    "actionType": "ADD",
+                    "memorySlotKey": "UNKNOWN_INTENT_COUNT",
+                    "memorySlotValue": "1"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GreetingState",
+          "entryAction": {
+            "directives": [
+              {
+                "content": {
+                  "text": "안녕하세요! 반갑습니다."
+                }
+              }
+            ]
+          },
+          "intentHandlers": [
+            {
+              "intent": "goodbye",
+              "transitionTarget": {
+                "dialogState": "GoodbyeState"
+              }
+            },
+            {
+              "intent": "__ANY_INTENT__",
+              "transitionTarget": {
+                "dialogState": "AnyIntentState"
+              }
+            }
+          ]
+        },
+        {
+          "name": "AnyIntentState",
+          "entryAction": {
+            "directives": [
+              {
+                "content": {
+                  "text": "죄송합니다. 이해하지 못했습니다. 다시 말씀해 주세요."
+                }
+              }
+            ]
+          },
+          "intentHandlers": [
+            {
+              "intent": "greeting",
+              "transitionTarget": {
+                "dialogState": "GreetingState"
+              }
+            },
+            {
+              "intent": "goodbye",
+              "transitionTarget": {
+                "dialogState": "GoodbyeState"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GoodbyeState",
+          "entryAction": {
+            "directives": [
+              {
+                "content": {
+                  "text": "안녕히 가세요!"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "sts_router",
+          "entryAction": {
+            "directives": [
+              {
+                "content": {
+                  "text": "Now you are in STS router."
+                }
+              }
+            ]
+          },
+          "intentHandlers": [
+            {
+              "intent": "__ANY_INTENT__",
+              "action": {},
+              "transitionTarget": {
+                "scenario": "Main",
+                "dialogState": "sts_webhook_test"
+              }
+            }
+          ]
+        },
+        {
+          "name": "sts_webhook_test",
+          "entryAction": {
+            "directives": [
+              {
+                "content": {
+                  "text": "Webhook for STS has been called."
+                }
+              }
+            ]
+          },
+          "webhookActions": [],
+          "conditionHandlers": [
+            {
+              "conditionStatement": "{$NLU_INTENT} == \"ACT_01_0212\"",
+              "action": {},
+              "transitionTarget": {
+                "scenario": "Main",
+                "dialogState": "act_01_0212"
+              }
+            },
+            {
+              "conditionStatement": "{$NLU_INTENT} == \"ACT_01_0213\"",
+              "action": {},
+              "transitionTarget": {
+                "scenario": "Main",
+                "dialogState": "act_01_0213"
+              }
+            },
+            {
+              "conditionStatement": "{$NLU_INTENT} == \"ACT_01_0235\"",
+              "action": {},
+              "transitionTarget": {
+                "scenario": "Main",
+                "dialogState": "act_01_0235"
+              }
+            },
+            {
+              "conditionStatement": "\"True\"",
+              "action": {},
+              "transitionTarget": {
+                "scenario": "Main",
+                "dialogState": "sts_router"
+              }
+            }
+          ],
+          "apicallHandlers": [
+            {
+              "name": "(external_api)search",
+              "apicall": {
+                "timeout": 5000,
+                "retry": 3,
+                "formats": {
+                  "method": "POST",
+                  "requestTemplate": "{\"sessionId\":\"{$sessionId}\", \"requestId\":\"{$requestId}\"}",
+                  "responseSchema": {},
+                  "responseMappings": {
+                    "NLU_INTENT": {
+                      "type": "memory",
+                      "NLU_INTENT": "$.NLU_INTENT.value"
+                    }
+                  },
+                  "headers": {}
+                }
+              },
+              "transitionTarget": {
+                "scenario": "Main",
+                "dialogState": "sts_webhook_test"
+              }
+            }
+          ],
+          "eventHandlers": []
+        }
+      ]
+    }
+  ]
+}

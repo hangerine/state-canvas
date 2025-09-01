@@ -23,6 +23,15 @@ from services.event_trigger_manager import EventTriggerManager
 
 logger = logging.getLogger(__name__)
 
+# 새로운 Handler 시스템 (선택적 import)
+try:
+    from services.state_engine_adapter import StateEngineAdapter
+    NEW_HANDLER_SYSTEM_AVAILABLE = True
+except ImportError as e:
+    logger.info(f"New handler system not available: {e}")
+    StateEngineAdapter = None
+    NEW_HANDLER_SYSTEM_AVAILABLE = False
+
 class StateEngine:
     """시나리오 기반 State 전이 엔진"""
     
@@ -34,9 +43,18 @@ class StateEngine:
             # TransitionManager가 필요하므로 먼저 생성
             from services.transition_manager import TransitionManager
             transition_manager = TransitionManager(self.scenario_manager)
-            self.nlu_processor = NLUProcessor(self.scenario_manager, transition_manager)
+            try:
+                self.nlu_processor = NLUProcessor(self.scenario_manager, transition_manager)
+                logger.info(f"[STATE_ENGINE DEBUG] Created NLUProcessor: {type(self.nlu_processor)}")
+            except Exception as e:
+                logger.error(f"[STATE_ENGINE DEBUG] Failed to create NLUProcessor: {e}")
+                # Fallback: ActionExecutor를 nlu_processor로 사용 (임시)
+                from services.action_executor import ActionExecutor
+                self.nlu_processor = ActionExecutor(self.scenario_manager)
+                logger.warning(f"[STATE_ENGINE DEBUG] Using ActionExecutor as fallback for nlu_processor")
         else:
             self.nlu_processor = nlu_processor
+            logger.info(f"[STATE_ENGINE DEBUG] Using provided nlu_processor: {type(self.nlu_processor)}")
             
         self.chatbot_response_factory = chatbot_response_factory or ChatbotResponseFactory()
         
@@ -65,6 +83,18 @@ class StateEngine:
         self.action_executor = ActionExecutor(self.scenario_manager)
         self.reprompt_manager = RepromptManager(self.scenario_manager, self.action_executor)
         self.slot_filling_manager = SlotFillingManager(self.scenario_manager, self.transition_manager, self.reprompt_manager)
+        
+        # 새로운 Handler 시스템 초기화 (선택적)
+        self.adapter = None
+        if NEW_HANDLER_SYSTEM_AVAILABLE and StateEngineAdapter:
+            try:
+                self.adapter = StateEngineAdapter(self)
+                # 🚀 모든 Handler를 기본으로 활성화
+                self._enable_all_handlers_by_default()
+                logger.info("🚀 New handler system adapter initialized with all handlers enabled")
+            except Exception as e:
+                logger.warning(f"Failed to initialize new handler system: {e}")
+                self.adapter = None
     
     def load_scenario(self, session_id: str, scenario_data: Union[List[Dict[str, Any]], Dict[str, Any]]):
         """여러 시나리오를 한 세션에 로드할 수 있도록 확장"""
@@ -103,7 +133,7 @@ class StateEngine:
             else:
                 logger.info("🔗 No states with webhook actions found")
         logger.info(f"Scenario loaded for session: {session_id}")
-        initial_state = self.get_initial_state(first)
+        initial_state = self.get_initial_state(first, session_id)
         # 첫 번째 플랜의 이름을 시나리오명으로, 실제 플랜명은 Main으로 초기화
         first_plan_name = first.get("plan", [{}])[0].get("name", "")
         self.session_stacks[session_id] = [
@@ -179,20 +209,45 @@ class StateEngine:
         self.global_intent_mapping = intent_mapping
         logger.info(f"Updated global intent mapping with {len(intent_mapping)} rules")
     
-    def get_initial_state(self, scenario: Dict[str, Any]) -> str:
+    def get_initial_state(self, scenario: Dict[str, Any], session_id: str = None) -> str:
         """시나리오의 초기 상태를 반환합니다."""
         if scenario.get("plan") and len(scenario["plan"]) > 0:
+            # 세션 ID가 제공된 경우 현재 활성 플랜 확인
+            current_plan_name = None
+            if session_id:
+                current_plan_name = self._get_current_plan_name(session_id, scenario)
+                logger.info(f"🎯 현재 활성 플랜: {current_plan_name}")
+            
+            # 현재 활성 플랜이 있으면 해당 플랜에서 초기 상태 찾기
+            if current_plan_name:
+                for plan in scenario["plan"]:
+                    if plan.get("name") == current_plan_name:
+                        dialog_states = plan.get("dialogState", [])
+                        if dialog_states:
+                            # Start가 있으면 선택
+                            for state in dialog_states:
+                                if state.get("name") == "Start":
+                                    logger.info(f"🎯 {current_plan_name}.Start를 초기 상태로 설정")
+                                    return "Start"
+                            
+                            # Start가 없으면 첫 번째 상태 선택
+                            first_state = dialog_states[0].get("name", "")
+                            logger.info(f"🎯 {current_plan_name}.{first_state}를 초기 상태로 설정")
+                            return first_state
+                        break
+            
+            # 현재 활성 플랜이 없거나 찾을 수 없는 경우 첫 번째 플랜 사용
             dialog_states = scenario["plan"][0].get("dialogState", [])
             if dialog_states:
                 # Start가 있으면 선택
                 for state in dialog_states:
                     if state.get("name") == "Start":
-                        logger.info("🎯 Start를 초기 상태로 설정")
+                        logger.info("🎯 첫 번째 플랜의 Start를 초기 상태로 설정")
                         return "Start"
                 
                 # Start가 없으면 첫 번째 상태 선택
                 first_state = dialog_states[0].get("name", "")
-                logger.info(f"🎯 첫 번째 상태를 초기 상태로 설정: {first_state}")
+                logger.info(f"🎯 첫 번째 플랜의 {first_state}를 초기 상태로 설정")
                 return first_state
         return ""
     
@@ -447,6 +502,99 @@ class StateEngine:
                 "transitions": []
             }
     
+    async def process_input_v2(
+        self,
+        session_id: str,
+        user_input: str,
+        current_state: str,
+        scenario: Dict[str, Any],
+        memory: Dict[str, Any],
+        event_type: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        새로운 Handler 시스템을 사용한 입력 처리 (v2)
+        
+        기존 process_input과 동일한 API를 유지하면서 새로운 Handler 시스템을 사용합니다.
+        새 시스템이 실패하면 자동으로 기존 시스템으로 fallback합니다.
+        """
+        
+        # 새로운 시스템이 사용 가능한 경우
+        if self.adapter:
+            try:
+                logger.info(f"[PROCESS INPUT V2] 🚨 새로운 시스템 사용 시도!")
+                logger.info(f"[PROCESS INPUT V2] 🔍 adapter: {self.adapter}")
+                logger.info(f"[PROCESS INPUT V2] 🔍 session_id: {session_id}")
+                logger.info(f"[PROCESS INPUT V2] 🔍 current_state: {current_state}")
+                
+                return await self.adapter.process_input(
+                    session_id, user_input, current_state, scenario, memory, event_type
+                )
+            except Exception as e:
+                logger.error(f"New handler system failed, falling back to legacy: {e}")
+        
+        # Fallback: 기존 시스템 사용
+        logger.info(f"[PROCESS INPUT V2] 🚨 기존 시스템 사용!")
+        return await self.process_input(
+            session_id, user_input, current_state, scenario, memory, event_type
+        )
+    
+    def get_handler_system_status(self) -> Dict[str, Any]:
+        """Handler 시스템 상태 정보 반환"""
+        if self.adapter:
+            return self.adapter.get_system_status()
+        else:
+            return {
+                "new_system_available": False,
+                "reason": "Adapter not initialized",
+                "legacy_system_only": True
+            }
+    
+    def enable_new_handler_system(self, enabled: bool = True):
+        """새로운 Handler 시스템 활성화/비활성화"""
+        if self.adapter:
+            return self.adapter.toggle_new_system(enabled)
+        else:
+            logger.warning("New handler system adapter not available")
+            return False
+    
+    def enable_handler(self, handler_name: str):
+        """특정 Handler 활성화 (점진적 전환용)"""
+        if self.adapter:
+            self.adapter.enable_handler(handler_name)
+        else:
+            logger.warning("New handler system adapter not available")
+    
+    def disable_handler(self, handler_name: str):
+        """특정 Handler 비활성화"""
+        if self.adapter:
+            self.adapter.disable_handler(handler_name)
+        else:
+            logger.warning("New handler system adapter not available")
+    
+    def _enable_all_handlers_by_default(self):
+        """모든 Handler를 기본으로 활성화"""
+        if not self.adapter:
+            return
+            
+        handler_names = [
+            "EntryActionHandler",
+            "SlotFillingHandler", 
+            "WebhookHandler",
+            "ApiCallHandler",
+            "IntentHandler",
+            "EventHandler",
+            "ConditionHandler"
+        ]
+        
+        for handler_name in handler_names:
+            self.enable_handler(handler_name)
+            
+        logger.info(f"🎯 All handlers enabled by default: {handler_names}")
+        
+        # IntentHandler를 명시적으로 활성화 (__ANY_INTENT__ 처리를 위해)
+        self.adapter.enable_handler("IntentHandler")
+        logger.info("🎯 IntentHandler explicitly enabled for __ANY_INTENT__ support")
+    
     async def _handle_normal_input(
         self,
         session_id: str,
@@ -462,6 +610,23 @@ class StateEngine:
         intent, entities = self.nlu_processor.get_nlu_results(user_input, memory, scenario, current_state)
         logger.info(f"[NLU] intent 추출 결과: {intent}, entities: {entities}")
         self.memory_manager.store_entities_to_memory(entities, memory)
+
+        # 현재 요청이 텍스트 입력임을 표시 (요청당 인텐트 1회 소비를 보장하기 위함)
+        try:
+            if user_input is not None and str(user_input).strip() != "":
+                memory["USER_INPUT_TYPE"] = "text"
+        except Exception:
+            pass
+
+        # 의도 전이 직후 새 상태에서 intentHandlers를 1회 유예하기 위한 플래그 처리
+        skip_intent_once = False
+        try:
+            defer_state = memory.get("_DEFER_INTENT_ONCE_FOR_STATE")
+            if defer_state and defer_state == current_state:
+                skip_intent_once = True
+                logger.info(f"[INTENT DEFER] Skipping intentHandlers once at state={current_state}")
+        except Exception as e:
+            logger.warning(f"[INTENT DEFER] flag handling failed: {e}")
 
         webhook_actions = current_dialog_state.get("webhookActions", [])
         apicall_handlers = current_dialog_state.get("apicallHandlers", [])
@@ -529,30 +694,152 @@ class StateEngine:
             new_state = webhook_result.get("new_state", current_state)
             dialog_state_after = self._find_dialog_state_for_session(session_id, scenario, new_state)
             if dialog_state_after and dialog_state_after.get("intentHandlers"):
-                intent_transition = self.transition_manager.check_intent_handlers(
-                    dialog_state_after, intent, memory
-                )
-                logger.info(f"[INTENT HANDLER][after webhook] intent_transition: {intent_transition}")
+                if skip_intent_once:
+                    logger.info(f"[INTENT HANDLER][after webhook] skipped once due to defer flag at state={new_state}")
+                    intent_transition = None
+                else:
+                    intent_transition = self.transition_manager.check_intent_handlers(
+                        dialog_state_after, intent, memory
+                    )
+                    logger.info(f"[INTENT HANDLER][after webhook] intent_transition: {intent_transition}")
                 if intent_transition:
-                    result["new_state"] = intent_transition.toState
-                    if "transitions" not in result:
-                        result["transitions"] = []
-                    result["transitions"].append(intent_transition)
+                    # 의도 전이 즉시 반환 (요청당 1회)
+                    next_state = intent_transition.toState
+                    try:
+                        memory["_DEFER_INTENT_ONCE_FOR_STATE"] = next_state
+                        memory["_INTENT_TRANSITIONED_THIS_REQUEST"] = True
+                        self._update_current_dialog_state_name(session_id, next_state)
+                        self.reprompt_manager.clear_reprompt_handlers(memory, new_state)
+                    except Exception as e:
+                        logger.warning(f"[INTENT IMMEDIATE RETURN][after webhook] stack/reprompt update failed: {e}")
+
+                    # entryAction만 실행
+                    response_messages = []
+                    try:
+                        entry_response = self.action_executor.execute_entry_action(scenario, next_state)
+                        if entry_response:
+                            response_messages.append(entry_response)
+                    except Exception as e:
+                        logger.warning(f"[INTENT IMMEDIATE RETURN][after webhook] entry action failed: {e}")
+
+                    # intentHandlers가 없는 상태에서는 즉시 자동 전이도 수행
+                    try:
+                        state_obj = self._find_dialog_state_for_session(session_id, scenario, next_state)
+                        has_intents = bool(state_obj and state_obj.get("intentHandlers"))
+                        if not has_intents:
+                            auto_after_intent = await self._check_and_execute_auto_transitions(
+                                session_id, scenario, next_state, memory, response_messages
+                            )
+                            if auto_after_intent:
+                                next_state = auto_after_intent.get("new_state", next_state)
+                    except Exception as e:
+                        logger.warning(f"[INTENT IMMEDIATE RETURN][after webhook] auto transition failed: {e}")
+
+                    # transitions 직렬화 및 USER_INPUT_TYPE 소비
+                    transition_dicts = []
+                    if "transitions" in result:
+                        for t in result["transitions"]:
+                            try:
+                                if hasattr(t, 'dict'):
+                                    transition_dicts.append(t.dict())
+                                elif hasattr(t, 'model_dump'):
+                                    transition_dicts.append(t.model_dump())
+                                else:
+                                    transition_dicts.append(str(t))
+                            except Exception:
+                                transition_dicts.append(str(t))
+                    try:
+                        transition_dicts.append(intent_transition.dict() if hasattr(intent_transition, 'dict') else str(intent_transition))
+                    except Exception:
+                        transition_dicts.append(str(intent_transition))
+                    try:
+                        memory.pop("USER_INPUT_TYPE", None)
+                    except Exception:
+                        pass
+                    return {
+                        "new_state": next_state,
+                        "response": "\n".join(response_messages),
+                        "transitions": transition_dicts,
+                        "intent": intent,
+                        "entities": entities,
+                        "memory": memory
+                    }
         elif apicall_result:
             result = apicall_result
             # apicall 처리 후 intent handler 분기 추가
             new_state = apicall_result.get("new_state", current_state)
             dialog_state_after = self._find_dialog_state_for_session(session_id, scenario, new_state)
             if dialog_state_after and dialog_state_after.get("intentHandlers"):
-                intent_transition = self.transition_manager.check_intent_handlers(
-                    dialog_state_after, intent, memory
-                )
-                logger.info(f"[INTENT HANDLER][after apicall] intent_transition: {intent_transition}")
+                if skip_intent_once:
+                    logger.info(f"[INTENT HANDLER][after apicall] skipped once due to defer flag at state={new_state}")
+                    intent_transition = None
+                else:
+                    intent_transition = self.transition_manager.check_intent_handlers(
+                        dialog_state_after, intent, memory
+                    )
+                    logger.info(f"[INTENT HANDLER][after apicall] intent_transition: {intent_transition}")
                 if intent_transition:
-                    result["new_state"] = intent_transition.toState
-                    if "transitions" not in result:
-                        result["transitions"] = []
-                    result["transitions"].append(intent_transition)
+                    # 의도 전이 즉시 반환 (요청당 1회)
+                    next_state = intent_transition.toState
+                    try:
+                        memory["_DEFER_INTENT_ONCE_FOR_STATE"] = next_state
+                        memory["_INTENT_TRANSITIONED_THIS_REQUEST"] = True
+                        self._update_current_dialog_state_name(session_id, next_state)
+                        self.reprompt_manager.clear_reprompt_handlers(memory, new_state)
+                    except Exception as e:
+                        logger.warning(f"[INTENT IMMEDIATE RETURN][after apicall] stack/reprompt update failed: {e}")
+
+                    # entryAction만 실행
+                    response_messages = []
+                    try:
+                        entry_response = self.action_executor.execute_entry_action(scenario, next_state)
+                        if entry_response:
+                            response_messages.append(entry_response)
+                    except Exception as e:
+                        logger.warning(f"[INTENT IMMEDIATE RETURN][after apicall] entry action failed: {e}")
+
+                    # intentHandlers가 없는 상태에서는 즉시 자동 전이도 수행
+                    try:
+                        state_obj = self._find_dialog_state_for_session(session_id, scenario, next_state)
+                        has_intents = bool(state_obj and state_obj.get("intentHandlers"))
+                        if not has_intents:
+                            auto_after_intent = await self._check_and_execute_auto_transitions(
+                                session_id, scenario, next_state, memory, response_messages
+                            )
+                            if auto_after_intent:
+                                next_state = auto_after_intent.get("new_state", next_state)
+                    except Exception as e:
+                        logger.warning(f"[INTENT IMMEDIATE RETURN][after apicall] auto transition failed: {e}")
+
+                    # transitions 직렬화 및 USER_INPUT_TYPE 소비
+                    transition_dicts = []
+                    if "transitions" in result:
+                        for t in result["transitions"]:
+                            try:
+                                if hasattr(t, 'dict'):
+                                    transition_dicts.append(t.dict())
+                                elif hasattr(t, 'model_dump'):
+                                    transition_dicts.append(t.model_dump())
+                                else:
+                                    transition_dicts.append(str(t))
+                            except Exception:
+                                transition_dicts.append(str(t))
+                    try:
+                        transition_dicts.append(intent_transition.dict() if hasattr(intent_transition, 'dict') else str(intent_transition))
+                    except Exception:
+                        transition_dicts.append(str(intent_transition))
+                    try:
+                        memory.pop("USER_INPUT_TYPE", None)
+                    except Exception:
+                        pass
+                    return {
+                        "new_state": next_state,
+                        "response": "\n".join(response_messages),
+                        "transitions": transition_dicts,
+                        "intent": intent,
+                        "entities": entities,
+                        "memory": memory
+                    }
         elif webhook_result:
             # webhook 실패지만 apicall도 없을 때 fallback
             result = webhook_result
@@ -599,6 +886,15 @@ class StateEngine:
                                 result = resumed
             except Exception as e:
                 logger.warning(f"[PLAN RETURN] handling in _handle_normal_input failed: {e}")
+            # new_state가 변경된 경우 세션 스택 업데이트
+            new_state_from_result = result.get("new_state")
+            if new_state_from_result and new_state_from_result != current_state:
+                try:
+                    self._update_current_dialog_state_name(session_id, new_state_from_result)
+                    logger.info(f"[STATE][process_input] 세션 스택 상태 업데이트 완료: {current_state} -> {new_state_from_result}")
+                except Exception as stack_err:
+                    logger.warning(f"[STATE][process_input] 세션 스택 상태 업데이트 실패: {stack_err}")
+
             result["entities"] = entities
             result["intent"] = intent
             result["memory"] = memory
@@ -630,6 +926,16 @@ class StateEngine:
         
         # Entity를 메모리에 저장 (type:role 형태의 키로)
         self.memory_manager.store_entities_to_memory(entities, memory)
+
+        # 의도 전이 직후 새 상태에서 intentHandlers를 1회 유예하기 위한 플래그 처리
+        skip_intent_once = False
+        try:
+            defer_state = memory.get("_DEFER_INTENT_ONCE_FOR_STATE")
+            if defer_state and defer_state == current_state:
+                skip_intent_once = True
+                logger.info(f"[INTENT DEFER] Skipping intentHandlers once at state={current_state} (after_webhook)")
+        except Exception as e:
+            logger.warning(f"[INTENT DEFER][after_webhook] flag handling failed: {e}")
         
         transitions = []
         new_state = current_state
@@ -726,7 +1032,10 @@ class StateEngine:
                 # 현재 상태 유지
                 new_state = current_state
         else:
-            # 일반 처리: Slot Filling 상태인지 확인
+            # 일반 처리: 올바른 Handler 실행 순서 구현
+            # 순서: 1. Slot Filling → 2. Intent Handler (사용자 입력 있을 때만) → 3. Event Handler → 4. Condition Handler
+            
+            # 1. Slot Filling 처리
             slot_filling_result = self.slot_filling_manager.process_slot_filling(
                 current_dialog_state, memory, scenario, current_state
             )
@@ -738,26 +1047,70 @@ class StateEngine:
                 if slot_filling_result.get("transition"):
                     transitions.append(slot_filling_result["transition"])
             else:
-                # 일반 Intent/Condition 처리
-                # 1. Intent Handler 확인
-                logger.info(f"[DEBUG] [HANDLER] intentHandlers 평가 시작: {current_dialog_state.get('intentHandlers')}")
-                intent_transition = self.transition_manager.check_intent_handlers(
-                    current_dialog_state, intent, memory
-                )
-                logger.info(f"[DEBUG] [HANDLER] intent_transition 결과: {intent_transition}")
-                if intent_transition:
-                    transitions.append(intent_transition)
-                    new_state = intent_transition.toState
-                    # 플랜명이 직접 지정된 경우 해당 플랜의 Start로 전환
-                    if self._is_plan_name(scenario, new_state):
-                        self._set_current_plan_name(session_id, new_state)
-                        mapped = self._get_start_state_of_plan(scenario, new_state) or new_state
-                        logger.info(f"[PLAN SWITCH][intent] {new_state} → {mapped}")
-                        new_state = mapped
-                    logger.info(f"[STATE] intent 매칭으로 new_state 변경: {new_state}")
-                    response_messages.append(f"🎯 인텐트 '{intent}' 처리됨")
+                # 2. Intent Handler 확인 (요청 직전 의도 전이로 진입한 상태에서는 1회 유예)
+                if skip_intent_once:
+                    logger.info(f"[DEBUG] [HANDLER] intentHandlers 평가 건너뜀(1회 유예): {current_dialog_state.get('intentHandlers')}")
+                    intent_transition = None
+                else:
+                    logger.info(f"[DEBUG] [HANDLER] intentHandlers 평가 시작: {current_dialog_state.get('intentHandlers')}")
+                    intent_transition = self.transition_manager.check_intent_handlers(
+                        current_dialog_state, intent, memory
+                    )
+                    logger.info(f"[DEBUG] [HANDLER] intent_transition 결과: {intent_transition}")
+                    if intent_transition:
+                        transitions.append(intent_transition)
+                        new_state = intent_transition.toState
+                        # 플랜명이 직접 지정된 경우 해당 플랜의 Start로 전환
+                        if self._is_plan_name(scenario, new_state):
+                            self._set_current_plan_name(session_id, new_state)
+                            mapped = self._get_start_state_of_plan(scenario, new_state) or new_state
+                            logger.info(f"[PLAN SWITCH][intent] {new_state} → {mapped}")
+                            new_state = mapped
+                        logger.info(f"[STATE] intent 매칭으로 new_state 변경: {new_state}")
+                        response_messages.append(f"🎯 인텐트 '{intent}' 처리됨")
+
+                        # 의도 전이 발생 시: 현재 요청을 즉시 종료하고 응답 반환 (다음 요청에서만 새 상태의 intentHandlers 평가)
+                        try:
+                            # 다음 요청에서 새 상태의 intentHandlers 평가를 1회 유예
+                            memory["_DEFER_INTENT_ONCE_FOR_STATE"] = new_state
+                            memory["_INTENT_TRANSITIONED_THIS_REQUEST"] = True
+                            # 세션 스택의 상태 업데이트 및 reprompt 해제
+                            self._update_current_dialog_state_name(session_id, new_state)
+                            self.reprompt_manager.clear_reprompt_handlers(memory, current_state)
+                        except Exception as e:
+                            logger.warning(f"[INTENT IMMEDIATE RETURN] stack/reprompt update failed: {e}")
+
+                        # 새 상태의 entryAction만 실행하고 자동 전이나 추가 핸들러 평가는 하지 않음
+                        try:
+                            entry_response = self.action_executor.execute_entry_action(scenario, new_state)
+                            if entry_response:
+                                response_messages.append(entry_response)
+                        except Exception as e:
+                            logger.warning(f"[INTENT IMMEDIATE RETURN] entry action failed: {e}")
+
+                        # transitions 직렬화 후 즉시 반환
+                        transition_dicts = []
+                        for t in transitions:
+                            if hasattr(t, 'dict'):
+                                transition_dicts.append(t.dict())
+                            elif hasattr(t, 'model_dump'):
+                                transition_dicts.append(t.model_dump())
+                            else:
+                                transition_dicts.append(str(t))
+
+                        return {
+                            "new_state": new_state,
+                            "response": "\n".join(response_messages),
+                            "transitions": transition_dicts,
+                            "intent": intent,
+                            "entities": entities,
+                            "memory": memory
+                        }
                 
-                # 2. Condition Handler 확인 (전이가 없었을 경우)
+                # 3. Event Handler 확인 (전이가 없었을 경우)
+                # TODO: Event Handler 구현 필요
+                
+                # 4. Condition Handler 확인 (전이가 없었을 경우)
                 if not intent_transition:
                     logger.info(f"[DEBUG] [HANDLER] conditionHandlers 평가 시작: {current_dialog_state.get('conditionHandlers')}")
                     
@@ -856,6 +1209,9 @@ class StateEngine:
         if new_state != current_state or has_entry_action:
             if new_state != current_state:
                 logger.info(f"[STATE] 상태 변경 감지: {current_state} -> {new_state}")
+                # 세션 스택의 상태 업데이트
+                self._update_current_dialog_state_name(session_id, new_state)
+                logger.info(f"[STATE] 세션 스택 상태 업데이트 완료: {new_state}")
                 # 상태가 변경되면 reprompt handler 해제
                 self.reprompt_manager.clear_reprompt_handlers(memory, current_state)
             else:
@@ -866,6 +1222,54 @@ class StateEngine:
             if entry_response:
                 response_messages.append(entry_response)
             
+            # 의도 전이가 있었던 요청에서는 "의도 핸들러가 존재하는 상태"에서만 자동 전이를 차단
+            # (요구사항: intentHandlers가 있으면 사용자 입력을 기다리고, 없으면 조건 전이는 계속 허용)
+            intent_transitioned = memory.get("_INTENT_TRANSITIONED_THIS_REQUEST") or memory.get("USER_INPUT_TYPE") == "text"
+            has_intent_handlers_now = bool(current_dialog_state_obj and current_dialog_state_obj.get("intentHandlers"))
+            
+            # 디버깅: 상태 객체 정보 로깅
+            logger.info(f"[DEBUG] current_dialog_state_obj for state '{new_state}': {current_dialog_state_obj}")
+            logger.info(f"[DEBUG] has_intent_handlers_now: {has_intent_handlers_now}")
+            logger.info(f"[DEBUG] intentHandlers: {current_dialog_state_obj.get('intentHandlers') if current_dialog_state_obj else 'None'}")
+            
+            if intent_transitioned and has_intent_handlers_now:
+                logger.info(f"[AUTO TRANSITION] Skipped due to intent transition and intentHandlers present in state '{new_state}'")
+                memory.pop("_INTENT_TRANSITIONED_THIS_REQUEST", None)
+                memory.pop("USER_INPUT_TYPE", None)
+                # 요청 종료 직전, defer 플래그를 소모(삭제)하여 다음 요청부터 정상 평가
+                try:
+                    if memory.get("_DEFER_INTENT_ONCE_FOR_STATE") == new_state:
+                        memory.pop("_DEFER_INTENT_ONCE_FOR_STATE", None)
+                except Exception:
+                    pass
+                return {
+                    "new_state": new_state,
+                    "response": "\n".join(response_messages),
+                    "transitions": [t.dict() if hasattr(t, 'dict') else str(t) for t in transitions],
+                    "intent": intent,
+                    "entities": entities,
+                    "memory": memory
+                }
+            
+        # Intent 전이 플래그 정리 (자동 전이는 계속 진행)
+        if intent_transitioned:
+            logger.info(f"[AUTO TRANSITION] Intent transition occurred but no intentHandlers in state '{new_state}' - proceeding with auto transitions")
+            memory.pop("_INTENT_TRANSITIONED_THIS_REQUEST", None)
+            memory.pop("USER_INPUT_TYPE", None)
+            
+            # 조건 전이나 API Call 후 조건 전이의 경우도 플래그 정리
+            if memory.get("_DEFER_INTENT_ONCE_FOR_STATE") == new_state:
+                memory.pop("_DEFER_INTENT_ONCE_FOR_STATE", None)
+                logger.info(f"[AUTO TRANSITION] Cleared defer flag for state '{new_state}'")
+        
+        # API Call 후 조건 전이로 도달한 경우에도 플래그 정리 (조건 핸들러가 없는 상태)
+        elif memory.get("_INTENT_TRANSITIONED_THIS_REQUEST") and not has_intent_handlers_now:
+            logger.info(f"[AUTO TRANSITION] API call transition to state without intentHandlers - clearing flags")
+            memory.pop("_INTENT_TRANSITIONED_THIS_REQUEST", None)
+            memory.pop("USER_INPUT_TYPE", None)
+            if memory.get("_DEFER_INTENT_ONCE_FOR_STATE") == new_state:
+                memory.pop("_DEFER_INTENT_ONCE_FOR_STATE", None)
+
             # Entry Action 실행 후 자동 전이 확인
             auto_transition_result = await self._check_and_execute_auto_transitions(
                 session_id, scenario, new_state, memory, response_messages
@@ -1068,6 +1472,14 @@ class StateEngine:
             else:
                 new_state = "__END_SESSION__"
 
+        # new_state가 변경된 경우 세션 스택 업데이트
+        if new_state != current_state:
+            try:
+                self._update_current_dialog_state_name(session_id, new_state)
+                logger.info(f"[STATE][normal_input] 세션 스택 상태 업데이트 완료: {current_state} -> {new_state}")
+            except Exception as stack_err:
+                logger.warning(f"[STATE][normal_input] 세션 스택 상태 업데이트 실패: {stack_err}")
+
         return {
             "new_state": new_state,
             "response": "\n".join(response_messages),
@@ -1091,6 +1503,12 @@ class StateEngine:
         # 현재 상태 정보 가져오기
         current_dialog_state = self._find_dialog_state_for_session(session_id, scenario, current_state)
         if not current_dialog_state:
+            return None
+        
+        # Intent Handler가 있는 상태에서는 자동 전이하지 않음 (사용자 입력 대기)
+        intent_handlers = current_dialog_state.get("intentHandlers", [])
+        if intent_handlers:
+            logger.info(f"State {current_state} has intent handlers - NO auto transitions, waiting for user input")
             return None
         
         webhook_actions = current_dialog_state.get("webhookActions", [])
@@ -1187,7 +1605,7 @@ class StateEngine:
             if condition.strip() == "True" or condition.strip() == '"True"':
                 # 시나리오 전이 우선 체크 (다른 시나리오 파일)
                 if target_scenario and target_scenario != scenario["plan"][0]["name"] and not any(pl.get("name") == target_scenario for pl in scenario.get("plan", [])):
-                    logger.info(f"[AUTO SCENARIO TRANSITION DETECTED] from={scenario['plan'][0]['name']} to={target_scenario}, state={str(target_state)}")
+                    logger.info(f"[AUTO SCENARIO TRANSITION DETECTED] from={scenario['plan'][0]['name']} to={target_scenario}, state={str(target_state)}, handler_index={handler_index}")
                     self.switch_to_scenario(memory.get('sessionId', ''), target_scenario, target_state, handler_index, current_state)
                     scenario_obj = self.scenario_manager.get_scenario_by_name(target_scenario)
                     if scenario_obj:
@@ -1705,6 +2123,7 @@ class StateEngine:
                 condition_handlers = current_dialog_state.get("conditionHandlers", [])
                 matched_condition = False
                 transitions = []
+                new_state = current_state  # new_state 변수 초기화
                 response_messages = [f"🔄 API 호출 완료: {handler.get('name', 'Unknown')}"]
                 
                 # 먼저 True가 아닌 조건들을 확인
@@ -1773,6 +2192,92 @@ class StateEngine:
                 # Entry Action 실행 (새로운 상태로 전이된 경우)
                 if new_state != current_state:
                     try:
+                        # 세션 스택의 현재 상태를 즉시 업데이트하여 전이가 요청 간에 유지되도록 함
+                        try:
+                            session_id_for_update = memory.get("sessionId")
+                            if session_id_for_update:
+                                # 세션 스택 업데이트 전 상태 로깅
+                                before_stack = self.session_stacks.get(session_id_for_update, [])
+                                logger.info(f"[STATE][apicall] 세션 스택 업데이트 전: {before_stack}")
+                                
+                                self._update_current_dialog_state_name(session_id_for_update, new_state)
+                                
+                                # 세션 스택 업데이트 후 상태 로깅
+                                after_stack = self.session_stacks.get(session_id_for_update, [])
+                                logger.info(f"[STATE][apicall] 세션 스택 업데이트 후: {after_stack}")
+                                logger.info(f"[STATE][apicall] 세션 스택 상태 업데이트 완료: {current_state} -> {new_state}")
+                                
+                                # 즉시 자동 전이 체크 및 실행
+                                logger.info(f"[STATE][apicall] 즉시 자동 전이 체크 시작: {new_state}")
+                                auto_transition_result = await self._check_and_execute_auto_transitions(
+                                    session_id_for_update, scenario, new_state, memory, response_messages
+                                )
+                                if auto_transition_result:
+                                    auto_new_state = auto_transition_result.get("new_state")
+                                    if auto_new_state and auto_new_state != new_state:
+                                        logger.info(f"[STATE][apicall] 자동 전이 실행됨: {new_state} -> {auto_new_state}")
+                                        
+                                        # __END_SCENARIO__ 처리: 시나리오 종료 시 복귀 로직
+                                        if auto_new_state == "__END_SCENARIO__":
+                                            logger.info(f"[STATE][apicall] __END_SCENARIO__ 감지, 시나리오 스택 처리")
+                                            stack = self.session_stacks.get(session_id_for_update, [])
+                                            if stack and len(stack) > 1:
+                                                ended_frame = stack.pop()
+                                                prev_frame = stack[-1]
+                                                resume_state = prev_frame.get("dialogStateName")
+                                                logger.info(f"[STATE][apicall] 시나리오 종료: {ended_frame.get('scenarioName')} -> {prev_frame.get('scenarioName')}, 복귀 상태: {resume_state}")
+                                                
+                                                # 복귀 상태에서 다음 핸들러부터 계속 평가
+                                                dialog_state = self._find_dialog_state_for_session(session_id_for_update, scenario, resume_state)
+                                                if dialog_state:
+                                                    start_idx = int(prev_frame.get("lastExecutedHandlerIndex", -1)) + 1
+                                                    handlers = dialog_state.get("conditionHandlers", [])
+                                                    logger.info(f"[STATE][apicall] 복귀 후 핸들러 평가: state={resume_state}, start_idx={start_idx}, total_handlers={len(handlers)}")
+                                                    
+                                                    # 다음 핸들러부터 평가
+                                                    for idx in range(start_idx, len(handlers)):
+                                                        handler = handlers[idx]
+                                                        cond = handler.get("conditionStatement", "False")
+                                                        if self.transition_manager.evaluate_condition(cond, memory):
+                                                            target = handler.get("transitionTarget", {})
+                                                            final_state = target.get("dialogState", resume_state)
+                                                            prev_frame["lastExecutedHandlerIndex"] = idx
+                                                            logger.info(f"[STATE][apicall] 복귀 후 조건 {idx} 매칭: {resume_state} -> {final_state}")
+                                                            
+                                                            # 최종 상태로 업데이트
+                                                            self._update_current_dialog_state_name(session_id_for_update, final_state)
+                                                            new_state = final_state
+                                                            
+                                                            # Entry action 실행
+                                                            entry_response = self.action_executor.execute_entry_action(scenario, final_state)
+                                                            if entry_response:
+                                                                response_messages.append(entry_response)
+                                                            break
+                                                    else:
+                                                        # 매칭되는 핸들러가 없으면 복귀 상태 유지
+                                                        new_state = resume_state
+                                                        self._update_current_dialog_state_name(session_id_for_update, resume_state)
+                                                else:
+                                                    new_state = resume_state or new_state
+                                            else:
+                                                # 스택이 하나뿐이면 __END_SCENARIO__ 그대로 유지
+                                                new_state = auto_new_state
+                                        else:
+                                            # 일반적인 자동 전이
+                                            self._update_current_dialog_state_name(session_id_for_update, auto_new_state)
+                                            new_state = auto_new_state
+                                        
+                                        # 자동 전이 응답 메시지 추가
+                                        if auto_transition_result.get("response"):
+                                            response_messages.append(auto_transition_result["response"])
+                                    else:
+                                        logger.info(f"[STATE][apicall] 자동 전이 없음: {new_state}")
+                                else:
+                                    logger.info(f"[STATE][apicall] 자동 전이 없음: {new_state}")
+                                    
+                        except Exception as stack_err:
+                            logger.warning(f"[STATE][apicall] 세션 스택 상태 업데이트 실패: {stack_err}")
+
                         logger.info(f"Executing entry action for transition: {current_state} -> {new_state}")
                         entry_response = self.action_executor.execute_entry_action(scenario, new_state)
                         logger.info(f"Entry action completed: {entry_response}")

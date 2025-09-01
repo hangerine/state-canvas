@@ -21,11 +21,27 @@ class ChatbotResponseFactory:
         directive_queue: Optional[List[Dict[str, Any]]] = None
     ) -> ChatbotResponse:
         end_session = "Y" if new_state == "__END_SESSION__" else "N"
-        directives = []
-        
-        # 기본 응답 메시지를 directive로 변환
+        directives: List[ChatbotDirective] = []
+
+        # botType/시나리오/상태에 따라 directive 타입 결정
+        scenario_bot_type = (scenario.get("botConfig", {}) or {}).get("botType", "CHAT_BOT") if isinstance(scenario, dict) else "CHAT_BOT"
+        is_callbot = scenario_bot_type.upper() == "CALL_BOT"
+
         for message in response_messages:
-            if message.strip():
+            if not message or not str(message).strip():
+                continue
+            if is_callbot:
+                # bdm-new callbot 스타일: systemUtterance
+                directives.append(ChatbotDirective(
+                    name="systemUtterance",
+                    content={
+                        "record": None,
+                        "speech": str(message),
+                        "display": ""
+                    }
+                ))
+            else:
+                # 기존 chatbot 스타일: customPayload
                 directive_content = DirectiveContent(
                     item=[
                         {
@@ -43,7 +59,7 @@ class ChatbotResponseFactory:
                         }
                     ]
                 )
-                directives.append(ChatbotDirective(content=directive_content))
+                directives.append(ChatbotDirective(name="customPayload", content=directive_content.model_dump()))
         
         # directive_queue에서 추가 directive 처리
         if directive_queue:
@@ -72,7 +88,20 @@ class ChatbotResponseFactory:
                                 }
                             ]
                         )
-                        directives.append(ChatbotDirective(content=directive_content))
+                        if is_callbot:
+                            directives.append(ChatbotDirective(
+                                name="systemUtterance",
+                                content={
+                                    "record": None,
+                                    "speech": f"Directive from {source}: {key} = {value}",
+                                    "display": ""
+                                }
+                            ))
+                        else:
+                            directives.append(ChatbotDirective(
+                                name="customPayload",
+                                content=directive_content.model_dump()
+                            ))
                         logger.info(f"✅ Added directive from queue: {key} = {value} (source: {source})")
                 except Exception as e:
                     logger.error(f"❌ Error processing directive from queue: {e}")

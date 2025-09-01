@@ -1816,6 +1816,13 @@ function App() {
               onAllScenariosLoad={handleAllScenariosLoad}
               setIsLoading={setIsLoading}
               setLoadingTime={setLoadingTime}
+              onBotInfoDetected={(id, ver) => {
+                // Store to localStorage so TestPanel can read initial values
+                try {
+                  localStorage.setItem('SC_BOT_ID', id);
+                  localStorage.setItem('SC_BOT_VERSION', ver);
+                } catch {}
+              }}
             />
           
           {/* Sidebar Resize Handle */}

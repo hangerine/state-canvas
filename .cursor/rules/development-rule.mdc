@@ -1,0 +1,105 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+
+
+globs: **/*.py
+Theme:
+
+StateCanvas Development Rules
+🚀 실행 규칙
+1. 서버 실행
+2. 시나리오 파일 관리
+🔧 코드 수정 규칙
+3. 코드 수정 전 검토
+4. 테스트 및 검증
+
+📋 개발 워크플로우
+기본 워크플로우
+시나리오 테스트 명령어 예시
+🚨 주의사항
+📝 로그 확인
+StateCanvas Development Rules
+🚀 실행 규칙
+1. 서버 실행
+실행 명령어: ​./start_backend.sh​ 사용
+개발 모드: 기본적으로 develop 모드로 실행됨
+자동 재시작: 코드 수정 시 즉시 반영 및 재시작됨
+포트: 8000번 포트에서 실행
+2. 시나리오 파일 관리
+시나리오 위치: ​./backend/scenarios 폴더에 저장
+기본 시나리오: ​9000-1002.json​ 사용
+⚠️ 중요: 실행 중 절대 시나리오 JSON 파일을 수정하지 않음
+수정 필요 시: User에게 먼저 물어보고 진행
+🔧 코드 수정 규칙
+3. 코드 수정 전 검토
+수정 전에 다음을 반드시 확인:
+
+이전 동작 방식 파악
+주변부 코드 검토
+관련 있는 코드들 모두 검토
+의존성 관계 확인
+4. 테스트 및 검증
+코드 수정 후 반드시 다음 중 하나로 검증:
+
+Unit Test 작성: 가능한 경우 unit test 작성하여 검증
+시나리오 기반 동작 확인: 시나리오를 통한 실제 동작 테스트
+검증 완료 후 진행: 테스트 통과 후 다음 작업 진행
+📋 개발 워크플로우
+기본 워크플로우
+​​./start_backend.sh​로 서버 시작
+코드 수정 시 자동 재시작 확인
+시나리오 파일 수정 필요 시 User에게 문의
+코드 수정 전 관련 코드 전체 검토
+수정 후 unit test 또는 시나리오 테스트로 검증
+검증 완료 후 다음 작업 진행
+시나리오 테스트 명령어 예시
+# 기본 테스트
+curl -X POST http://localhost:8000/api/v1/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sessionId": "test-session-$(date +%s)",
+    "requestId": "test-request",
+    "userInput": {"type": "text", "content": {"text": "테스트", "nluResult": {"intent": "test"}}},
+    "currentState": "시작상태",
+    "botId": "9000",
+    "botVersion": "1002"
+  }'
+
+# 기본 테스트
+curl -X POST http://localhost:8000/api/v1/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sessionId": "test-session-$(date +%s)",
+    "requestId": "test-request",
+    "userInput": {"type": "text", "content": {"text": "테스트", "nluResult": {"intent": "test"}}},
+    "currentState": "시작상태",
+    "botId": "9000",
+    "botVersion": "1002"
+  }'
+🚨 주의사항
+시나리오 파일 보호: 실행 중 시나리오 파일 수정 금지
+의존성 고려: 코드 수정 시 전체 시스템 영향도 고려
+테스트 우선: 모든 수정사항은 반드시 테스트로 검증
+User 협의: 시나리오 수정 등 중요한 변경사항은 User와 협의
+📝 로그 확인
+개발 중 로그를 통해 다음을 확인:
+
+서버 시작 상태
+핸들러 실행 상태
+전이 상태
+에러 발생 여부
+# 서버 로그 실시간 확인
+tail -f backend/server.log
+
+5. 기본 사항
+  1) 핸들러 우선순위
+    - ENTRY_ACTION: 1
+    - SLOT_FILLING: 2
+    - WEBHOOK: 3
+    - APICALL: 4
+    - INTENT: 5
+    - EVENT: 6
+    - CONDITION: 7

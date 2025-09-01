@@ -151,10 +151,22 @@ class ScenarioManager:
                     return scenario
         return None
 
-    def find_dialog_state(self, scenario: Dict[str, Any], state_name: str) -> Optional[Dict[str, Any]]:
+    def find_dialog_state(self, scenario: Dict[str, Any], state_name: str, current_plan: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         시나리오에서 특정 상태를 찾습니다.
+        current_plan이 지정되면 해당 플랜에서 우선적으로 검색합니다.
         """
+        # 현재 활성 플랜에서 우선적으로 검색
+        if current_plan:
+            for plan in scenario.get("plan", []):
+                if plan.get("name") == current_plan:
+                    for dialog_state in plan.get("dialogState", []):
+                        if dialog_state.get("name") == state_name:
+                            return dialog_state
+                    # 현재 플랜에서 찾지 못했으면 다른 플랜에서 검색하지 않음
+                    return None
+        
+        # current_plan이 없거나 현재 플랜에서 찾지 못한 경우 모든 플랜에서 검색
         for plan in scenario.get("plan", []):
             for dialog_state in plan.get("dialogState", []):
                 if dialog_state.get("name") == state_name:

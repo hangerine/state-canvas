@@ -48,6 +48,7 @@ interface SidebarProps {
   onAllScenariosLoad?: (scenarioMap: Record<string, Scenario>) => void;
   setIsLoading: (v: boolean) => void;
   setLoadingTime: (v: number) => void;
+  onBotInfoDetected?: (botId: string, botVersion: string) => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -71,7 +72,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   loadingTime,
   onAllScenariosLoad,
   setIsLoading,
-  setLoadingTime
+  setLoadingTime,
+  onBotInfoDetected
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [validationError, setValidationError] = useState<string>('');
@@ -181,6 +183,15 @@ const Sidebar: React.FC<SidebarProps> = ({
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+
+    try {
+      const match = file.name.match(/(\d+)-(\d+)\.json$/);
+      if (match && match[1] && match[2] && typeof onBotInfoDetected === 'function') {
+        onBotInfoDetected(match[1], match[2]);
+      }
+    } catch (e) {
+      // ignore filename parse errors
+    }
 
     // ⏱️ 시간 측정 시작 - 파일 업로드 처리 시작 시점
     const overallStartTime = performance.now();

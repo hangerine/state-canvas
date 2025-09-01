@@ -6,12 +6,12 @@ import time
 import uuid
 from typing import Dict, Any, Optional, List
 from models.scenario import StateTransition
-from services.base_handler import BaseHandler
+# from services.base_handler import BaseHandler  # 제거 - 기존 Handler는 BaseHandler 상속 불필요
 from services.transition_manager import TransitionManager
 
 logger = logging.getLogger(__name__)
 
-class WebhookHandler(BaseHandler):
+class WebhookHandler:
     def __init__(self, scenario_manager, transition_manager=None):
         self.scenario_manager = scenario_manager
         self.transition_manager = transition_manager or TransitionManager(scenario_manager)

@@ -12,6 +12,7 @@ import requests
 from models.scenario import Scenario, ProcessInputRequest, LegacyProcessInputRequest, StateTransition, UserInput, TextContent, CustomEventContent, ChatbotInputRequest, ChatbotProcessRequest
 from services.state_engine import StateEngine
 from services.websocket_manager import WebSocketManager
+from services.context_store import build_context_store_from_env
 from nlu.router import router as nlu_router
 from webhook.handler import webhook_router, apicall_router
 
@@ -44,6 +45,9 @@ app.include_router(apicall_router)
 state_engine = StateEngine()
 websocket_manager = WebSocketManager()
 active_sessions: Dict[str, Dict[str, Any]] = {}
+context_store = build_context_store_from_env()
+import os
+SCENARIO_DIR = os.getenv("SCENARIO_DIR", "").strip()
 
 # 세션 메모리 관리 함수들
 def get_or_create_session_memory(session_id: str) -> Dict[str, Any]:
@@ -222,16 +226,22 @@ async def reset_session(session_id: str, request: Optional[ResetSessionRequest] 
         if request and request.scenario:
             scenario = request.scenario
             scenarios = scenario if isinstance(scenario, list) else [scenario]
-            initial_state = state_engine.get_initial_state(scenarios[0])
+            initial_state = state_engine.get_initial_state(scenarios[0], session_id)
             state_engine.load_scenario(session_id, scenarios)
+            # 🚀 스택 매니저로 세션 초기화
+            if state_engine.adapter and state_engine.adapter.handler_execution_engine and state_engine.adapter.handler_execution_engine.stack_manager:
+                state_engine.adapter.handler_execution_engine.stack_manager.initialize_session(session_id, scenarios[0], initial_state)
         else:
             # 기존 세션에서 시나리오 가져오기
             if session_id in active_sessions:
                 scenario = active_sessions[session_id].get("scenario")
                 if scenario:
                     scenarios = scenario if isinstance(scenario, list) else [scenario]
-                    initial_state = state_engine.get_initial_state(scenarios[0])
+                    initial_state = state_engine.get_initial_state(scenarios[0], session_id)
                     state_engine.load_scenario(session_id, scenarios)
+                    # 🚀 스택 매니저로 세션 초기화
+                    if state_engine.adapter and state_engine.adapter.handler_execution_engine and state_engine.adapter.handler_execution_engine.stack_manager:
+                        state_engine.adapter.handler_execution_engine.stack_manager.initialize_session(session_id, scenarios[0], initial_state)
         # 세션 초기화
         active_sessions[session_id] = {
             "current_state": initial_state,
@@ -331,7 +341,7 @@ async def process_input(request: MultiScenarioProcessInputRequest):
     state_engine.load_scenario(request.sessionId, scenarios)
     
     # 입력 처리 (기존 state_engine은 텍스트를 기대하므로 변환)
-    result = await state_engine.process_input(
+    result = await state_engine.process_input_v2(
         session_id=request.sessionId,
         user_input=user_text,
         current_state=request.currentState,
@@ -401,12 +411,16 @@ async def process_chatbot_input(request: MultiScenarioChatbotProcessRequest):
         }
     
     scenarios: List[Dict[str, Any]] = request.scenario if isinstance(request.scenario, list) else [request.scenario]
-    if not scenarios:
-        raise HTTPException(status_code=400, detail="No scenario(s) provided.")
-    state_engine.load_scenario(request.sessionId, scenarios)
+    if scenarios:
+        state_engine.load_scenario(request.sessionId, scenarios)
+    else:
+        scenario_loaded = state_engine.get_scenario(request.sessionId)
+        if not scenario_loaded:
+            raise HTTPException(status_code=400, detail="No scenario loaded for session and none provided.")
+        scenarios = [scenario_loaded]
     
     # 입력 처리 (기존 state_engine은 텍스트를 기대하므로 변환)
-    result = await state_engine.process_input(
+    result = await state_engine.process_input_v2(
         session_id=request.sessionId,
         user_input=user_text,
         current_state=request.currentState,
@@ -433,6 +447,153 @@ async def process_chatbot_input(request: MultiScenarioChatbotProcessRequest):
     logger.info(f"📤 Processing result: {chatbot_response.dict()}")
     return chatbot_response
 
+# --- bdm-new compatible execute endpoint ---
+from fastapi import Request as FastApiRequest
+
+@app.post("/api/v1/execute")
+async def execute_endpoint(req: FastApiRequest):
+    try:
+        payload = await req.json()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
+
+    user_id = payload.get("userId", "")
+    bot_id = payload.get("botId", "")
+    bot_version = payload.get("botVersion", "")
+    session_id = payload.get("sessionId", str(uuid.uuid4()))
+    request_id = payload.get("requestId", f"req-{uuid.uuid4().hex[:8]}")
+    user_input = payload.get("userInput", {})
+    context = payload.get("context", {})
+    headers = payload.get("headers", {})
+
+    # load scenario from SCENARIO_DIR if provided
+    scenario = state_engine.get_scenario(session_id)
+    if not scenario:
+        if not SCENARIO_DIR:
+            raise HTTPException(status_code=400, detail="SCENARIO_DIR is not set and no scenario loaded for session.")
+        import os
+        import json as _json
+        file_name = f"{bot_id}-{bot_version}.json"
+        file_path = os.path.join(SCENARIO_DIR, file_name)
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail=f"Scenario file not found: {file_path}")
+        with open(file_path, "r", encoding="utf-8") as f:
+            scenario_data = _json.load(f)
+        # support list or dict
+        scenarios = scenario_data if isinstance(scenario_data, list) else [scenario_data]
+        state_engine.load_scenario(session_id, scenarios)
+        scenario = scenarios[0]
+
+    # restore dialog memory/stack from context store
+    context_key = f"{session_id}__bot_builder_dm"
+    snapshot = await context_store.get(context_key)
+    memory = get_or_create_session_memory(session_id)
+    if snapshot and isinstance(snapshot, dict):
+        # merge snapshot memory into memory
+        mem_data = snapshot.get("memory", {})
+        if isinstance(mem_data, dict):
+            memory.update(mem_data)
+        # restore session stack if available
+        stack_data = snapshot.get("stack")
+        if isinstance(stack_data, list):
+            state_engine.session_stacks[session_id] = stack_data
+
+    # hydrate metadata
+    memory["sessionId"] = session_id
+    memory["requestId"] = request_id
+    memory["CHATBOT_METADATA"] = {
+        "userId": user_id,
+        "botId": bot_id,
+        "botVersion": bot_version,
+        "botName": payload.get("botName", ""),
+        "botResourcePath": payload.get("botResourcePath"),
+        "requestId": request_id,
+        "context": context,
+        "headers": headers,
+    }
+
+    # extract text
+    text_input = ""
+    if isinstance(user_input, dict) and user_input.get("type") == "text":
+        content = user_input.get("content", {})
+        text_input = content.get("text", "")
+        if text_input.strip():
+            memory["USER_TEXT_INPUT"] = [text_input.strip()]
+        # NLU result passthrough if any
+        if "nluResult" in content and content["nluResult"]:
+            # 🚀 NLU_RESULT를 올바른 형식으로 변환
+            nlu_result = content["nluResult"]
+            if isinstance(nlu_result, dict) and "intent" in nlu_result:
+                # 단순한 intent 형식을 NLU_RESULT 형식으로 변환
+                memory["NLU_RESULT"] = {
+                    "results": [{
+                        "nluNbest": [{
+                            "intent": nlu_result["intent"],
+                            "entities": nlu_result.get("entities", [])
+                        }]
+                    }]
+                }
+            else:
+                # 이미 올바른 형식인 경우 그대로 사용
+                memory["NLU_RESULT"] = nlu_result
+    elif isinstance(user_input, dict) and user_input.get("type") == "customEvent":
+        content = user_input.get("content", {})
+        memory["CUSTOM_EVENT"] = {
+            "type": content.get("type", ""),
+            "content": content,
+        }
+
+    # determine current state from request, stack, or initial
+    current_info = state_engine.get_current_scenario_info(session_id)
+    # 요청에서 받은 currentState를 우선적으로 사용
+    current_state = payload.get("currentState") or current_info.get("dialogStateName") or state_engine.get_initial_state(scenario, session_id)
+    
+    # Debug: Log the current state for verification
+    logger.info(f"[STATE DEBUG] Current state from stack: {current_state}, session: {session_id}")
+    
+    # 세션 스택 전체 상태 로깅
+    session_stack = state_engine.get_scenario_stack(session_id)
+    logger.info(f"[STATE DEBUG] Full session stack: {session_stack}")
+
+    # process input
+    result = await state_engine.process_input_v2(
+        session_id=session_id,
+        user_input=text_input,
+        current_state=current_state,
+        scenario=scenario,
+        memory=memory,
+        event_type=payload.get("eventType")
+    )
+
+    update_session_memory(session_id, result.get("memory", memory))
+    # also update active session's current_state for quick inspection
+    try:
+        if session_id in active_sessions:
+            active_sessions[session_id]["current_state"] = result.get("new_state", current_state)
+    except Exception:
+        pass
+
+    # persist snapshot
+    save_snapshot = {
+        "memory": active_sessions.get(session_id, {}).get("memory", {}),
+        "stack": state_engine.session_stacks.get(session_id, [])
+    }
+    await context_store.set(context_key, save_snapshot)
+
+    # build response using factory honoring botType
+    chatbot_response = state_engine.create_chatbot_response(
+        new_state=result.get("new_state", current_state),
+        response_messages=[result.get("response", "")],
+        intent=result.get("intent", ""),
+        entities=result.get("entities", {}),
+        memory=result.get("memory", memory),
+        scenario=scenario,
+        used_slots=None,
+        event_type=payload.get("eventType")
+    )
+
+    return chatbot_response
+
 # 기존 형식 지원을 위한 레거시 엔드포인트
 class MultiScenarioLegacyProcessInputRequest(LegacyProcessInputRequest):
     scenario: Union[Dict[str, Any], List[Dict[str, Any]]] = Field(...)
@@ -457,7 +618,7 @@ async def process_input_legacy(request: MultiScenarioLegacyProcessInputRequest):
     state_engine.load_scenario(request.sessionId, scenarios)
     
     # 입력 처리
-    result = await state_engine.process_input(
+    result = await state_engine.process_input_v2(
         session_id=request.sessionId,
         user_input=request.input,
         current_state=request.currentState,

@@ -25,7 +25,7 @@ import {
   DialogActions,
   Grid,
   Switch,
-  FormControlLabel,
+  FormControlLabel
 } from '@mui/material';
 import { 
   ContentCopy as CopyIcon, 
@@ -115,8 +115,12 @@ const TestPanel: React.FC<TestPanelProps> = ({
   // 챗봇 입력 포맷 관련 상태 - 이제 챗봇 포맷이 기본값
   const [useJsonInputMode, setUseJsonInputMode] = useState(false); // JSON 입력 모드 토글
   const [userId] = useState(() => 'user-' + Date.now());
-  const [botId] = useState('1370');
-  const [botVersion] = useState('5916');
+  const [botId] = useState(() => {
+    try { return localStorage.getItem('SC_BOT_ID') || '1370'; } catch { return '1370'; }
+  });
+  const [botVersion] = useState(() => {
+    try { return localStorage.getItem('SC_BOT_VERSION') || '5916'; } catch { return '5916'; }
+  });
   const [botName] = useState('나단도움봇_테스트');
   // const [requestId, setRequestId] = useState(() => 'chatbot-' + Date.now()); // 삭제
 
@@ -152,6 +156,9 @@ const TestPanel: React.FC<TestPanelProps> = ({
   const [nluIntents, setNluIntents] = useState<string[]>([]);
   const [nluEntityTypes, setNluEntityTypes] = useState<string[]>([]);
   const [nluConnected, setNluConnected] = useState(false);
+
+  // Backend route toggle (execute vs legacy)
+  const [useExecuteEndpoint, setUseExecuteEndpoint] = useState(true);
 
   // Intent Mapping 관리 상태
   const [intentMappings, setIntentMappings] = useState<IntentMapping[]>([]);
@@ -893,7 +900,7 @@ const TestPanel: React.FC<TestPanelProps> = ({
       addMessage('system', '🔗 웹훅 상태 - 자동으로 처리합니다...');
       
       try {
-        const chatbotRequestData: ChatbotProcessRequest = {
+        const executeRequest = {
           userId,
           botId,
           botVersion,
@@ -924,12 +931,10 @@ const TestPanel: React.FC<TestPanelProps> = ({
             }
           },
           context: defaultContext,
-          headers: defaultHeaders,
-          currentState,
-          scenario: scenario!
+          headers: defaultHeaders
         };
 
-        const response = await axios.post('http://localhost:8000/api/process-chatbot-input', chatbotRequestData);
+        const response = await axios.post('http://localhost:8000/api/v1/execute', executeRequest);
         handleChatbotResponse(response.data);
         return;
       } catch (error) {
@@ -995,7 +1000,20 @@ const TestPanel: React.FC<TestPanelProps> = ({
             payload: requestData
           });
         } else {
-          response = await axios.post('http://localhost:8000/api/process-chatbot-input', requestData);
+          // Use execute endpoint to let backend load scenario/context
+          const executePayload = {
+            userId,
+            botId,
+            botVersion,
+            botName,
+            botResourcePath: `${botId}-${botVersion}.json`,
+            sessionId,
+            requestId: requestData.requestId,
+            userInput: requestData.userInput,
+            context: requestData.context,
+            headers: requestData.headers
+          };
+          response = await axios.post('http://localhost:8000/api/v1/execute', executePayload);
         }
         handleChatbotResponse(response.data);
         setInputText('');
@@ -1153,7 +1171,19 @@ const TestPanel: React.FC<TestPanelProps> = ({
           payload: chatbotRequestData
         });
       } else {
-        response = await axios.post('http://localhost:8000/api/process-chatbot-input', chatbotRequestData);
+        const executePayload = {
+          userId,
+          botId,
+          botVersion,
+          botName,
+          botResourcePath: `${botId}-${botVersion}.json`,
+          sessionId,
+          requestId: chatbotRequestData.requestId,
+          userInput: chatbotRequestData.userInput,
+          context: chatbotRequestData.context,
+          headers: chatbotRequestData.headers
+        };
+        response = await axios.post('http://localhost:8000/api/v1/execute', executePayload);
       }
 
       // 새로운 챗봇 응답 포맷 처리
@@ -1275,7 +1305,19 @@ const TestPanel: React.FC<TestPanelProps> = ({
           payload: chatbotRequestData
         });
       } else {
-        response = await axios.post('http://localhost:8000/api/process-chatbot-input', chatbotRequestData);
+        const executePayload = {
+          userId,
+          botId,
+          botVersion,
+          botName,
+          botResourcePath: `${botId}-${botVersion}.json`,
+          sessionId,
+          requestId: chatbotRequestData.requestId,
+          userInput: chatbotRequestData.userInput,
+          context: chatbotRequestData.context,
+          headers: chatbotRequestData.headers
+        };
+        response = await axios.post('http://localhost:8000/api/v1/execute', executePayload);
       }
       handleChatbotResponse(response.data);
     } catch (error) {
@@ -1835,6 +1877,8 @@ const TestPanel: React.FC<TestPanelProps> = ({
           테스트 패널
         </Typography>
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+          <Chip label={`botId: ${botId}`} size="small" />
+          <Chip label={`botVer: ${botVersion}`} size="small" />
           <Chip
             label={isConnected ? '연결됨' : '연결 끊김'}
             color={isConnected ? 'success' : 'error'}

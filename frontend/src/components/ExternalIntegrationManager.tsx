@@ -185,7 +185,13 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
         url: w.url,
         timeoutInMilliSecond: w.timeoutInMilliSecond || w.timeout || 5000,
         retry: w.retry || 3,
-        formats: w.formats || { method: 'POST', headers: {}, requestTemplate: '{"sessionId": "{$sessionId}", "requestId": "{$requestId}"}', responseMappings: [] }
+        formats: {
+          method: 'POST',
+          headers: {},
+          requestTemplate: '{"sessionId": "{$sessionId}", "requestId": "{$requestId}"}',
+          responseMappings: [],
+          ...w.formats  // 🚀 핵심 수정: 기존 formats를 먼저 복사하고 기본값으로 덮어쓰기
+        }
       }))
     );
 

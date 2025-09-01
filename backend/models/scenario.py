@@ -205,7 +205,7 @@ class DirectiveContent(BaseModel):
 
 class ChatbotDirective(BaseModel):
     name: str = "customPayload"
-    content: DirectiveContent
+    content: Dict[str, Any]
 
 class UsedSlot(BaseModel):
     key: str
