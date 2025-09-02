@@ -101,11 +101,13 @@ class EntryActionHandler(BaseHandler):
 class IntentHandlerV2(BaseHandler):
     """Intent Handler 처리"""
     
-    def __init__(self, transition_manager, nlu_processor, memory_manager):
+    def __init__(self, transition_manager, nlu_processor, memory_manager, reprompt_manager=None, action_executor=None):
         super().__init__(HandlerType.INTENT)
         self.transition_manager = transition_manager
         self.nlu_processor = nlu_processor
         self.memory_manager = memory_manager
+        self.reprompt_manager = reprompt_manager
+        self.action_executor = action_executor
 
     def _extract_intent(self, nlu_result: Dict[str, Any]) -> Optional[str]:
         """NLU 결과에서 Intent를 추출"""
@@ -463,6 +465,23 @@ class IntentHandlerV2(BaseHandler):
                 result.updated_memory = context.memory.copy()
                 return result
             else:
+                # 전이 없음: legacy의 reprompt 동작 적용
+                try:
+                    if self.reprompt_manager:
+                        reprompt = self.reprompt_manager.handle_no_match_event(
+                            context.current_dialog_state, context.memory, context.scenario, context.current_state
+                        )
+                        if reprompt:
+                            # 동일 상태 유지 또는 명시적 target_state로 이동
+                            target_state = reprompt.get("new_state", context.current_state)
+                            msgs = reprompt.get("messages", [])
+                            res = create_state_transition_result(target_state, msgs)
+                            # reprompt로 인한 상태 유지는 transition_type이 STATE_TRANSITION이지만 동일 상태일 수 있음
+                            res.updated_memory = context.memory.copy()
+                            return res
+                except Exception as e:
+                    self.logger.warning(f"[INTENT DEBUG] Reprompt handling failed: {e}")
+
                 return create_no_transition_result([f"💭 인텐트 '{intent}' 처리됨 (전이 없음)"])
                 
         except Exception as e:

@@ -387,6 +387,14 @@ class HandlerExecutionEngine:
             # 이는 다음 상태에서 즉시 intent 처리를 방지하기 위함
             self.set_transition_flag(context.session_id)
             self.logger.info(f"[TRANSITION] Set transition flag in global cache for session: {context.session_id}, new state: {new_state}")
+
+            # 🚀 추가: 전이 시 reprompt 핸들러 정리 (legacy 호환)
+            try:
+                context.memory.pop("_WAITING_FOR_SLOT", None)
+                context.memory.pop("_REPROMPT_HANDLERS", None)
+                context.memory.pop("_REPROMPT_JUST_REGISTERED", None)
+            except Exception:
+                pass
             
             # 🚀 기존 시스템과 동일한 로직: intentHandlers가 있으면 자동 전이 스킵
             if hasattr(self.scenario_manager, 'find_dialog_state'):
@@ -482,6 +490,13 @@ class HandlerExecutionEngine:
                 
                 # 🚀 핵심 수정: 같은 시나리오 내에서 plan만 변경
                 self.logger.info(f"[PLAN TRANSITION] Switching to plan: {target_plan}")
+                # 전이 시 reprompt 핸들러 정리 (legacy 호환)
+                try:
+                    context.memory.pop("_WAITING_FOR_SLOT", None)
+                    context.memory.pop("_REPROMPT_HANDLERS", None)
+                    context.memory.pop("_REPROMPT_JUST_REGISTERED", None)
+                except Exception:
+                    pass
                 
             except Exception as e:
                 self.logger.error(f"[PLAN TRANSITION] Error in switch_to_plan: {e}")

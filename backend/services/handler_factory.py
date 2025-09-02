@@ -95,10 +95,15 @@ class HandlerFactory:
         self.logger.info(f"  - nlu_processor: {type(self.nlu_processor)}")
         self.logger.info(f"  - memory_manager: {type(self.memory_manager)}")
         
+        # RepromptManager는 state_engine에 구성되어 있음 (legacy와 동일 동작)
+        reprompt_manager = getattr(self.state_engine, 'reprompt_manager', None)
+        action_executor = getattr(self.state_engine, 'action_executor', None)
         return IntentHandlerV2(
             self.transition_manager,
             self.nlu_processor,
-            self.memory_manager
+            self.memory_manager,
+            reprompt_manager=reprompt_manager,
+            action_executor=action_executor
         )
     
     def _create_webhook_handler(self) -> Optional[WebhookHandlerV2]:
