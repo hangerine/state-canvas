@@ -122,15 +122,23 @@ export interface MemoryAction {
   actionScope: string;
 }
 
+export type ExpressionType = 'REGEX' | 'XPATH' | 'JSON_PATH';
+export type TargetType = 'MEMORY' | 'DIRECTIVE';
+
+export interface ResponseMappingGroup {
+  expressionType: ExpressionType;
+  targetType: TargetType;
+  mappings: Record<string, string>;
+}
+
 export interface ApiCallFormats {
-  method: string;
+  // method moved to root in new spec; keep optional here for backward-compat display
+  method?: string;
   contentType: string;
   requestTemplate: string;
   responseProcessing?: Record<string, any>;
-  responseMappings: Array<{
-    type: 'memory' | 'directive';
-    map: Record<string, string>;
-  }>;
+  // new spec: array of groups
+  responseMappings: ResponseMappingGroup[];
   headers?: Record<string, string>;
   queryParams?: Array<{name: string, value: string}>;
 }
@@ -139,6 +147,8 @@ export interface ApiCall {
   url: string;
   timeoutInMilliSecond: number;
   retry: number;
+  // new spec: method at root
+  method: string;
   formats: ApiCallFormats;
 }
 
@@ -218,8 +228,10 @@ export interface IntentMapping {
   dmIntent: string;
 }
 
+export type WebhookType = 'WEBHOOK' | 'APICALL' | 'webhook' | 'apicall';
+
 export interface Webhook {
-  type: 'webhook' | 'apicall';
+  type: WebhookType;
   name: string;
   url: string;
   timeoutInMilliSecond: number;
@@ -227,6 +239,8 @@ export interface Webhook {
   headers: Record<string, string>;
   // apicall 타입일 때만 필요한 필드들
   queryParams?: Array<{name: string, value: string}>;
+  // new spec: method at root for APICALL (optional for WEBHOOK)
+  method?: string;
   formats?: ApiCallFormats;
 }
 

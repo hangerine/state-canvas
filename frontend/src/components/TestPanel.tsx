@@ -810,20 +810,21 @@ const TestPanel: React.FC<TestPanelProps> = ({
       addMessage('info', `🎯 이벤트 상태입니다. 다음 이벤트들을 트리거할 수 있습니다:\n- ${eventTypes}`);
     } else if (apiCallState) {
       const apiCallHandlers = getApiCallHandlers();
-      // 항상 scenario.apicalls에서 최신 apicall 객체를 찾아서 사용
+      // 항상 scenario.webhooks(APICALL)에서 최신 apicall 객체를 찾아서 사용
       const apiCallNames = apiCallHandlers.map(handler => {
         let apicall = null;
         if (scenario && scenario.webhooks && handler.name) {
-          const apicallLike = (scenario.webhooks as any[]).find(w => w.type === 'apicall' && w.name === handler.name);
+          const apicallLike = (scenario.webhooks as any[]).find(w => String(w.type || 'WEBHOOK').toUpperCase() === 'APICALL' && w.name === handler.name);
           if (apicallLike) {
             apicall = {
               url: apicallLike.url,
-              formats: apicallLike.formats || { method: 'POST' }
+              method: (apicallLike as any).method || apicallLike.formats?.method || 'POST',
+              formats: apicallLike.formats || {}
             } as any;
           }
         }
         const url = apicall?.url || 'Unknown URL';
-        const method = apicall?.formats?.method || 'POST';
+        const method = apicall?.method || apicall?.formats?.method || 'POST';
         return `${handler.name} (${method} ${url})`;
       }).join('\n- ');
       addMessage('info', `🔄 API Call 상태입니다. 다음 API들이 자동으로 호출됩니다:\n- ${apiCallNames}`);
@@ -2075,16 +2076,17 @@ const TestPanel: React.FC<TestPanelProps> = ({
                       {getApiCallHandlers().map((handler, index) => {
                         let apicall = null;
         if (scenario && scenario.webhooks && handler.name) {
-          const apicallLike = (scenario.webhooks as any[]).find(w => w.type === 'apicall' && w.name === handler.name);
+          const apicallLike = (scenario.webhooks as any[]).find(w => String(w.type || 'WEBHOOK').toUpperCase() === 'APICALL' && w.name === handler.name);
           if (apicallLike) {
             apicall = {
               url: apicallLike.url,
-              formats: apicallLike.formats || { method: 'POST' }
+              method: (apicallLike as any).method || apicallLike.formats?.method || 'POST',
+              formats: apicallLike.formats || {}
             } as any;
           }
-                        }
+        }
                         const url = apicall?.url || 'Unknown URL';
-                        const method = apicall?.formats?.method || 'POST';
+                        const method = apicall?.method || apicall?.formats?.method || 'POST';
                         return (
                           <Box 
                             key={`${currentState}-${handler.name}-${index}`}

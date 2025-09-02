@@ -596,16 +596,18 @@ class ApiCallHandlerV2(BaseHandler):
     
     async def _find_apicall_config(self, scenario: Dict[str, Any], apicall_name: str) -> Optional[Dict[str, Any]]:
         """API Call 설정 찾기"""
-        # unified webhooks(type='apicall') 우선 검색
+        # unified webhooks(type='APICALL') 우선 검색 (대소문자 허용)
         for ap in scenario.get("webhooks", []):
             try:
-                if ap.get("type") == "apicall" and ap.get("name") == apicall_name:
+                ap_type = str(ap.get("type", "")).upper()
+                if ap_type == "APICALL" and ap.get("name") == apicall_name:
                     return {
                         "name": ap.get("name"),
                         "url": ap.get("url", ""),
                         "timeout": ap.get("timeout", ap.get("timeoutInMilliSecond", 5000)),
                         "retry": ap.get("retry", 3),
-                        "formats": ap.get("formats", {})
+                        "formats": ap.get("formats", {}),
+                        "method": ap.get("method") or ap.get("formats", {}).get("method")
                     }
             except Exception:
                 continue

@@ -30,37 +30,65 @@ def normalize_response_value(value: Any) -> Any:
             return value
     return str(value)
 
-def apply_response_mappings(response_data: Dict[str, Any], mappings: Dict[str, Any], memory: Dict[str, Any], directive_queue: Optional[List[Dict[str, Any]]] = None) -> None:
+def apply_response_mappings(response_data: Dict[str, Any], mappings: Any, memory: Dict[str, Any], directive_queue: Optional[List[Dict[str, Any]]] = None) -> None:
     logger.info(f"📋 Applying response mappings to data: {response_data}")
     logger.info(f"📋 Mappings: {mappings}")
     
+    # New spec: array of groups
+    if isinstance(mappings, list):
+        for group in mappings:
+            try:
+                expr_type = str(group.get('expressionType', 'JSON_PATH')).upper()
+                target_type = str(group.get('targetType', 'MEMORY')).upper()
+                maps = group.get('mappings', {}) or {}
+                for memory_key, expr in maps.items():
+                    try:
+                        if expr_type == 'JSON_PATH':
+                            jsonpath_expr = str(expr)
+                            jsonpath_parser = parse(jsonpath_expr)
+                            matches = jsonpath_parser.find(response_data)
+                            if matches:
+                                raw_value = matches[0].value
+                                processed_value = normalize_response_value(raw_value)
+                                if target_type == 'MEMORY':
+                                    memory[memory_key] = processed_value
+                                    logger.info(f"✅ [GROUP] MEMORY {memory_key} <- {jsonpath_expr}: {processed_value}")
+                                else:
+                                    if directive_queue is not None:
+                                        directive_queue.append({ 'key': memory_key, 'value': processed_value, 'source': 'apicall_response_mapping' })
+                                        logger.info(f"✅ [GROUP] DIRECTIVE queued {memory_key} <- {jsonpath_expr}: {processed_value}")
+                                    else:
+                                        memory[f"DIRECTIVE_{memory_key}"] = processed_value
+                                        logger.info(f"✅ [GROUP] DIRECTIVE memory {memory_key} <- {jsonpath_expr}: {processed_value}")
+                            else:
+                                logger.warning(f"❌ [GROUP] No matches for JSONPath: {expr}")
+                        else:
+                            logger.warning(f"⚠️ Unsupported expressionType: {expr_type} for mapping {memory_key}")
+                    except Exception as ie:
+                        logger.error(f"❌ Error in group mapping {memory_key}: {ie}")
+            except Exception as ge:
+                logger.error(f"❌ Error processing response mapping group: {ge}")
+        return
+    
+    # Legacy: object or simplified dict/array variations
+    if not isinstance(mappings, dict):
+        logger.warning("⚠️ responseMappings is neither list nor dict; skipping")
+        return
+    
     for memory_key, mapping_config in mappings.items():
         try:
-            # 새로운 구조: {"type": "memory", "NLU_INTENT": "$.NLU_INTENT.value"}
+            # 새로운 구조: {"type": "memory", ...}
             if isinstance(mapping_config, dict) and "type" in mapping_config:
                 mapping_type = mapping_config.get("type")
                 jsonpath_expr = None
-                
-                # memory 타입인 경우 memory_key를 찾아서 JSONPath 추출
-                if mapping_type == "memory":
-                    # memory_key와 일치하는 키를 찾아서 JSONPath 추출
-                    for key, value in mapping_config.items():
-                        if key != "type" and isinstance(value, str):
-                            jsonpath_expr = value
-                            break
-                elif mapping_type == "directive":
-                    # directive 타입인 경우 memory_key를 찾아서 JSONPath 추출
-                    for key, value in mapping_config.items():
-                        if key != "type" and isinstance(value, str):
-                            jsonpath_expr = value
-                            break
-                
+                for key, value in mapping_config.items():
+                    if key != "type" and isinstance(value, str):
+                        jsonpath_expr = value
+                        break
                 if not jsonpath_expr:
                     logger.warning(f"❌ No JSONPath found in mapping config for {memory_key}: {mapping_config}")
                     continue
-                    
                 logger.info(f"🔍 Processing {mapping_type} mapping: {memory_key} <- {jsonpath_expr}")
-                
             else:
                 # 기존 구조: "NLU_INTENT": "$.NLU_INTENT.value"
                 jsonpath_expr = mapping_config

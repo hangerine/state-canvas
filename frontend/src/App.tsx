@@ -1698,38 +1698,74 @@ function App() {
       scenario
     }));
 
-    // 통합 변환: apicalls -> webhooks(type='apicall'), webhook의 type 지정
+    // 통합 변환: apicalls -> webhooks(type='APICALL'), webhook의 type 지정
     const unifyScenario = (src: any) => {
       const s = JSON.parse(JSON.stringify(src || {}));
       const webhooks: any[] = Array.isArray(s.webhooks) ? s.webhooks : [];
-      webhooks.forEach((w) => { if (!w.type) w.type = 'webhook'; });
+      webhooks.forEach((w) => { if (!w.type) w.type = 'WEBHOOK'; });
       const apicalls: any[] = Array.isArray(s.apicalls) ? s.apicalls : [];
       if (apicalls.length > 0) {
-        const existing = new Set((webhooks || []).filter((w: any) => w.type === 'apicall').map((w: any) => w.name));
+        const existing = new Set((webhooks || []).filter((w: any) => String(w.type || 'WEBHOOK').toUpperCase() === 'APICALL').map((w: any) => w.name));
         apicalls.forEach((a) => {
           if (existing.has(a.name)) return;
           
           // 새로운 spec에 맞춰 변환
           const formats = a.formats || {};
+          // Convert legacy/old responseMappings to new group array
+          const toGroups = (m: any): any[] => {
+            if (!m) return [];
+            if (Array.isArray(m) && m.length > 0 && (m[0] as any).expressionType) return m;
+            const memory: Record<string, string> = {};
+            const directive: Record<string, string> = {};
+            if (Array.isArray(m)) {
+              m.forEach((item: any) => {
+                const t = String(item?.type || 'memory').toLowerCase();
+                Object.entries(item?.map || {}).forEach(([k, v]) => {
+                  if (t === 'directive') directive[k] = String(v);
+                  else memory[k] = String(v);
+                });
+              });
+            } else if (typeof m === 'object') {
+              Object.entries(m).forEach(([key, conf]: any) => {
+                if (typeof conf === 'string') memory[key] = conf;
+                else if (conf && typeof conf === 'object') {
+                  const t = String(conf.type || 'memory').toLowerCase();
+                  let expr: string | null = typeof conf[key] === 'string' ? conf[key] : null;
+                  if (!expr) {
+                    for (const [kk, vv] of Object.entries(conf)) {
+                      if (kk !== 'type' && typeof vv === 'string') { expr = vv as string; break; }
+                    }
+                  }
+                  if (expr) {
+                    if (t === 'directive') directive[key] = expr; else memory[key] = expr;
+                  }
+                }
+              });
+            }
+            const groups: any[] = [];
+            if (Object.keys(memory).length) groups.push({ expressionType: 'JSON_PATH', targetType: 'MEMORY', mappings: memory });
+            if (Object.keys(directive).length) groups.push({ expressionType: 'JSON_PATH', targetType: 'DIRECTIVE', mappings: directive });
+            return groups;
+          };
           const newFormats = {
-            method: formats.method || 'POST',
             contentType: formats.contentType || 'application/json',
             requestTemplate: formats.requestTemplate,
 
             responseProcessing: formats.responseProcessing || {},
-            responseMappings: formats.responseMappings || [],
+            responseMappings: toGroups(formats.responseMappings),
             headers: formats.headers || {},
             queryParams: formats.queryParams || []
           };
           
           webhooks.push({
-            type: 'apicall',
+            type: 'APICALL',
             name: a.name,
             url: a.url,
             timeoutInMilliSecond: a.timeoutInMilliSecond || a.timeout || 5000,
             retry: a.retry,
             
             headers: formats.headers || {},
+            method: formats.method || 'POST',
             formats: newFormats
           });
         });

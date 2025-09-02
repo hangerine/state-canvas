@@ -1,4 +1,4 @@
-## API Call SRS (현재 구현 기준)
+## API Call SRS (rev. JSON_PATH groups)
 
 ### 목적 Purpose
 - 한글: 시나리오의 특정 상태에서 외부 HTTP API를 호출해 응답을 메모리에 매핑하고, 조건에 따라 다음 상태로 전이합니다.
@@ -27,19 +27,13 @@
 
 ### 데이터 모델 Data Model
 #### 시나리오의 API 정의 Scenario-level API definitions
-- 위치 Location: `scenario.apicalls: ApiCall[]`
+- 위치 Location: `scenario.webhooks[]` (통합 저장). APICALL 항목은 `type: "APICALL"`을 사용.
 - 스키마 Schema (요약):
-  - `name: string` (프론트에서 선택용, 백엔드에서는 이름으로 매칭)
-  - `url: string`
-  - `timeout: number (ms), default 5000`
-  - `retry: number, default 3` (총 시도 횟수는 retry+1)
-  - `formats: {
-    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" (default "POST"),
-    requestTemplate?: string,  // JSON 문자열, 템플릿 치환 후 JSON 파싱
-    headers?: Record<string,string>,  // 템플릿 치환 지원
-    responseSchema?: object,  // 현재 검증 미사용
-    responseMappings?: Record<string, string /* JSONPath */>
-  }`
+  - `type: "APICALL" | "WEBHOOK"`
+  - `name: string`, `url: string`, `timeoutInMilliSecond: number`, `retry: number`
+  - (APICALL만) `method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS"`
+  - (APICALL만) `formats: { contentType: string, requestTemplate: string, responseProcessing?: object, responseMappings: ResponseMappingGroup[], headers?: object, queryParams?: Array<{name,value}> }`
+  - `ResponseMappingGroup = { expressionType: "JSON_PATH" | "XPATH" | "REGEX", targetType: "MEMORY" | "DIRECTIVE", mappings: Record<string, string> }`
 
 #### 상태의 API 콜 핸들러 Dialog state API call handlers
 - 위치 Location: `dialogState.apicallHandlers: ApiCallHandler[]`
@@ -64,7 +58,7 @@
 
 #### 요청 생성 Request building
 - 한글:
-  - 메서드: `formats.method` (기본 POST)
+  - 메서드: `method` (APICALL 루트, 기본 POST)
   - 본문: POST/PUT/PATCH인 경우 `formats.requestTemplate` 템플릿 치환 후 JSON 파싱(실패 시 호출 중단)
   - 헤더: 기본 `Content-Type: application/json` + `formats.headers` 템플릿 치환 병합
 - English:
@@ -80,13 +74,11 @@
   - Success: GET=200, POST/PUT/PATCH=200/201, DELETE=200/204
   - JSON response only; others unsupported
 
-#### 응답 매핑 Response mapping
 - 한글:
-  - `formats.responseMappings`가 있으면 JSONPath로 메모리에 매핑
-  - 없고 응답이 `memorySlots` 구조이며 `NLU_INTENT` 포함 시, 기본 매핑 적용:
-    - `NLU_INTENT <- $.memorySlots.NLU_INTENT.value[0]`
-    - `STS_CONFIDENCE <- $.memorySlots.STS_CONFIDENCE.value[0]`
-    - `USER_TEXT_INPUT <- $.memorySlots.USER_TEXT_INPUT.value[0]`
+  - `formats.responseMappings: ResponseMappingGroup[]`를 순회하여 각 그룹의 `mappings`를 적용
+  - `expressionType = JSON_PATH`는 jsonpath_ng를 사용하여 추출
+  - `targetType = MEMORY`는 세션 메모리에 저장, `DIRECTIVE`는 지시사항 큐 또는 `DIRECTIVE_*` 메모리로 저장
+  - (하위호환) 기존 object/old-array 형태도 지원하며 JSON_PATH/MEMORY 그룹으로 변환 적용
   - 값 정규화: 단일 요소 배열·단일 키 객체·`{value: ...}` 구조 평탄화
 - English:
   - Use `formats.responseMappings` (JSONPath) if provided
@@ -158,20 +150,21 @@
 ### 예시 구성 Example configuration
 ```json
 {
-  "apicalls": [
+  "webhooks": [
     {
+      "type": "APICALL",
       "name": "DetectNLU",
       "url": "http://localhost:8000/mock/nlu",
-      "timeout": 5000,
+      "timeoutInMilliSecond": 5000,
       "retry": 3,
+      "method": "POST",
       "formats": {
-        "method": "POST",
+        "contentType": "application/json",
         "requestTemplate": "{\"text\":\"{{USER_TEXT_INPUT.[0]}}\",\"sessionId\":\"{$sessionId}\",\"requestId\":\"{$requestId}\"}",
         "headers": { "X-Trace-Id": "{{requestId}}" },
-        "responseMappings": {
-          "NLU_INTENT": "$.nlu.intent",
-          "STS_CONFIDENCE": "$.nlu.confidence"
-        }
+        "responseMappings": [
+          { "expressionType": "JSON_PATH", "targetType": "MEMORY", "mappings": { "NLU_INTENT": "$.nlu.intent", "STS_CONFIDENCE": "$.nlu.confidence" } }
+        ]
       }
     }
   ],
@@ -224,5 +217,4 @@
 ### 향후 확장 Future Work
 - 한글: 응답 스키마 검증 적용, 성공 코드/재시도 정책 구성화, 쿼리 파라미터 템플릿 지원, 연결 풀/백오프 전략 개선, 비-JSON 응답 처리 옵션
 - English: Apply response schema validation, configurable success codes/retry policy, query param templating, connection pooling/backoff strategy, optional non-JSON handling
-
 

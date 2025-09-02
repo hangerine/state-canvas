@@ -124,10 +124,12 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
   });
 
   // Response Mappings (key/value UI with type selection)
-  const [responseMappingsObj, setResponseMappingsObj] = useState<Array<{ type: 'memory' | 'directive', map: Record<string, string> }>>([]);
+  type EditorMapping = { type: 'memory' | 'directive'; expressionType: 'JSON_PATH' | 'XPATH' | 'REGEX'; map: Record<string, string> };
+  const [responseMappingsObj, setResponseMappingsObj] = useState<Array<EditorMapping>>([]);
   const [newMappingKey, setNewMappingKey] = useState('');
   const [newMappingValue, setNewMappingValue] = useState('');
   const [newMappingType, setNewMappingType] = useState<'memory' | 'directive'>('memory');
+  const [newMappingExprType, setNewMappingExprType] = useState<'JSON_PATH' | 'XPATH' | 'REGEX'>('JSON_PATH');
   const [newHeaderKey, setNewHeaderKey] = useState('');
   const [newHeaderValue, setNewHeaderValue] = useState('');
   // API 테스트 상태
@@ -176,23 +178,28 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
   // 시나리오에서 목록 로드 (webhooks 통합 리스트에서 type으로 분리) + 그룹 자동 생성
   useEffect(() => {
     const all = scenario?.webhooks || [];
-    const webhookOnly = all.filter((w: any) => !w.type || w.type === 'webhook');
-    const apicallOnly = all.filter((w: any) => w.type === 'apicall');
+    const isApicall = (t: any) => String(t || 'WEBHOOK').toUpperCase() === 'APICALL';
+    const isWebhook = (t: any) => String(t || 'WEBHOOK').toUpperCase() === 'WEBHOOK';
+    const webhookOnly = all.filter((w: any) => !w.type || isWebhook(w.type));
+    const apicallOnly = all.filter((w: any) => isApicall(w.type));
     setWebhooks(webhookOnly as any);
     setApicalls(
-      apicallOnly.map((w: any) => ({
-        name: w.name,
-        url: w.url,
-        timeoutInMilliSecond: w.timeoutInMilliSecond || w.timeout || 5000,
-        retry: w.retry || 3,
-        formats: {
-          method: 'POST',
-          headers: {},
-          requestTemplate: '{"sessionId": "{$sessionId}", "requestId": "{$requestId}"}',
-          responseMappings: [],
-          ...w.formats  // 🚀 핵심 수정: 기존 formats를 먼저 복사하고 기본값으로 덮어쓰기
-        }
-      }))
+      apicallOnly.map((w: any) => {
+        const responseMappingsGroups = Array.isArray(w.formats?.responseMappings) ? w.formats.responseMappings : [];
+        return {
+          name: w.name,
+          url: w.url,
+          timeoutInMilliSecond: w.timeoutInMilliSecond || w.timeout || 5000,
+          retry: w.retry || 3,
+          formats: {
+            ...(w.formats || {}),
+            headers: (w.formats?.headers || {}),
+            requestTemplate: (w.formats?.requestTemplate || '{"sessionId": "{$sessionId}", "requestId": "{$requestId}"}'),
+            responseMappings: responseMappingsGroups,
+          },
+          method: (w.method || w.formats?.method || 'POST')
+        } as ApiCallWithName;
+      })
     );
 
     // 자동 그룹 계산 및 병합 적용
@@ -311,8 +318,8 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
   const updateScenarioWebhooks = (updatedWebhooks: Webhook[]) => {
     if (scenario) {
       // 기존 apicall 항목 유지, webhook 항목만 교체
-      const existingApicalls = (scenario.webhooks || []).filter((w: any) => w.type === 'apicall');
-      const normalizedWebhooks = (updatedWebhooks || []).map((w: any) => ({ ...w, type: 'webhook' }));
+      const existingApicalls = (scenario.webhooks || []).filter((w: any) => String(w.type || 'WEBHOOK').toUpperCase() === 'APICALL');
+      const normalizedWebhooks = (updatedWebhooks || []).map((w: any) => ({ ...w, type: 'WEBHOOK' }));
       const updatedScenario = {
         ...scenario,
         webhooks: [...normalizedWebhooks, ...existingApicalls],
@@ -340,7 +347,7 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
         finalUrl = joinUrl(grp.baseUrl, webhookEndpoint.trim());
       }
       const webhookData: Webhook = {
-        type: 'webhook',
+        type: 'WEBHOOK',
         name: finalName,
         url: finalUrl,
         headers: parsedHeaders,
@@ -446,19 +453,80 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
       url: apicall.url,
               timeoutInMilliSecond: apicall.timeoutInMilliSecond || 5000,
       retry: apicall.retry,
-      method: apicall.formats.method,
+      method: ((apicall as any).method || apicall.formats.method || 'POST') as any,
       contentType: apicall.formats.contentType || 'application/json',
       headers: apicall.formats.headers || {},
       queryParams: apicall.formats.queryParams || [],
       requestTemplate: apicall.formats.requestTemplate || '',
       responseProcessing: apicall.formats.responseProcessing || {},
-      responseMappings: apicall.formats.responseMappings || [],
+      responseMappings: [],
     });
     
-    // responseMappings 설정
-    const existingResponseMappings = apicall.formats.responseMappings || [];
+    // responseMappings 설정 (전역에 없으면 inline handler에서 fallback)
+    let existingResponseMappings = (apicall.formats as any).responseMappings || [];
+    if ((!existingResponseMappings || (Array.isArray(existingResponseMappings) && existingResponseMappings.length === 0)) && scenario) {
+      try {
+        const plans = (scenario as any).plan || [];
+        const states = plans[0]?.dialogState || [];
+        for (const st of states) {
+          const hs = st?.apicallHandlers || [];
+          for (const h of hs) {
+            if (h?.name === apicall.name) {
+              const inline = h?.apicall?.formats?.responseMappings;
+              if (inline && ((Array.isArray(inline) && inline.length > 0) || typeof inline === 'object')) {
+                existingResponseMappings = inline;
+                throw new Error('found_inline');
+              }
+            }
+          }
+        }
+      } catch (e) {
+        // swallow; used to break from nested loop
+      }
+    }
     if (Array.isArray(existingResponseMappings)) {
-      setResponseMappingsObj(existingResponseMappings);
+      // Convert new groups to editor array
+      if (existingResponseMappings.length > 0 && (existingResponseMappings[0] as any).expressionType) {
+        const arr: EditorMapping[] = [];
+        (existingResponseMappings as any[]).forEach((g: any) => {
+          const t = String(g.targetType || 'MEMORY').toUpperCase() === 'DIRECTIVE' ? 'directive' : 'memory';
+          Object.entries(g.mappings || {}).forEach(([k, v]) => {
+            arr.push({ type: t, expressionType: String(g.expressionType || 'JSON_PATH').toUpperCase() as any, map: { [String(k)]: String(v) } });
+          });
+        });
+        setResponseMappingsObj(arr);
+      } else {
+        // old array style -> expand per key
+        const arr: EditorMapping[] = [];
+        (existingResponseMappings as any[]).forEach((m: any) => {
+          const t = String(m?.type || 'memory').toLowerCase() === 'directive' ? 'directive' : 'memory';
+          Object.entries(m?.map || {}).forEach(([k, v]) => {
+            arr.push({ type: t, expressionType: 'JSON_PATH', map: { [String(k)]: String(v) } });
+          });
+        });
+        setResponseMappingsObj(arr);
+      }
+    } else if (existingResponseMappings && typeof existingResponseMappings === 'object') {
+      // convert object-style to array-style for editor
+      const arr: EditorMapping[] = [];
+      try {
+        Object.entries(existingResponseMappings).forEach(([memKey, conf]: [string, any]) => {
+          if (typeof conf === 'string') {
+            arr.push({ type: 'memory', expressionType: 'JSON_PATH', map: { [memKey]: conf } });
+          } else if (conf && typeof conf === 'object') {
+            const t = (conf.type === 'directive' ? 'directive' : 'memory') as 'memory' | 'directive';
+            let jsonPath: string | null = null;
+            if (typeof conf[memKey] === 'string') jsonPath = conf[memKey];
+            if (!jsonPath) {
+              for (const [k, v] of Object.entries(conf)) {
+                if (k !== 'type' && typeof v === 'string') { jsonPath = v; break; }
+              }
+            }
+            if (jsonPath) arr.push({ type: t, expressionType: 'JSON_PATH', map: { [memKey]: jsonPath } });
+          }
+        });
+      } catch {}
+      setResponseMappingsObj(arr);
     } else {
       setResponseMappingsObj([]);
     }
@@ -550,27 +618,42 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
     if (scenario) {
       // apicalls를 webhooks(type='apicall')로 병합 저장
       const legacyWebhooks = scenario.webhooks || [];
+      // helper: convert editor mappings to new spec groups
+      const toGroups = (arr: Array<{ type: 'memory' | 'directive'; map: Record<string, string> }>): Array<{ expressionType: 'JSON_PATH'; targetType: 'MEMORY' | 'DIRECTIVE'; mappings: Record<string, string> }> => {
+        const memory: Record<string, string> = {};
+        const directive: Record<string, string> = {};
+        (arr || []).forEach((m) => {
+          Object.entries(m.map || {}).forEach(([k, v]) => {
+            if (m.type === 'directive') directive[k] = v as string;
+            else memory[k] = v as string;
+          });
+        });
+        const groups: any[] = [];
+        if (Object.keys(memory).length) groups.push({ expressionType: 'JSON_PATH', targetType: 'MEMORY', mappings: memory });
+        if (Object.keys(directive).length) groups.push({ expressionType: 'JSON_PATH', targetType: 'DIRECTIVE', mappings: directive });
+        return groups;
+      };
       const apicallsAsWebhooks: Webhook[] = updatedApiCalls.map(a => ({
-        type: 'apicall',
+        type: 'APICALL',
         name: a.name,
         url: a.url,
         timeoutInMilliSecond: a.timeoutInMilliSecond,
         retry: a.retry,
         headers: a.formats.headers || {},
+        method: (a as any).method || a.formats.method || 'POST',
         formats: {
-          method: a.formats.method,
           contentType: a.formats.contentType,
           requestTemplate: a.formats.requestTemplate,
 
           responseProcessing: a.formats.responseProcessing || {},
-          responseMappings: a.formats.responseMappings || [],
+          responseMappings: toGroups((a.formats as any).responseMappings || []),
           headers: a.formats.headers || {},
           queryParams: a.formats.queryParams || []
         },
       }));
       const updatedScenario = {
         ...scenario,
-        webhooks: [...legacyWebhooks.filter(w => w.type !== 'apicall'), ...apicallsAsWebhooks],
+        webhooks: [...legacyWebhooks.filter((w: any) => String(w.type || 'WEBHOOK').toUpperCase() !== 'APICALL'), ...apicallsAsWebhooks],
         apicalls: undefined,
         handlerGroups,
       } as any;
@@ -595,10 +678,9 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
     updatedScenario.handlerGroups = newGroups;
     const wlist = Array.isArray(updatedScenario.webhooks) ? updatedScenario.webhooks : [];
     if (groupType === 'webhook') {
-      wlist.push({ type: 'webhook', name: `(${groupName.trim()})${firstEntryName.trim()}`, url: fullUrl, headers: {}, timeoutInMilliSecond: 5000, retry: 3 });
+      wlist.push({ type: 'WEBHOOK', name: `(${groupName.trim()})${firstEntryName.trim()}`, url: fullUrl, headers: {}, timeoutInMilliSecond: 5000, retry: 3 });
     } else {
-      wlist.push({ type: 'apicall', name: `(${groupName.trim()})${firstEntryName.trim()}`, url: fullUrl, timeoutInMilliSecond: 5000, retry: 3, headers: {}, formats: { 
-        method: 'POST', 
+      wlist.push({ type: 'APICALL', name: `(${groupName.trim()})${firstEntryName.trim()}`, url: fullUrl, timeoutInMilliSecond: 5000, retry: 3, headers: {}, method: 'POST', formats: { 
         contentType: 'application/json',
         headers: {}, 
         requestTemplate: '{"sessionId": "{$sessionId}", "requestId": "{$requestId}"}', 
@@ -648,7 +730,8 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
   const computeGroupsFromWebhooks = (items: any[]) => {
     const groups: Record<string, { type: 'webhook' | 'apicall'; name: string; urls: string[] }> = {};
     (items || []).forEach((it) => {
-      const type: 'webhook' | 'apicall' = it.type === 'apicall' ? 'apicall' : 'webhook';
+      const t = String(it.type || 'WEBHOOK').toUpperCase();
+      const type: 'webhook' | 'apicall' = t === 'APICALL' ? 'apicall' : 'webhook';
       const nm: string = String(it.name || '');
       const m = nm.match(/^\(([^)]+)\)/);
       const grp = m ? m[1] : type;
@@ -794,7 +877,7 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
       </Box>
     );
   };
-  const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&');
+  const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const isNameInGroup = (name: string, grp: string) => {
     return new RegExp(`^\\(${escapeRegExp(grp)}\\)`).test(String(name || ''));
   };
@@ -850,20 +933,32 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
         finalUrl = joinUrl(grp.baseUrl, apiEndpoint.trim());
       }
 
+      const toGroups = (arr: Array<EditorMapping>): Array<{ expressionType: 'JSON_PATH' | 'XPATH' | 'REGEX'; targetType: 'MEMORY' | 'DIRECTIVE'; mappings: Record<string, string> }> => {
+        const bucket: Record<string, { expressionType: 'JSON_PATH' | 'XPATH' | 'REGEX'; targetType: 'MEMORY' | 'DIRECTIVE'; mappings: Record<string, string> }> = {};
+        (arr || []).forEach((m) => {
+          const exprType = (m.expressionType || 'JSON_PATH');
+          const targetType = (m.type === 'directive' ? 'DIRECTIVE' : 'MEMORY');
+          const key = `${exprType}|${targetType}`;
+          if (!bucket[key]) bucket[key] = { expressionType: exprType, targetType, mappings: {} };
+          Object.entries(m.map || {}).forEach(([k, v]) => { bucket[key].mappings[k] = String(v); });
+        });
+        return Object.values(bucket);
+      };
+
       const apiCallWithName: ApiCallWithName = {
         name: finalName,
         url: finalUrl,
         timeoutInMilliSecond: apiCallFormData.timeoutInMilliSecond,
         retry: apiCallFormData.retry,
+        method: apiCallFormData.method as any,
         formats: {
-          method: apiCallFormData.method as any,
           contentType: apiCallFormData.contentType,
           headers: apiCallFormData.headers,
           queryParams: apiCallFormData.queryParams,
           requestTemplate: apiCallFormData.requestTemplate,
 
           responseProcessing: apiCallFormData.responseProcessing || {},
-          responseMappings: responseMappingsObj,
+          responseMappings: toGroups(responseMappingsObj),
         },
       };
       let updatedApiCalls: ApiCallWithName[];
@@ -914,10 +1009,11 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
   };
 
   // Response Mappings 조작 함수들
-  const addResponseMapping = (key: string, value: string = '', type: 'memory' | 'directive' = 'memory') => {
+  const addResponseMapping = (key: string, value: string = '', type: 'memory' | 'directive' = 'memory', expressionType: 'JSON_PATH' | 'XPATH' | 'REGEX' = 'JSON_PATH') => {
     if (!key) return;
     const newMapping = {
       type,
+      expressionType,
       map: { [key]: value }
     };
     setResponseMappingsObj(prev => [...prev, newMapping]);
@@ -950,6 +1046,15 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
     setResponseMappingsObj(prev => prev.map((mapping, i) => {
       if (i === index) {
         return { ...mapping, type: newType };
+      }
+      return mapping;
+    }));
+  };
+
+  const updateResponseMappingExprType = (index: number, newExprType: 'JSON_PATH' | 'XPATH' | 'REGEX') => {
+    setResponseMappingsObj(prev => prev.map((mapping, i) => {
+      if (i === index) {
+        return { ...mapping, expressionType: newExprType };
       }
       return mapping;
     }));
@@ -1714,8 +1819,9 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                           <TableHead>
                             <TableRow>
                               <TableCell sx={{ width: '25%' }}>Memory Key</TableCell>
-                              <TableCell sx={{ width: '20%' }}>Type</TableCell>
-                              <TableCell>JSONPath</TableCell>
+                              <TableCell sx={{ width: '16%' }}>Target</TableCell>
+                              <TableCell sx={{ width: '18%' }}>Expr Type</TableCell>
+                              <TableCell>Expression</TableCell>
                               <TableCell sx={{ width: 56 }} align="right">Action</TableCell>
                             </TableRow>
                           </TableHead>
@@ -1746,9 +1852,21 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                                     </Select>
                                   </TableCell>
                                   <TableCell>
+                                    <Select
+                                      size="small"
+                                      value={mapping.expressionType || 'JSON_PATH'}
+                                      onChange={(e) => updateResponseMappingExprType(index, e.target.value as any)}
+                                      fullWidth
+                                    >
+                                      <MenuItem value="JSON_PATH">JSON_PATH</MenuItem>
+                                      <MenuItem value="XPATH">XPATH</MenuItem>
+                                      <MenuItem value="REGEX">REGEX</MenuItem>
+                                    </Select>
+                                  </TableCell>
+                                  <TableCell>
                                     <TextField
                                       size="small"
-                                      label="JSONPath"
+                                      label="Expression"
                                       value={jsonPath}
                                       onChange={(e) => updateResponseMappingValue(index, memoryKey, e.target.value)}
                                       fullWidth
@@ -1792,15 +1910,25 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                       <MenuItem value="memory">Memory</MenuItem>
                       <MenuItem value="directive">Directive</MenuItem>
                     </Select>
+                    <Select
+                      size="small"
+                      value={newMappingExprType}
+                      onChange={(e) => setNewMappingExprType(e.target.value as any)}
+                      sx={{ minWidth: 140 }}
+                    >
+                      <MenuItem value="JSON_PATH">JSON_PATH</MenuItem>
+                      <MenuItem value="XPATH">XPATH</MenuItem>
+                      <MenuItem value="REGEX">REGEX</MenuItem>
+                    </Select>
                     <TextField
                       size="small"
-                      placeholder="JSONPath (예: $.NLU_INTENT.value)"
+                      placeholder="Expression (예: $.NLU_INTENT.value)"
                       value={newMappingValue}
                       onChange={(e) => setNewMappingValue(e.target.value)}
                       sx={{ flex: 2 }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
-                          addResponseMapping(newMappingKey.trim(), newMappingValue.trim(), newMappingType);
+                          addResponseMapping(newMappingKey.trim(), newMappingValue.trim(), newMappingType, newMappingExprType);
                           setNewMappingKey('');
                           setNewMappingValue('');
                         }
@@ -1810,7 +1938,7 @@ const ExternalIntegrationManager: React.FC<ExternalIntegrationManagerProps> = ({
                       size="small"
                       variant="outlined"
                       onClick={() => {
-                        addResponseMapping(newMappingKey.trim(), newMappingValue.trim(), newMappingType);
+                        addResponseMapping(newMappingKey.trim(), newMappingValue.trim(), newMappingType, newMappingExprType);
                         setNewMappingKey('');
                         setNewMappingValue('');
                       }}

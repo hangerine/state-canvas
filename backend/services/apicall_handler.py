@@ -63,10 +63,13 @@ class ApiCallHandler:
                 
                 logger.info(f"📥 API response received: {response_data}")
                 
-                # 응답 매핑 처리
+                # 응답 매핑 처리 (신규/레거시 모두 지원)
                 response_mappings = apicall_config.get("formats", {}).get("responseMappings", {})
                 if response_mappings:
-                    self._process_response_mappings(response_mappings, response_data, memory)
+                    try:
+                        utils.apply_response_mappings(response_data, response_mappings, memory)
+                    except Exception as me:
+                        logger.error(f"Response mapping failed: {me}")
                 
                 results.append({
                     "name": apicall_name,
@@ -157,10 +160,13 @@ class ApiCallHandler:
                 
                 logger.info(f"📥 API response received: {response_data}")
                 
-                # 응답 매핑 처리
+                # 응답 매핑 처리 (신규/레거시 모두 지원)
                 response_mappings = apicall_config.get("formats", {}).get("responseMappings", {})
                 if response_mappings:
-                    self._process_response_mappings(response_mappings, response_data, memory)
+                    try:
+                        utils.apply_response_mappings(response_data, response_mappings, memory)
+                    except Exception as me:
+                        logger.error(f"Response mapping failed: {me}")
                 
                 # 🚀 핵심 수정: 조건 핸들러 처리 추가
                 logger.info(f"[APICALL] Processing condition handlers after API call")
@@ -210,60 +216,11 @@ class ApiCallHandler:
         return None
 
     def _process_response_mappings(self, response_mappings: Dict[str, Any], response_data: Dict[str, Any], memory: Dict[str, Any]):
-        """응답 매핑 처리 (시나리오 구조에 맞춤)"""
-        
-        logger.info(f"📋 Processing response mappings: {response_mappings}")
-        
-        for memory_key, mapping_config in response_mappings.items():
-            try:
-                # 새로운 구조: {"type": "memory", "NLU_INTENT": "$.NLU_INTENT.value"}
-                if isinstance(mapping_config, dict) and "type" in mapping_config:
-                    mapping_type = mapping_config.get("type")
-                    jsonpath_expr = None
-                    
-                    # memory 타입인 경우 memory_key와 일치하는 키를 찾아서 JSONPath 추출
-                    if mapping_type == "memory":
-                        for key, value in mapping_config.items():
-                            if key != "type" and isinstance(value, str):
-                                jsonpath_expr = value
-                                break
-                    elif mapping_type == "directive":
-                        # directive 타입인 경우 memory_key와 일치하는 키를 찾아서 JSONPath 추출
-                        for key, value in mapping_config.items():
-                            if key != "type" and isinstance(value, str):
-                                jsonpath_expr = value
-                                break
-                    
-                    if not jsonpath_expr:
-                        logger.warning(f"❌ No JSONPath found in mapping config for {memory_key}: {mapping_config}")
-                        continue
-                        
-                    logger.info(f"🔍 Processing {mapping_type} mapping: {memory_key} <- {jsonpath_expr}")
-                    
-                else:
-                    # 기존 구조: "NLU_INTENT": "$.NLU_INTENT.value"
-                    if not isinstance(mapping_config, str):
-                        logger.warning(f"❌ Invalid mapping config for {memory_key}: {mapping_config}")
-                        continue
-                    jsonpath_expr = mapping_config
-                    mapping_type = "memory"  # 기본값
-                    logger.info(f"🔍 Processing legacy mapping: {memory_key} <- {jsonpath_expr}")
-                
-                # JSONPath를 사용하여 응답에서 값 추출
-                value = self._extract_value_from_response(response_data, jsonpath_expr)
-                
-                if value is not None:
-                    if mapping_type == "memory":
-                        # 메모리 슬롯에 저장
-                        memory[memory_key] = value
-                        logger.info(f"✅ Mapped to memory {memory_key} <- {jsonpath_expr}: {value}")
-                    
-                    elif mapping_type == "directive":
-                        # 지시사항으로 처리 (필요시 구현)
-                        logger.info(f"📋 Response directive mapping: {memory_key} = {value}")
-                        
-            except Exception as e:
-                logger.error(f"Error processing response mapping {memory_key}: {e}")
+        """응답 매핑 처리 (deprecated wrapper)"""
+        try:
+            utils.apply_response_mappings(response_data, response_mappings, memory)
+        except Exception as e:
+            logger.error(f"Error processing response mappings: {e}")
 
     def _extract_value_from_response(self, response: Dict[str, Any], json_path: str) -> Any:
         """JSON 응답에서 특정 경로의 값 추출"""
@@ -301,7 +258,7 @@ class ApiCallHandler:
             formats = apicall_config.get("formats", {})
             
             # HTTP 메서드와 헤더
-            method = formats.get("method", "POST").upper()
+            method = (apicall_config.get("method") or formats.get("method", "POST")).upper()
             headers = formats.get("headers", {})
             contentType = formats.get("contentType", "application/json")
             

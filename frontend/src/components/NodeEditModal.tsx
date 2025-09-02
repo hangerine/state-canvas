@@ -276,30 +276,62 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
     // Response Mappings 문자열을 JSON 객체로 변환
     const updatedApiCallHandlers = editedState.apicallHandlers?.map((handler, index) => {
       const mappingString = getSafeResponseMappingString(index);
-      let parsedMappings: Array<{ type: 'memory' | 'directive', map: Record<string, string> }> = [];
+      // Convert any input JSON (legacy object/old array/new groups) to new groups
+      let parsedGroups: Array<{ expressionType: 'JSON_PATH'; targetType: 'MEMORY' | 'DIRECTIVE'; mappings: Record<string, string> }> = [];
       
       try {
         const parsed = JSON.parse(mappingString);
-        // 배열인지 확인하고, 객체인 경우 배열로 변환
         if (Array.isArray(parsed)) {
-          parsedMappings = parsed;
+          // If already new groups
+          if (parsed.length > 0 && (parsed[0] as any).expressionType) {
+            parsedGroups = parsed as any;
+          } else {
+            // old array [{type,map}]
+            const memory: Record<string, string> = {};
+            const directive: Record<string, string> = {};
+            (parsed as any[]).forEach((m: any) => {
+              const t = String(m?.type || 'memory').toLowerCase();
+              Object.entries(m?.map || {}).forEach(([k, v]) => {
+                if (t === 'directive') directive[k] = String(v); else memory[k] = String(v);
+              });
+            });
+            if (Object.keys(memory).length) parsedGroups.push({ expressionType: 'JSON_PATH', targetType: 'MEMORY', mappings: memory });
+            if (Object.keys(directive).length) parsedGroups.push({ expressionType: 'JSON_PATH', targetType: 'DIRECTIVE', mappings: directive });
+          }
         } else if (typeof parsed === 'object' && parsed !== null) {
-          // 객체인 경우 배열로 변환 (기존 형식 호환성)
-          parsedMappings = [parsed];
+          // legacy object { KEY: path | {type, KEY: path} }
+          const memory: Record<string, string> = {};
+          const directive: Record<string, string> = {};
+          Object.entries(parsed as any).forEach(([key, conf]: any) => {
+            if (typeof conf === 'string') memory[key] = conf;
+            else if (conf && typeof conf === 'object') {
+              const t = String(conf.type || 'memory').toLowerCase();
+              let expr: string | null = typeof conf[key] === 'string' ? conf[key] : null;
+              if (!expr) {
+                for (const [kk, vv] of Object.entries(conf)) {
+                  if (kk !== 'type' && typeof vv === 'string') { expr = vv as string; break; }
+                }
+              }
+              if (expr) {
+                if (t === 'directive') directive[key] = expr; else memory[key] = expr;
+              }
+            }
+          });
+          if (Object.keys(memory).length) parsedGroups.push({ expressionType: 'JSON_PATH', targetType: 'MEMORY', mappings: memory });
+          if (Object.keys(directive).length) parsedGroups.push({ expressionType: 'JSON_PATH', targetType: 'DIRECTIVE', mappings: directive });
         }
       } catch (e) {
-        // console.warn(`Invalid JSON in Response Mappings for handler ${index}:`, mappingString);
-        // 유효하지 않은 JSON의 경우 빈 배열 사용
-        parsedMappings = [];
+        parsedGroups = [];
       }
       
       return {
         ...handler,
         apicall: {
           ...handler.apicall!,
+          method: (handler.apicall as any)?.method || (handler.apicall as any)?.formats?.method || 'POST',
           formats: {
             ...handler.apicall!.formats,
-            responseMappings: parsedMappings
+            responseMappings: parsedGroups
           }
         }
       };
@@ -715,11 +747,11 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
     const newHandler: ApiCallHandler = {
       name: "API_CALL",
       apicall: {
+        method: "POST",
         url: "",
         timeoutInMilliSecond: 5000,
         retry: 3,
         formats: {
-          method: "POST",
           contentType: "application/json",
           requestTemplate: "",
           responseMappings: [],
@@ -1779,9 +1811,9 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                                     url: selected.url,
                                     timeoutInMilliSecond: selected.timeoutInMilliSecond,
                                     retry: selected.retry,
+                                    method: (selected as any).method || selected.formats.method || 'POST',
                                     formats: {
                                       ...h.apicall!.formats,
-                                      method: selected.formats.method,
                                       requestTemplate: selected.formats.requestTemplate || '',
                                       headers: selected.formats.headers || {},
                                     }
@@ -1816,7 +1848,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                             <Box>
                               <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{apicall.name}</Typography>
                               <Typography variant="caption" sx={{ color: 'text.secondary' }}>{apicall.url}</Typography>
-                              <Typography variant="caption" sx={{ color: 'text.secondary', ml: 1 }}>method: {apicall.formats.method}</Typography>
+                              <Typography variant="caption" sx={{ color: 'text.secondary', ml: 1 }}>method: {(apicall as any).method || apicall.formats.method}</Typography>
                             </Box>
                           </MenuItem>
                         ))}
@@ -1833,7 +1865,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                       <Typography variant="subtitle2" sx={{ mb: 0.5 }}>설정 요약 (읽기 전용)</Typography>
                       <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1, bgcolor: '#f9f9f9' }}>
                         <Typography variant="body2"><strong>URL:</strong> {handler.apicall?.url || '-'}</Typography>
-                        <Typography variant="body2"><strong>Method:</strong> {handler.apicall?.formats.method || '-'}</Typography>
+                        <Typography variant="body2"><strong>Method:</strong> {handler.apicall?.method || handler.apicall?.formats.method || '-'}</Typography>
                         <Typography variant="body2"><strong>Timeout:</strong> {handler.apicall?.timeoutInMilliSecond ?? '-' } ms</Typography>
                         <Typography variant="body2"><strong>Retry:</strong> {handler.apicall?.retry ?? '-'}</Typography>
                         <Typography variant="body2" sx={{ mt: 0.5 }}>
@@ -1857,14 +1889,51 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                         <Typography variant="body2" sx={{ mt: 0.5 }}>
                           <strong>Response Mappings:</strong>
                         </Typography>
-                        {Object.entries(handler.apicall?.formats.responseMappings || {}).slice(0, 6).map(([k, v]) => (
-                          <Typography key={k} variant="caption" sx={{ display: 'block', ml: 1.5 }}>
-                            {k} ⇐ {String(v)}
-                          </Typography>
-                        ))}
-                        {Object.keys(handler.apicall?.formats.responseMappings || {}).length === 0 && (
-                          <Typography variant="caption" sx={{ display: 'block', ml: 1.5 }}>-</Typography>
-                        )}
+                        {(() => {
+                          const rm: any = handler.apicall?.formats.responseMappings || [];
+                          if (Array.isArray(rm)) {
+                            const lines: string[] = [];
+                            rm.slice(0, 3).forEach((g: any) => {
+                              const prefix = `[${String(g.expressionType)}→${String(g.targetType)}]`;
+                              Object.entries(g.mappings || {}).slice(0, 6 - lines.length).forEach(([k, v]) => {
+                                lines.push(`${prefix} ${k} ⇐ ${String(v)}`);
+                              });
+                            });
+                            return lines.length ? (
+                              <>
+                                {lines.map((line, i) => (
+                                  <Typography key={i} variant="caption" sx={{ display: 'block', ml: 1.5 }}>{line}</Typography>
+                                ))}
+                              </>
+                            ) : (
+                              <Typography variant="caption" sx={{ display: 'block', ml: 1.5 }}>-</Typography>
+                            );
+                          }
+                          const obj = rm || {};
+                          const entries = Object.entries(obj).slice(0, 6);
+                          return entries.length ? (
+                            <>
+                              {entries.map(([k, v]: any) => {
+                                let display = '';
+                                if (typeof v === 'string') display = v;
+                                else if (v && typeof v === 'object') {
+                                  display = typeof v[k] === 'string' ? v[k] : '';
+                                  if (!display) {
+                                    for (const [kk, vv] of Object.entries(v)) {
+                                      if (kk !== 'type' && typeof vv === 'string') { display = vv as string; break; }
+                                    }
+                                  }
+                                  if (!display) display = JSON.stringify(v);
+                                } else display = String(v);
+                                return (
+                                  <Typography key={k} variant="caption" sx={{ display: 'block', ml: 1.5 }}>{k} ⇐ {display}</Typography>
+                                );
+                              })}
+                            </>
+                          ) : (
+                            <Typography variant="caption" sx={{ display: 'block', ml: 1.5 }}>-</Typography>
+                          );
+                        })()}
                         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
                           편집은 테스트 패널 → 외부연동관리 → API Call 관리에서 수행하세요.
                         </Typography>

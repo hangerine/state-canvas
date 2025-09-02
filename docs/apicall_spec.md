@@ -127,15 +127,16 @@ StateCanvas에서 외부 API 호출을 위한 표준화된 설정 스펙입니�
 
 ## 예제
 
-### API Call 예제
+### API Call 예제 (JSON_PATH → MEMORY)
 
 ```json
 {
-  "type": "apicall",
+  "type": "APICALL",
   "name": "(external_api)search-json",
   "url": "http://localhost:8000/api/v1/apicall",
   "timeoutInMilliSecond": 5000,
   "retry": 3,
+  "method": "POST",
   "headers": {
     "Authorization": "Bearer {$accessToken}",
     "Content-Type": "application/json"
@@ -146,12 +147,11 @@ StateCanvas에서 외부 API 호출을 위한 표준화된 설정 스펙입니�
     { "name": "size", "value": "20" }
   ],
   "formats": {
-    "method": "POST",
     "contentType": "application/json",
     "requestTemplate": "{\"sessionId\":\"{$sessionId}\",\"requestId\":\"{$requestId}\"}",
     "responseProcessing": {},
     "responseMappings": [
-      { "type": "memory", "map": { "NLU_INTENT": "$.NLU_INTENT.value" } }
+      { "expressionType": "JSON_PATH", "targetType": "MEMORY", "mappings": { "NLU_INTENT": "$.NLU_INTENT.value" } }
     ]
   }
 }
@@ -161,7 +161,7 @@ StateCanvas에서 외부 API 호출을 위한 표준화된 설정 스펙입니�
 
 ```json
 {
-  "type": "webhook",
+  "type": "WEBHOOK",
   "name": "(intent_classifier)classifier",
   "url": "http://localhost:8000/api/v1/webhook",
   "timeoutInMilliSecond": 1000,

@@ -287,41 +287,74 @@ const Sidebar: React.FC<SidebarProps> = ({
   // JSON 파일 다운로드
   const handleDownload = () => {
     if (!scenario) return;
-    // 통합 저장: apicalls -> webhooks(type='apicall'), webhook에 type 지정
+    // 통합 저장: apicalls -> webhooks(type='APICALL'), webhook에 type 지정
     const unifyScenarioForSave = (src: any) => {
       const s = JSON.parse(JSON.stringify(src || {}));
       const webhooks: any[] = Array.isArray(s.webhooks) ? s.webhooks : [];
       // ensure type on existing webhooks
       webhooks.forEach((w) => {
-        if (!w.type) w.type = 'webhook';
+        if (!w.type) w.type = 'WEBHOOK';
       });
       const apicalls: any[] = Array.isArray(s.apicalls) ? s.apicalls : [];
       if (apicalls.length > 0) {
-        const existing = new Set((webhooks || []).filter((w: any) => w.type === 'apicall').map((w: any) => w.name));
+        const existing = new Set((webhooks || []).filter((w: any) => String(w.type || 'WEBHOOK').toUpperCase() === 'APICALL').map((w: any) => w.name));
         apicalls.forEach((a) => {
           if (existing.has(a.name)) return;
           
           // 새로운 spec에 맞춰 변환
           const formats = a.formats || {};
+          // convert legacy responseMappings -> groups
+          const toGroups = (m: any) => {
+            if (!m) return [];
+            if (Array.isArray(m) && m.length > 0 && (m[0] as any).expressionType) return m;
+            const memory: Record<string, string> = {};
+            const directive: Record<string, string> = {};
+            if (Array.isArray(m)) {
+              m.forEach((item: any) => {
+                const t = String(item?.type || 'memory').toLowerCase();
+                Object.entries(item?.map || {}).forEach(([k, v]) => {
+                  if (t === 'directive') directive[k] = String(v); else memory[k] = String(v);
+                });
+              });
+            } else if (typeof m === 'object') {
+              Object.entries(m).forEach(([key, conf]: any) => {
+                if (typeof conf === 'string') memory[key] = conf;
+                else if (conf && typeof conf === 'object') {
+                  const t = String((conf as any).type || 'memory').toLowerCase();
+                  let expr: string | null = typeof (conf as any)[key] === 'string' ? (conf as any)[key] : null;
+                  if (!expr) {
+                    for (const [kk, vv] of Object.entries(conf as any)) {
+                      if (kk !== 'type' && typeof vv === 'string') { expr = vv as string; break; }
+                    }
+                  }
+                  if (expr) { if (t === 'directive') directive[key] = expr; else memory[key] = expr; }
+                }
+              });
+            }
+            const groups: any[] = [];
+            if (Object.keys(memory).length) groups.push({ expressionType: 'JSON_PATH', targetType: 'MEMORY', mappings: memory });
+            if (Object.keys(directive).length) groups.push({ expressionType: 'JSON_PATH', targetType: 'DIRECTIVE', mappings: directive });
+            return groups;
+          };
           const newFormats = {
-            method: formats.method || 'POST',
             contentType: formats.contentType || 'application/json',
             requestTemplate: formats.requestTemplate,
 
             responseProcessing: formats.responseProcessing || {},
-            responseMappings: formats.responseMappings || [],
+            responseMappings: toGroups(formats.responseMappings),
             headers: formats.headers || {},
             queryParams: formats.queryParams || []
           };
           
           webhooks.push({
-            type: 'apicall',
+            type: 'APICALL',
             name: a.name,
             url: a.url,
             timeoutInMilliSecond: a.timeoutInMilliSecond || a.timeout || 5000,
             retry: a.retry,
             
             headers: formats.headers || {},
+            method: formats.method || 'POST',
             formats: newFormats
           });
         });
@@ -1266,7 +1299,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             </AccordionSummary>
             <AccordionDetails>
               {selectedNode.data.dialogState.apicallHandlers?.map((handler: any, idx: number) => {
-                const apicall = (scenario?.webhooks as any)?.find((w: any) => w.type === 'apicall' && w.name === handler.name);
+                const apicall = (scenario?.webhooks as any)?.find((w: any) => String(w.type || 'WEBHOOK').toUpperCase() === 'APICALL' && w.name === handler.name);
                 return (
                   <Box key={idx} sx={{ mb: 2, p: 1, bgcolor: '#f9f9f9', borderRadius: 1 }}>
                     <Typography variant="caption" display="block" sx={{ fontWeight: 'bold', mb: 1 }}>
@@ -1276,7 +1309,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                       URL: {apicall?.url || 'Unknown'}
                     </Typography>
                     <Typography variant="caption" display="block" color="text.secondary">
-                      Method: {apicall?.formats?.method || 'Unknown'}
+                      Method: {apicall?.method || apicall?.formats?.method || 'Unknown'}
                     </Typography>
                     <Typography variant="caption" display="block" color="text.secondary">
                       Timeout: {apicall?.timeoutInMilliSecond ?? 'Unknown'}ms
@@ -1300,26 +1333,45 @@ const Sidebar: React.FC<SidebarProps> = ({
                         {apicall.formats.requestTemplate}
                       </Typography>
                     )}
-                    {apicall?.formats?.responseMappings && Object.keys(apicall.formats.responseMappings).length > 0 && (
-                      <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 1 }}>
-                        Response Mappings:
-                      </Typography>
-                    )}
-                    {apicall?.formats?.responseMappings && Object.keys(apicall.formats.responseMappings).length > 0 && (
-                      <Box sx={{ 
-                        maxHeight: '60px',
-                        overflow: 'auto',
-                        fontSize: '0.65rem',
-                        bgcolor: '#fff',
-                        p: 0.5,
-                        borderRadius: 0.5,
-                        fontFamily: 'monospace'
-                      }}>
-                        {Object.entries((apicall as any)?.formats?.responseMappings || {}).map(([key, value]) => (
-                          <Typography key={key} variant="caption" display="block">{`${key}: ${String(value)}`}</Typography>
-                        ))}
-                      </Box>
-                    )}
+                    {(() => {
+                      const rm = (apicall as any)?.formats?.responseMappings;
+                      const groups = Array.isArray(rm) ? rm : null;
+                      if (groups && groups.length > 0) {
+                        return (
+                          <>
+                            <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 1 }}>
+                              Response Mappings:
+                            </Typography>
+                            <Box sx={{ maxHeight: '80px', overflow: 'auto', fontSize: '0.65rem', bgcolor: '#fff', p: 0.5, borderRadius: 0.5, fontFamily: 'monospace' }}>
+                              {groups.slice(0, 3).map((g: any, gi: number) => (
+                                <Typography key={gi} variant="caption" display="block">
+                                  [{String(g.expressionType)} → {String(g.targetType)}] {Object.entries(g.mappings || {}).map(([k, v]) => `${k}: ${v}`).join(', ')}
+                                </Typography>
+                              ))}
+                            </Box>
+                          </>
+                        );
+                      }
+                      // legacy object-style display
+                      if (rm && typeof rm === 'object') {
+                        const keys = Object.keys(rm);
+                        if (keys.length > 0) {
+                          return (
+                            <>
+                              <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 1 }}>
+                                Response Mappings:
+                              </Typography>
+                              <Box sx={{ maxHeight: '60px', overflow: 'auto', fontSize: '0.65rem', bgcolor: '#fff', p: 0.5, borderRadius: 0.5, fontFamily: 'monospace' }}>
+                                {Object.entries(rm).map(([key, value]: any) => (
+                                  <Typography key={key} variant="caption" display="block">{`${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`}</Typography>
+                                ))}
+                              </Box>
+                            </>
+                          );
+                        }
+                      }
+                      return null;
+                    })()}
                     {apicall?.formats?.headers && Object.keys(apicall.formats.headers).length > 0 && (
                       <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 1 }}>
                         Headers:

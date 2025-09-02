@@ -128,20 +128,20 @@ async def download_scenario(session_id: str):
             raise HTTPException(status_code=404, detail="시나리오를 찾을 수 없습니다.")
 
         # 통합 저장 규칙:
-        # - webhooks 배열에 webhook/apicall을 함께 저장 (type 필드로 구분)
-        # - legacy apicalls는 webhooks(type='apicall')로 이동 후 삭제
+        # - webhooks 배열에 WEBHOOK/APICALL을 함께 저장 (type 필드로 구분)
+        # - legacy apicalls는 webhooks(type='APICALL')로 이동 후 삭제
         def unify_webhooks_and_apicalls(scenario: Dict[str, Any]):
             # 기본 webhooks 보장
             webhooks = scenario.get("webhooks", []) or []
-            # 기존 webhook들에 type 없으면 webhook으로 표기
+            # 기존 webhook들에 type 없으면 WEBHOOK으로 표기
             for w in webhooks:
                 if "type" not in w:
-                    w["type"] = "webhook"
+                    w["type"] = "WEBHOOK"
 
             legacy_apicalls = scenario.get("apicalls", []) or []
             if legacy_apicalls:
-                # 기존 webhooks에서 apicall 타입 중복 제거(이름 기준)
-                existing_apicall_names = {w.get("name") for w in webhooks if w.get("type") == "apicall"}
+                # 기존 webhooks에서 APICALL 타입 중복 제거(이름 기준)
+                existing_apicall_names = {w.get("name") for w in webhooks if str(w.get("type", "")).upper() == "APICALL"}
                 for a in legacy_apicalls:
                     name = a.get("name")
                     if name in existing_apicall_names:
@@ -149,19 +149,47 @@ async def download_scenario(session_id: str):
                     
                     # 새로운 spec에 맞춰 변환
                     formats = a.get("formats", {}) or {}
+                    # responseMappings 변환 (레거시 → 그룹)
+                    def to_groups(m):
+                        if not m:
+                            return []
+                        if isinstance(m, list) and len(m) > 0 and isinstance(m[0], dict) and m[0].get('expressionType'):
+                            return m
+                        memory, directive = {}, {}
+                        if isinstance(m, list):
+                            for item in m:
+                                t = str(item.get('type', 'memory')).lower()
+                                for k, v in (item.get('map') or {}).items():
+                                    (directive if t == 'directive' else memory)[k] = v
+                        elif isinstance(m, dict):
+                            for k, conf in m.items():
+                                if isinstance(conf, str):
+                                    memory[k] = conf
+                                elif isinstance(conf, dict):
+                                    t = str(conf.get('type', 'memory')).lower()
+                                    expr = conf.get(k)
+                                    if not isinstance(expr, str):
+                                        for kk, vv in conf.items():
+                                            if kk != 'type' and isinstance(vv, str):
+                                                expr = vv; break
+                                    if isinstance(expr, str):
+                                        (directive if t == 'directive' else memory)[k] = expr
+                        groups = []
+                        if memory: groups.append({ 'expressionType': 'JSON_PATH', 'targetType': 'MEMORY', 'mappings': memory })
+                        if directive: groups.append({ 'expressionType': 'JSON_PATH', 'targetType': 'DIRECTIVE', 'mappings': directive })
+                        return groups
                     new_formats = {
-                        "method": formats.get("method", "POST"),
                         "contentType": formats.get("contentType", "application/json"),
                         "requestTemplate": formats.get("requestTemplate"),
-    
+
                         "responseProcessing": formats.get("responseProcessing", {}),
-                        "responseMappings": formats.get("responseMappings", []),
+                        "responseMappings": to_groups(formats.get("responseMappings")),
                         "headers": formats.get("headers", {}),
                         "queryParams": formats.get("queryParams", [])
                     }
                     
                     webhooks.append({
-                        "type": "apicall",
+                        "type": "APICALL",
                         "name": name,
                         "url": a.get("url", ""),
                         "timeoutInMilliSecond": a.get("timeoutInMilliSecond", a.get("timeout", 5000)),
@@ -169,6 +197,7 @@ async def download_scenario(session_id: str):
                         # webhook 공통 인터페이스 호환 필드
                         "timeoutInMilliSecond": a.get("timeout", 5000),
                         "headers": formats.get("headers", {}) or {},
+                        "method": formats.get("method", "POST"),
                         # apicall 고유 포맷 보관
                         "formats": new_formats
                     })

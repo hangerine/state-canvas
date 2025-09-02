@@ -77,8 +77,8 @@ class ScenarioManager:
         apicall_count = 0
         
         for webhook in webhooks:
-            webhook_type = webhook.get("type", "webhook")
-            if webhook_type == "apicall":
+            webhook_type = str(webhook.get("type", "WEBHOOK")).upper()
+            if webhook_type == "APICALL":
                 apicall_count += 1
                 logger.info(f"🔗 Apicall: {webhook.get('name', 'Unknown')} -> {webhook.get('url', 'Unknown URL')}")
             else:
