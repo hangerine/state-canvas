@@ -8,6 +8,7 @@ from typing import Dict, Any, List, Optional, Union
 from pydantic import BaseModel, Field
 import logging
 import requests
+import httpx
 
 from models.scenario import Scenario, ProcessInputRequest, LegacyProcessInputRequest, StateTransition, UserInput, TextContent, CustomEventContent, ChatbotInputRequest, ChatbotProcessRequest
 from services.state_engine import StateEngine
@@ -801,13 +802,24 @@ async def proxy_endpoint(request: Request):
     endpoint = data.get("endpoint")
     payload = data.get("payload")
     logger.info(f"Proxy endpoint: {endpoint}")
-    if not endpoint or not payload:
+    if not endpoint or payload is None:
+        # Keep error message consistent with tests and prior behavior
         return JSONResponse(status_code=400, content={"error": "endpoint와 payload가 필요합니다."})
     try:
-        resp = requests.post(endpoint, json=payload, timeout=15)
-        logger.info(f"Proxy response: {resp.json()}")
-        return JSONResponse(status_code=resp.status_code, content=resp.json() if resp.headers.get('content-type', '').startswith('application/json') else {"raw": resp.text})
+        timeout = httpx.Timeout(15.0)
+        async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
+            resp = await client.post(endpoint, json=payload)
+
+        content_type = resp.headers.get("content-type", "")
+        try:
+            body = resp.json() if content_type.startswith("application/json") else {"raw": resp.text}
+        except ValueError:
+            # Response said JSON but wasn't parseable
+            body = {"raw": resp.text}
+        logger.info(f"Proxy status={resp.status_code}")
+        return JSONResponse(status_code=resp.status_code, content=body)
     except Exception as e:
+        logger.error(f"Proxy error: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 # WebSocket 연결

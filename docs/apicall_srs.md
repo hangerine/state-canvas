@@ -44,8 +44,8 @@
   - `apicall?: ApiCall` (UI 편집용, 런타임은 `name` 기반으로 `scenario.apicalls`를 조회)
 
 #### 템플릿 치환 Template variables (요청 본문/헤더)
-- 한글: `{{sessionId}}`, `{{requestId}}`(없으면 생성/메모리 저장), `{{USER_TEXT_INPUT.[i]}}`, `{{memorySlots.KEY.value.[i]}}`, `{{임의메모리키}}`
-- English: `{{sessionId}}`, `{{requestId}}` (generated if missing), `{{USER_TEXT_INPUT.[i]}}`, `{{memorySlots.KEY.value.[i]}}`, `{{anyMemoryKey}}`
+- 한글: `{$sessionId}`, `{$requestId}`(없으면 생성/메모리 저장), `{$USER_TEXT_INPUT.[i]}`, `{$memorySlots.KEY.value.[i]}`, `{$임의메모리키}`
+- English: `{$sessionId}`, `{$requestId}` (generated if missing), `{$USER_TEXT_INPUT.[i]}`, `{$memorySlots.KEY.value.[i]}`, `{$anyMemoryKey}`
 
 ### 동작 흐름 Behavior
 #### 트리거 Triggers
@@ -160,8 +160,8 @@
       "method": "POST",
       "formats": {
         "contentType": "application/json",
-        "requestTemplate": "{\"text\":\"{{USER_TEXT_INPUT.[0]}}\",\"sessionId\":\"{$sessionId}\",\"requestId\":\"{$requestId}\"}",
-        "headers": { "X-Trace-Id": "{{requestId}}" },
+        "requestTemplate": "{\"text\":\"{$USER_TEXT_INPUT.[0]}\",\"sessionId\":\"{$sessionId}\",\"requestId\":\"{$requestId}\"}",
+        "headers": { "X-Trace-Id": "{$requestId}" },
         "responseMappings": [
           { "expressionType": "JSON_PATH", "targetType": "MEMORY", "mappings": { "NLU_INTENT": "$.nlu.intent", "STS_CONFIDENCE": "$.nlu.confidence" } }
         ]
