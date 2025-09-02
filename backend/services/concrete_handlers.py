@@ -155,7 +155,9 @@ class IntentHandlerV2(BaseHandler):
                 )
                 
                 if has_only_any_intent:
-                    self.logger.info(f"[INTENT DEBUG] State has only __ANY_INTENT__, respecting transition flag")
+                    # 🚀 변경: 전이 직후에는 이전 입력으로 __ANY_INTENT__를 평가하지 않음
+                    # 같은 요청에서 새 입력이 들어올 수 없으므로 무조건 대기
+                    self.logger.info(f"[INTENT DEBUG] State has only __ANY_INTENT__ and transition just occurred → wait for new input")
                     context.memory.pop("USER_INPUT", None)
                     HandlerExecutionEngine.clear_transition_flag(context.session_id)
                     return False
@@ -614,7 +616,7 @@ class ApiCallHandlerV2(BaseHandler):
         condition_handlers = context.current_dialog_state.get("conditionHandlers", [])
         
         # 조건 평가
-        for cond_handler in condition_handlers:
+        for cond_index, cond_handler in enumerate(condition_handlers):
             if not isinstance(cond_handler, dict):
                 continue
             
@@ -639,14 +641,17 @@ class ApiCallHandlerV2(BaseHandler):
                         target_scenario, target_state,
                         [f"⚡ 조건 '{condition_statement}' 만족으로 플랜 전이: {target_scenario}"]
                     )
+                    result.handler_index = cond_index
                     return result
                 
                 # 일반 상태 전이
                 elif target_state and target_state != context.current_state:
-                    return create_state_transition_result(
+                    res = create_state_transition_result(
                         target_state, 
                         [f"✅ API 호출 후 조건 '{condition_statement}' 매칭됨 → {target_state}"]
                     )
+                    res.handler_index = cond_index
+                    return res
         
         return create_no_transition_result(["🔄 API 호출 완료 (조건 불일치)"])
 
@@ -787,23 +792,8 @@ class ConditionHandlerV2(BaseHandler):
                         self.logger.info(f"[CONDITION] 🔍 Not a plan transition")
                         self.logger.info(f"[CONDITION] 🔍 target_scenario == current_plan: {target_scenario == context.scenario['plan'][0]['name']}")
                     
-                    # 일반 상태 전이
-                    if target_state and target_state != context.current_state:
-                        # 전이 발생 시 다음 상태에서 인텐트 1회 유예 및 입력 정리
-                        context.memory["_DEFER_INTENT_ONCE_FOR_STATE"] = target_state
-                        context.memory["_INTENT_TRANSITIONED_THIS_REQUEST"] = True
-                        context.memory["_CLEAR_USER_INPUT_ON_NEXT_REQUEST"] = True
-                        context.memory["_PREVIOUS_STATE"] = context.current_state
-
-                        result = create_state_transition_result(
-                            target_state,
-                            [f"⚡ 조건 '{condition}' 만족으로 전이: {target_state}"]
-                        )
-                        result.handler_index = handler_index  # 실제 인덱스 사용
-                        return result
-                    
                     # 특별한 경우: __END_SCENARIO__ 처리
-                    elif target_state == "__END_SCENARIO__":
+                    if target_state == "__END_SCENARIO__":
                         from .base_handler import TransitionType
                         result = HandlerResult(
                             transition_type=TransitionType.END_SCENARIO,
@@ -820,6 +810,21 @@ class ConditionHandlerV2(BaseHandler):
                             [f"🏁 세션 종료: 조건 '{condition}' 만족"]
                         )
                         result.handler_index = handler_index
+                        return result
+                    
+                    # 일반 상태 전이
+                    elif target_state and target_state != context.current_state:
+                        # 전이 발생 시 다음 상태에서 인텐트 1회 유예 및 입력 정리
+                        context.memory["_DEFER_INTENT_ONCE_FOR_STATE"] = target_state
+                        context.memory["_INTENT_TRANSITIONED_THIS_REQUEST"] = True
+                        context.memory["_CLEAR_USER_INPUT_ON_NEXT_REQUEST"] = True
+                        context.memory["_PREVIOUS_STATE"] = context.current_state
+
+                        result = create_state_transition_result(
+                            target_state,
+                            [f"⚡ 조건 '{condition}' 만족으로 전이: {target_state}"]
+                        )
+                        result.handler_index = handler_index  # 실제 인덱스 사용
                         return result
                     
                     # 🚀 핵심 수정: 조건이 만족되면 즉시 반환 (다른 조건은 평가하지 않음)

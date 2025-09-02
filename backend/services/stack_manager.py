@@ -34,6 +34,7 @@ class ResumePoint:
     resumed_frame: StackFrame
     scenario: Dict[str, Any]
     next_handler_index: int
+    entry_action_executed: bool = False
     
     def has_more_handlers(self, handlers: List[Dict[str, Any]]) -> bool:
         """더 실행할 핸들러가 있는지 확인"""
@@ -160,12 +161,13 @@ class StackManager:
         
         # 현재 플랜과 다른 경우에만 새 프레임 추가
         if target_plan_name != current_frame.plan_name:
+            # 🚀 수정: 플랜 전이 시 현재 프레임을 보존하고 새 프레임 추가
             # 현재 프레임에 복귀 정보 저장
             current_frame.last_executed_handler_index = handler_index
             if current_state:
                 current_frame.dialog_state_name = current_state
             
-            # 새로운 플랜 프레임 추가
+            # 새로운 플랜 프레임 추가 (이전 프레임 보존)
             new_frame = StackFrame(
                 scenario_name=current_frame.scenario_name,
                 plan_name=target_plan_name,
@@ -177,16 +179,39 @@ class StackManager:
             stack.append(new_frame)
             self.session_stacks[session_id] = stack
             
-            self.logger.info(f"[PLAN SWITCH] {current_frame.plan_name} -> {target_plan_name} (state: {target_state})")
+            self.logger.info(f"[PLAN SWITCH] {current_frame.plan_name} -> {target_plan_name} (state: {target_state}) - Previous frame preserved")
             return new_frame
         else:
-            # 같은 플랜 내에서는 상태만 변경
-            current_frame.dialog_state_name = target_state
-            self.logger.info(f"[PLAN SKIP] already in plan={target_plan_name}, state={target_state}")
-            return current_frame
+            # 🚀 수정: 같은 플랜 내에서도 새 프레임 추가 (__END_SCENARIO__ 복귀를 위해)
+            # 현재 프레임에 복귀 정보 저장
+            current_frame.last_executed_handler_index = handler_index
+            if current_state:
+                current_frame.dialog_state_name = current_state
+            
+            # 새로운 상태 프레임 추가
+            new_frame = StackFrame(
+                scenario_name=current_frame.scenario_name,
+                plan_name=target_plan_name,
+                dialog_state_name=target_state,
+                last_executed_handler_index=-1,
+                entry_action_executed=False
+            )
+            
+            stack.append(new_frame)
+            self.session_stacks[session_id] = stack
+            
+            self.logger.info(f"[PLAN SWITCH] Same plan but new state: {current_frame.plan_name} -> {target_plan_name} (state: {current_frame.dialog_state_name} -> {target_state})")
+            return new_frame
     
     def handle_end_scenario(self, session_id: str) -> Optional[ResumePoint]:
-        """__END_SCENARIO__ 처리"""
+        """__END_SCENARIO__ 처리
+        
+        동작:
+        1. 현재 프레임을 스택에서 제거
+        2. 동일 플랜의 중복 프레임이 존재하면 모두 제거하여 상위 플랜/시나리오로 복귀
+        3. 이전 프레임의 handler index 정보를 가져와서 다음 handler부터 실행
+        4. 이미 실행된 entry action은 건너뛰기
+        """
         stack = self.session_stacks.get(session_id, [])
         
         if len(stack) <= 1:
@@ -195,25 +220,46 @@ class StackManager:
         
         # 현재 프레임 제거
         ended_frame = stack.pop()
+
+        # 동일 플랜의 중복 프레임을 모두 제거하여 상위로 복귀
+        removed_count = 0
+        while stack and stack[-1].plan_name == ended_frame.plan_name:
+            stack.pop()
+            removed_count += 1
+        if removed_count > 0:
+            self.logger.info(f"[END_SCENARIO] Collapsed {removed_count} duplicate frame(s) of plan '{ended_frame.plan_name}'")
+        
+        if not stack:
+            self.logger.warning(f"[END_SCENARIO] Stack became empty after collapsing for session {session_id}")
+            return None
+        
         previous_frame = stack[-1]
         
         self.logger.info(f"[END_SCENARIO] {ended_frame.scenario_name} -> returning to {previous_frame.scenario_name}")
+        self.logger.info(f"[END_SCENARIO] Previous frame: plan={previous_frame.plan_name}, state={previous_frame.dialog_state_name}, handler_index={previous_frame.last_executed_handler_index}")
         
         # 시나리오 객체 로드
-        scenario = self.scenario_manager.get_scenario_by_name(previous_frame.scenario_name)
+        # 🚀 수정: 현재 세션의 전체 시나리오를 사용 (Scene1은 플랜이므로)
+        scenario = self.scenario_manager.get_scenario(session_id)
         if not scenario:
-            self.logger.error(f"Cannot find scenario: {previous_frame.scenario_name}")
+            self.logger.error(f"Cannot find scenario for session: {session_id}")
             return None
         
-        # 다음 핸들러 인덱스 계산
+        # 다음 핸들러 인덱스 계산 (이전에 실행된 핸들러 다음부터)
         next_handler_index = previous_frame.last_executed_handler_index + 1
+        
+        # Entry Action이 이미 실행되었는지 확인
+        entry_action_executed = previous_frame.entry_action_executed
         
         resume_point = ResumePoint(
             session_id=session_id,
             resumed_frame=previous_frame,
             scenario=scenario,
-            next_handler_index=next_handler_index
+            next_handler_index=next_handler_index,
+            entry_action_executed=entry_action_executed
         )
+        
+        self.logger.info(f"[END_SCENARIO] Resume point created: next_handler_index={next_handler_index}, entry_action_executed={entry_action_executed}")
         
         return resume_point
     

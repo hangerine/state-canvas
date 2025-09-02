@@ -10,36 +10,40 @@ class ActionExecutor:
 
     def execute_entry_action(self, scenario: Dict[str, Any], state_name: str) -> Optional[str]:
         logger.info(f"Executing entry action for state: {state_name}")
-        logger.info(f"🔍 Scenario structure: {scenario}")
         
-        # 🚀 핵심 수정: 현재 플랜 컨텍스트에서 상태 찾기
-        # 먼저 Scene1 플랜에서 찾기
+        # 현재 시나리오의 모든 플랜에서 상태를 검색
+        found_plan_name: Optional[str] = None
+        dialog_state: Optional[Dict[str, Any]] = None
         for plan in scenario.get("plan", []):
             plan_name = plan.get("name")
             logger.info(f"🔍 Checking plan: {plan_name}")
-            if plan_name == "Scene1":  # Scene1 플랜에서 먼저 검색
-                logger.info(f"🔍 Found Scene1 plan, searching for state: {state_name}")
-                for dialog_state in plan.get("dialogState", []):
-                    dialog_state_name = dialog_state.get("name")
-                    logger.info(f"🔍 Checking dialog state: {dialog_state_name}")
-                    if dialog_state_name == state_name:
-                        logger.info(f"✅ Found state '{state_name}' in Scene1 plan")
-                        entry_action = dialog_state.get("entryAction")
-                        if entry_action:
-                            logger.info(f"✅ Found entry action: {entry_action}")
-                            return self._process_entry_action(entry_action, state_name)
-                        else:
-                            logger.info(f"❌ No entry action for state: {state_name}")
-                            return None
-                logger.info(f"❌ State '{state_name}' not found in Scene1 plan")
-        
-        # Scene1에서 찾지 못한 경우 기존 로직 사용
-        logger.info(f"🔍 Falling back to scenario_manager.find_dialog_state")
-        dialog_state = self.scenario_manager.find_dialog_state(scenario, state_name)
+            for ds in plan.get("dialogState", []):
+                if ds.get("name") == state_name:
+                    dialog_state = ds
+                    found_plan_name = plan_name
+                    break
+            if dialog_state:
+                break
+
+        # 플랜 순회에서 못 찾으면 ScenarioManager에 위임해 광범위 검색
+        if not dialog_state:
+            logger.info(f"🔍 State not found during plan scan, delegating to scenario_manager.find_dialog_state")
+            dialog_state = self.scenario_manager.find_dialog_state(scenario, state_name)
+            if dialog_state:
+                # 찾은 플랜명을 로깅용으로 추정
+                for plan in scenario.get("plan", []):
+                    if any(s.get("name") == state_name for s in plan.get("dialogState", [])):
+                        found_plan_name = plan.get("name")
+                        break
+
         if not dialog_state:
             logger.info(f"❌ Dialog state not found: {state_name}")
             return None
-        logger.info(f"✅ Found dialog state: {dialog_state}")
+
+        logger.info(f"✅ Found dialog state in plan '{found_plan_name or 'Unknown'}': {dialog_state}")
+        if not dialog_state:
+            logger.info(f"❌ Dialog state not found: {state_name}")
+            return None
         entry_action = dialog_state.get("entryAction")
         if not entry_action:
             logger.info(f"❌ No entry action for state: {state_name}")

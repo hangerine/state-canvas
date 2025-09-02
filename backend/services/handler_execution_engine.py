@@ -311,10 +311,28 @@ class HandlerExecutionEngine:
                             
                             # 🚀 핵심 수정: 전이가 발생했으면 현재 사이클을 중단하고 사용자 입력을 기다림
                             self.logger.info(f"[CYCLE {execution_count}] State transition occurred: {context.current_state} -> {new_state}")
-                            self.logger.info(f"[CYCLE {execution_count}] Breaking cycle to wait for user input")
-                            result.needs_user_input = True
-                            cycle_completed = False
-                            break
+
+                            # 새 상태가 사용자 입력을 기대하는지 확인
+                            expects_user_input = False
+                            try:
+                                ds = context.current_dialog_state  # 업데이트된 컨텍스트의 상태
+                                has_intent = bool(ds and ds.get("intentHandlers"))
+                                has_slot = bool(ds and ds.get("slotFillingForm"))
+                                expects_user_input = has_intent or has_slot
+                                self.logger.info(f"[CYCLE {execution_count}] New state expects_user_input={expects_user_input} (intentHandlers={has_intent}, slotFilling={has_slot})")
+                            except Exception:
+                                pass
+
+                            if expects_user_input:
+                                self.logger.info(f"[CYCLE {execution_count}] Breaking cycle to wait for user input")
+                                result.needs_user_input = True
+                                cycle_completed = False
+                                break
+                            else:
+                                # 새 상태에 맞춰 핸들러 목록을 재계산하기 위해 한 사이클을 끊고 다음 루프로 진행
+                                self.logger.info(f"[CYCLE {execution_count}] Continuing evaluation in same request (no user input expected) → recompute handlers")
+                                cycle_completed = False
+                                break
                     
                     # Handler가 실행 중단을 요청하는 경우
                     self.logger.info(f"[CYCLE {execution_count}] Checking should_stop_execution for {handler.handler_type}")
@@ -336,6 +354,11 @@ class HandlerExecutionEngine:
             
             # 사이클이 완료되었고 상태 변경이 없으면 종료
             if cycle_completed and result.final_state == current_state:
+                break
+
+            # 전이 후 사용자 입력을 기다려야 하는 경우, 추가 사이클을 중단
+            if result.needs_user_input:
+                self.logger.info(f"[CYCLE {execution_count}] needs_user_input=True → stopping further cycles")
                 break
         
         if execution_count >= max_cycles:
@@ -410,11 +433,21 @@ class HandlerExecutionEngine:
                 if context.session_id not in self.stack_manager.session_stacks:
                     self.stack_manager.session_stacks[context.session_id] = []
                 
+                # 이전 프레임 업데이트 (마지막 실행 핸들러 인덱스 기록)
+                current_stack = self.stack_manager.session_stacks.get(context.session_id, [])
+                if current_stack:
+                    prev_frame = current_stack[-1]
+                    prev_frame.last_executed_handler_index = handler_result.handler_index or -1
+                    prev_frame.dialog_state_name = context.current_state
+                    scenario_name_for_new = prev_frame.scenario_name
+                else:
+                    scenario_name_for_new = target_scenario  # 최악의 경우라도 유실 방지
+
                 new_frame = StackFrame(
-                    scenario_name="Main",  # 기본값
+                    scenario_name=scenario_name_for_new,
                     plan_name=target_scenario,
                     dialog_state_name=new_state,
-                    last_executed_handler_index=handler_result.handler_index or -1,
+                    last_executed_handler_index=-1,
                     entry_action_executed=False
                 )
                 self.stack_manager.session_stacks[context.session_id].append(new_frame)
@@ -463,12 +496,21 @@ class HandlerExecutionEngine:
                 self.logger.info(f"[PLAN TRANSITION]   - new_state: {new_state}")
                 self.logger.info(f"[PLAN TRANSITION]   - handler_result.target_plan: {handler_result.target_plan}")
                 self.logger.info(f"[PLAN TRANSITION]   - handler_result.new_state: {handler_result.new_state}")
-                
+                # 이전 프레임 업데이트 (마지막 실행 핸들러 인덱스 기록)
+                current_stack = self.stack_manager.session_stacks.get(context.session_id, [])
+                if current_stack:
+                    prev_frame = current_stack[-1]
+                    prev_frame.last_executed_handler_index = handler_result.handler_index or -1
+                    prev_frame.dialog_state_name = context.current_state
+                    scenario_name_for_new = prev_frame.scenario_name
+                else:
+                    scenario_name_for_new = target_plan
+
                 new_frame = StackFrame(
-                    scenario_name=target_plan,  # target_plan을 scenario_name으로 사용
+                    scenario_name=scenario_name_for_new,
                     plan_name=target_plan,
                     dialog_state_name=new_state,
-                    last_executed_handler_index=handler_result.handler_index or -1,
+                    last_executed_handler_index=-1,
                     entry_action_executed=False
                 )
                 
@@ -549,17 +591,48 @@ class HandlerExecutionEngine:
         return next_state or resume_point.resumed_frame.dialog_state_name
     
     async def _resume_from_stack(self, resume_point: ResumePoint, handler_result: HandlerResult, original_context: ExecutionContext) -> str:
-        """스택에서 복귀하여 다음 핸들러부터 실행"""
+        """스택에서 복귀하여 다음 핸들러부터 실행
         
-        # 시나리오에서 직접 dialog state 찾기 (fallback 방식 사용)
+        동작:
+        1. 이전 프레임의 상태로 복귀
+        2. 이전에 실행된 핸들러 다음부터 실행
+        3. Entry Action이 이미 실행되었으면 건너뛰기
+        """
+        
+        self.logger.info(f"[RESUME] 스택에서 복귀 시작")
+        self.logger.info(f"[RESUME] 복귀 상태: {resume_point.resumed_frame.dialog_state_name}")
+        self.logger.info(f"[RESUME] 다음 핸들러 인덱스: {resume_point.next_handler_index}")
+        self.logger.info(f"[RESUME] Entry Action 실행 여부: {resume_point.entry_action_executed}")
+        
+        # 🚀 수정: 복귀할 플랜과 상태를 정확히 찾기
         dialog_state = None
+        target_plan_name = resume_point.resumed_frame.plan_name
+        
+        self.logger.info(f"[RESUME] 복귀할 플랜: {target_plan_name}")
+        self.logger.info(f"[RESUME] 복귀할 상태: {resume_point.resumed_frame.dialog_state_name}")
+        
+        # 지정된 플랜에서 상태 찾기
         for plan in resume_point.scenario.get("plan", []):
-            for ds in plan.get("dialogState", []):
-                if ds.get("name") == resume_point.resumed_frame.dialog_state_name:
-                    dialog_state = ds
-                    break
-            if dialog_state:
+            if plan.get("name") == target_plan_name:
+                self.logger.info(f"[RESUME] 플랜 '{target_plan_name}' 발견")
+                for ds in plan.get("dialogState", []):
+                    if ds.get("name") == resume_point.resumed_frame.dialog_state_name:
+                        dialog_state = ds
+                        self.logger.info(f"[RESUME] 상태 '{resume_point.resumed_frame.dialog_state_name}' 발견")
+                        break
                 break
+        
+        # 플랜에서 찾지 못한 경우 fallback으로 전체 시나리오에서 찾기
+        if not dialog_state:
+            self.logger.warning(f"[RESUME] 플랜 '{target_plan_name}'에서 상태를 찾지 못함, fallback으로 전체 시나리오에서 검색")
+            for plan in resume_point.scenario.get("plan", []):
+                for ds in plan.get("dialogState", []):
+                    if ds.get("name") == resume_point.resumed_frame.dialog_state_name:
+                        dialog_state = ds
+                        self.logger.info(f"[RESUME] Fallback으로 상태 '{resume_point.resumed_frame.dialog_state_name}' 발견 (플랜: {plan.get('name')})")
+                        break
+                if dialog_state:
+                    break
         
         if not dialog_state:
             self.logger.warning(f"Cannot find dialog state: {resume_point.resumed_frame.dialog_state_name}")
@@ -613,13 +686,51 @@ class HandlerExecutionEngine:
                     # 핸들러 인덱스 업데이트 (원본 인덱스 기준)
                     actual_handler_index = resume_point.next_handler_index + (condition_result.handler_index or 0)
                     self.stack_manager.update_handler_index(resume_point.session_id, actual_handler_index)
-                    self.stack_manager.update_current_state(resume_point.session_id, new_state)
-                    
+
+                    # 전이 타입별 처리
+                    if condition_result.transition_type == TransitionType.PLAN_TRANSITION:
+                        # 플랜 전이: 현재 프레임 보존 + 새 플랜 프레임 push
+                        target_plan = condition_result.target_plan
+                        self.logger.info(f"[RESUME][PLAN TRANSITION] target_plan={target_plan}, new_state={new_state}, actual_index={actual_handler_index}")
+                        try:
+                            self.stack_manager.switch_to_plan(
+                                resume_point.session_id,
+                                target_plan,
+                                new_state,
+                                actual_handler_index,
+                                resume_point.resumed_frame.dialog_state_name
+                            )
+                        except Exception as e:
+                            self.logger.error(f"[RESUME][PLAN TRANSITION] switch_to_plan error: {e}")
+
+                        # Entry Action 실행: 대상 플랜만 포함한 시나리오 컨텍스트로 실행
+                        try:
+                            # 대상 플랜 데이터 준비
+                            target_plan_data = None
+                            for pl in resume_point.scenario.get("plan", []):
+                                if pl.get("name") == target_plan:
+                                    target_plan_data = pl
+                                    break
+                            scenario_for_target = {"plan": [target_plan_data]} if target_plan_data else resume_point.scenario
+                            if not resume_point.entry_action_executed:
+                                self.logger.info(f"[RESUME][PLAN TRANSITION] Entry Action 실행 (플랜 {target_plan})")
+                                await self._execute_entry_action(scenario_for_target, new_state, handler_result)
+                            else:
+                                self.logger.info(f"[RESUME][PLAN TRANSITION] Entry Action 건너뛰기 (이전에 이미 실행됨)")
+                        except Exception as e:
+                            self.logger.error(f"[RESUME][PLAN TRANSITION] Entry action error: {e}")
+                    else:
+                        # 일반 상태 전이: 현재 프레임의 상태만 갱신
+                        self.stack_manager.update_current_state(resume_point.session_id, new_state)
+                        # Entry Action 실행 여부 확인 후 실행
+                        if not resume_point.entry_action_executed:
+                            self.logger.info(f"[RESUME] Entry Action 실행 (이전에 실행되지 않음)")
+                            await self._execute_entry_action(resume_point.scenario, new_state, handler_result)
+                        else:
+                            self.logger.info(f"[RESUME] Entry Action 건너뛰기 (이전에 이미 실행됨)")
+
                     # 결과 메시지 병합
                     handler_result.messages.extend(condition_result.messages)
-                    
-                    # Entry Action 실행
-                    await self._execute_entry_action(resume_point.scenario, new_state, handler_result)
                     
                     self.logger.info(f"[RESUME] 조건 매칭 성공: {resume_point.resumed_frame.dialog_state_name} -> {new_state}")
                     return new_state
