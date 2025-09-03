@@ -2003,7 +2003,16 @@ class StateEngine:
         scenario: Dict[str, Any],
         memory: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
-        """ApiCall 핸들러를 처리합니다."""
+        """ApiCall 핸들러를 처리합니다 (DEPRECATED PATH).
+
+        Note: New spec executes APICALL via entryAction.webhookActions with
+        a unified scenario.webhooks entry (type='APICALL'). Prefer that flow.
+        This function remains for backward compatibility only.
+        """
+        try:
+            logger.warning("[DEPRECATED] apicallHandlers path is deprecated. Prefer entryAction.webhookActions with type='APICALL'.")
+        except Exception:
+            pass
         
         apicall_handlers = current_dialog_state.get("apicallHandlers", [])
         if not apicall_handlers:

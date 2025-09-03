@@ -127,6 +127,7 @@ class ScenarioManager:
                 logger.info(f"🚀 Found {len(apicall_states)} states with apicall handlers:")
                 for as_state in apicall_states:
                     logger.info(f"   - {as_state['state']}: {as_state['handlers']}")
+                logger.warning("[DEPRECATED] apicallHandlers are deprecated. Use entryAction.webhookActions with type='APICALL' and define details in scenario.webhooks.")
             else:
                 logger.info("🚀 No states with apicall handlers found")
 

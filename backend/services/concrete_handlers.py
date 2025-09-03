@@ -501,7 +501,12 @@ class WebhookHandlerV2(BaseHandler):
         if not context.current_dialog_state:
             return False
         
-        webhook_actions = context.current_dialog_state.get("webhookActions", [])
+        # Support both root-level and entryAction.webhookActions
+        webhook_actions = context.current_dialog_state.get("webhookActions", []) or []
+        if not webhook_actions:
+            entry_action = context.current_dialog_state.get("entryAction") or {}
+            if isinstance(entry_action, dict):
+                webhook_actions = entry_action.get("webhookActions", []) or []
         return bool(webhook_actions)
     
     async def execute(self, context: ExecutionContext) -> HandlerResult:
