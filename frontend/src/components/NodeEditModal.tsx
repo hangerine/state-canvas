@@ -788,38 +788,48 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
 
   // 노드 편집에서는 API Call 상세 설정을 읽기 전용으로만 표시하므로 업데이트 로직 제거
 
-  // Webhook 액션 관리 함수들
+  // Helper to read/write webhookActions under entryAction (spec) with root-level fallback for compatibility
+  const readWebhookActions = (): any[] => {
+    const ea = (editedState as any)?.entryAction;
+    if (ea && typeof ea === 'object' && Array.isArray((ea as any).webhookActions)) {
+      return (ea as any).webhookActions as any[];
+    }
+    return (editedState as any)?.webhookActions || [];
+  };
+  const writeWebhookActions = (actions: any[]) => {
+    const next = { ...(editedState as any) };
+    next.entryAction = next.entryAction && typeof next.entryAction === 'object' ? next.entryAction : { directives: [] };
+    next.entryAction.webhookActions = actions;
+    // keep root-level in sync for backward-compatibility in UI
+    next.webhookActions = actions;
+    setEditedState(next);
+  };
+
+  // Webhook 액션 관리 함수들 (WEBHOOK 전용)
   const addWebhookAction = () => {
     const newWebhookAction = {
-      name: availableWebhooks.length > 0 ? availableWebhooks[0].name : "NEW_WEBHOOK"
-    };
-    
-    setEditedState({
-      ...editedState,
-      webhookActions: [...(editedState.webhookActions || []), newWebhookAction]
-    });
+      name: availableWebhooks.length > 0 ? availableWebhooks[0].name : "NEW_WEBHOOK",
+      type: 'WEBHOOK'
+    } as any;
+    const curr = readWebhookActions();
+    writeWebhookActions([...(curr || []), newWebhookAction]);
   };
 
   const removeWebhookAction = (index: number) => {
-    const updated = editedState.webhookActions?.filter((_, i) => i !== index) || [];
-    setEditedState({
-      ...editedState,
-      webhookActions: updated
-    });
+    const all = readWebhookActions();
+    const nonApi = (all || []).filter((a: any) => String((a as any).type || 'WEBHOOK').toUpperCase() !== 'APICALL');
+    const apiOnly = (all || []).filter((a: any) => String((a as any).type || 'WEBHOOK').toUpperCase() === 'APICALL');
+    const updatedNonApi = (nonApi || []).filter((_: any, i: number) => i !== index);
+    writeWebhookActions([...(updatedNonApi || []), ...(apiOnly || [])]);
   };
 
   const updateWebhookAction = (index: number, value: string) => {
-    const updated = editedState.webhookActions?.map((action, i) => {
-      if (i === index) {
-        return { ...action, name: value };
-      }
-      return action;
-    }) || [];
-    
-    setEditedState({
-      ...editedState,
-      webhookActions: updated
-    });
+    const curr = readWebhookActions();
+    // Only update among WEBHOOK-typed actions in display order
+    const nonApi = (curr || []).filter((a: any) => String((a as any).type || 'WEBHOOK').toUpperCase() !== 'APICALL');
+    const apiOnly = (curr || []).filter((a: any) => String((a as any).type || 'WEBHOOK').toUpperCase() === 'APICALL');
+    const updatedNonApi = nonApi.map((action: any, i: number) => (i === index ? { ...action, name: value, type: 'WEBHOOK' } : action));
+    writeWebhookActions([...(updatedNonApi || []), ...(apiOnly || [])]);
   };
 
   // Webhook action name을 안전하게 가져오는 함수 추가
@@ -835,6 +845,33 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
       return JSON.stringify(action.name);
     }
     return String(action.name || '');
+  };
+
+  // API Call 액션 (APICALL 전용) 관리
+  const readApiCallActions = (): any[] => {
+    const all = readWebhookActions();
+    return (all || []).filter((a: any) => String((a as any).type || '').toUpperCase() === 'APICALL');
+  };
+  const writeApiCallActions = (apiActions: any[]) => {
+    const all = readWebhookActions();
+    const nonApi = (all || []).filter((a: any) => String((a as any).type || 'WEBHOOK').toUpperCase() !== 'APICALL');
+    writeWebhookActions([...(nonApi || []), ...(apiActions || [])]);
+  };
+  const addApiCallAction = () => {
+    const first = availableApiCalls?.[0];
+    const newAction = { name: first ? first.name : 'NEW_APICALL', type: 'APICALL' } as any;
+    const curr = readApiCallActions();
+    writeApiCallActions([...(curr || []), newAction]);
+  };
+  const removeApiCallAction = (index: number) => {
+    const curr = readApiCallActions();
+    const updated = (curr || []).filter((_: any, i: number) => i !== index);
+    writeApiCallActions(updated);
+  };
+  const updateApiCallAction = (index: number, value: string) => {
+    const curr = readApiCallActions();
+    const updated = (curr || []).map((action: any, i: number) => (i === index ? { ...action, name: value, type: 'APICALL' } : action));
+    writeApiCallActions(updated);
   };
 
   // Slot Filling Form 관리 함수들
@@ -1767,77 +1804,30 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
             </Accordion>
           )}
 
-          {/* API Call 핸들러 */}
+          {/* API Call 액션 (Entry Action 기반) */}
           <Accordion>
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Typography variant="h6">
-                API Call 핸들러 ({editedState.apicallHandlers?.length || 0})
-              </Typography>
+              <Typography variant="h6">API Call 액션 ({readApiCallActions().length})</Typography>
             </AccordionSummary>
             <AccordionDetails>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {editedState.apicallHandlers?.map((handler, index) => (
-                  <Box key={index} data-api-call-index={index} sx={{ border: 1, borderColor: 'divider', p: 2, borderRadius: 1 }}>
+                {readApiCallActions().map((action, index) => (
+                  <Box key={`apicall-action-${index}`} sx={{ border: 1, borderColor: 'divider', p: 2, borderRadius: 1 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                       <Typography variant="subtitle2">API Call {index + 1}</Typography>
-                      <IconButton onClick={() => removeApiCallHandler(index)} size="small">
+                      <IconButton onClick={() => removeApiCallAction(index)} size="small">
                         <DeleteIcon />
                       </IconButton>
                     </Box>
-                    
-                    {/* 글로벌 API Call 선택 드롭다운 */}
                     <FormControl fullWidth sx={{ mb: 1 }}>
                       <InputLabel>API Call 선택</InputLabel>
                       <Select
-                        value={(() => {
-                          // handler.name이 apicall 목록에 없으면 ''로 처리
-                          if (!handler.name) return '';
-                          const found = availableApiCalls.find(a => a.name === handler.name);
-                          return found ? found.name : '';
-                        })()}
+                        value={(availableApiCalls.find(a => a.name === action.name)?.name) || ''}
                         label="API Call 선택"
-                        onChange={e => {
-                          const selected = availableApiCalls.find(a => a.name === e.target.value);
-                          setEditedState(prev => {
-                            if (!prev) return prev;
-                            const updatedHandlers = (prev.apicallHandlers || []).map((h, i) => {
-                              if (i !== index) return h;
-                              if (selected) {
-                                return {
-                                  ...h,
-                                  name: selected.name,
-                                  apicall: {
-                                    ...h.apicall!,
-                                    url: selected.url,
-                                    timeoutInMilliSecond: selected.timeoutInMilliSecond,
-                                    retry: selected.retry,
-                                    method: (selected as any).method || selected.formats.method || 'POST',
-                                    formats: {
-                                      ...h.apicall!.formats,
-                                      requestTemplate: selected.formats.requestTemplate || '',
-                                      headers: selected.formats.headers || {},
-                                    }
-                                  }
-                                };
-                              } else {
-                                // 선택 해제 시 빈 값으로 초기화
-                                return {
-                                  ...h,
-                                  name: '',
-                                  apicall: {
-                                    ...h.apicall!,
-                                    url: '',
-                                  }
-                                };
-                              }
-                            });
-                            return { ...prev, apicallHandlers: updatedHandlers };
-                          });
-                        }}
-                        displayEmpty
+                        onChange={(e) => updateApiCallAction(index, String(e.target.value))}
                         renderValue={selected => {
                           if (!selected) return <span style={{ color: '#aaa' }}>API Call을 선택하세요</span>;
-                          return selected;
+                          return selected as string;
                         }}
                       >
                         <MenuItem value="">
@@ -1853,101 +1843,63 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                           </MenuItem>
                         ))}
                         {availableApiCalls.length === 0 && (
-                          <MenuItem value="NEW_APICALL" disabled>
-                            -- API Call이 없습니다 (외부 연동 관리 탭에서 등록) --
-                          </MenuItem>
+                          <MenuItem value="NEW_APICALL" disabled>-- API Call이 없습니다 (외부 연동 관리 탭에서 등록) --</MenuItem>
                         )}
                       </Select>
                     </FormControl>
-
-                    {/* 읽기 전용 요약 표시 (편집은 외부연동관리 탭에서만) */}
-                    <Box sx={{ mb: 1 }}>
-                      <Typography variant="subtitle2" sx={{ mb: 0.5 }}>설정 요약 (읽기 전용)</Typography>
-                      <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1, bgcolor: '#f9f9f9' }}>
-                        <Typography variant="body2"><strong>URL:</strong> {handler.apicall?.url || '-'}</Typography>
-                        <Typography variant="body2"><strong>Method:</strong> {handler.apicall?.method || handler.apicall?.formats.method || '-'}</Typography>
-                        <Typography variant="body2"><strong>Timeout:</strong> {handler.apicall?.timeoutInMilliSecond ?? '-' } ms</Typography>
-                        <Typography variant="body2"><strong>Retry:</strong> {handler.apicall?.retry ?? '-'}</Typography>
-                        <Typography variant="body2" sx={{ mt: 0.5 }}>
-                          <strong>Headers:</strong> {Object.keys(handler.apicall?.formats.headers || {}).length}개
-                        </Typography>
-                        {Object.entries(handler.apicall?.formats.headers || {}).slice(0, 5).map(([k, v]) => (
-                          <Typography key={k} variant="caption" sx={{ display: 'block', ml: 1.5 }}>
-                            {k}: {String(v)}
-                          </Typography>
-                        ))}
-                        <Typography variant="body2" sx={{ mt: 0.5 }}>
-                          <strong>Request Template:</strong>
-                        </Typography>
-                        <Typography variant="caption" sx={{ display: 'block', whiteSpace: 'pre-wrap', fontFamily: 'monospace', ml: 1.5 }}>
-                          {(handler.apicall?.formats.requestTemplate || '').slice(0, 400) || '-'}{(handler.apicall?.formats.requestTemplate || '').length > 400 ? ' ...' : ''}
-                        </Typography>
-                        <Typography variant="body2" sx={{ mt: 0.5 }}>
-                          <strong>Response Schema:</strong>
-                        </Typography>
-
-                        <Typography variant="body2" sx={{ mt: 0.5 }}>
-                          <strong>Response Mappings:</strong>
-                        </Typography>
-                        {(() => {
-                          const rm: any = handler.apicall?.formats.responseMappings || [];
-                          if (Array.isArray(rm)) {
-                            const lines: string[] = [];
-                            rm.slice(0, 3).forEach((g: any) => {
-                              const prefix = `[${String(g.expressionType)}→${String(g.targetType)}]`;
-                              Object.entries(g.mappings || {}).slice(0, 6 - lines.length).forEach(([k, v]) => {
-                                lines.push(`${prefix} ${k} ⇐ ${String(v)}`);
-                              });
+                    <Box sx={{ mt: 1, p: 1, bgcolor: '#fafafa', borderRadius: 1, border: '1px dashed #ddd' }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>응답 매핑 (읽기 전용)</Typography>
+                      {(() => {
+                        const selected = availableApiCalls.find(a => a.name === action.name);
+                        const rm = selected?.formats?.responseMappings as any;
+                        if (Array.isArray(rm)) {
+                          const lines: string[] = [];
+                          rm.forEach((grp: any, gi: number) => {
+                            const t = String(grp.targetType || 'MEMORY').toUpperCase();
+                            const maps = grp.mappings || {};
+                            lines.push(`[그룹 ${gi+1}] ${String(grp.expressionType || 'JSON_PATH')} → ${t}`);
+                            Object.entries(maps).forEach(([k, v]) => {
+                              lines.push(`  ${k} ⇐ ${String(v)}`);
                             });
-                            return lines.length ? (
-                              <>
-                                {lines.map((line, i) => (
-                                  <Typography key={i} variant="caption" sx={{ display: 'block', ml: 1.5 }}>{line}</Typography>
-                                ))}
-                              </>
-                            ) : (
-                              <Typography variant="caption" sx={{ display: 'block', ml: 1.5 }}>-</Typography>
-                            );
-                          }
-                          const obj = rm || {};
-                          const entries = Object.entries(obj).slice(0, 6);
-                          return entries.length ? (
+                          });
+                          return (
                             <>
-                              {entries.map(([k, v]: any) => {
-                                let display = '';
-                                if (typeof v === 'string') display = v;
-                                else if (v && typeof v === 'object') {
-                                  display = typeof v[k] === 'string' ? v[k] : '';
-                                  if (!display) {
-                                    for (const [kk, vv] of Object.entries(v)) {
-                                      if (kk !== 'type' && typeof vv === 'string') { display = vv as string; break; }
-                                    }
-                                  }
-                                  if (!display) display = JSON.stringify(v);
-                                } else display = String(v);
-                                return (
-                                  <Typography key={k} variant="caption" sx={{ display: 'block', ml: 1.5 }}>{k} ⇐ {display}</Typography>
-                                );
-                              })}
+                              {lines.map((line, i) => (
+                                <Typography key={i} variant="caption" sx={{ display: 'block', ml: 1.5 }}>{line}</Typography>
+                              ))}
                             </>
-                          ) : (
-                            <Typography variant="caption" sx={{ display: 'block', ml: 1.5 }}>-</Typography>
                           );
-                        })()}
-                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                          편집은 테스트 패널 → 외부연동관리 → API Call 관리에서 수행하세요.
-                        </Typography>
-                      </Box>
+                        }
+                        const obj = rm || {};
+                        const entries = Object.entries(obj).slice(0, 6);
+                        return entries.length ? (
+                          <>
+                            {entries.map(([k, v]: any) => {
+                              let display = '';
+                              if (typeof v === 'string') display = v;
+                              else if (v && typeof v === 'object') {
+                                display = typeof v[k] === 'string' ? v[k] : '';
+                                if (!display) {
+                                  for (const [kk, vv] of Object.entries(v)) {
+                                    if (kk !== 'type' && typeof vv === 'string') { display = vv as string; break; }
+                                  }
+                                }
+                                if (!display) display = JSON.stringify(v);
+                              } else display = String(v);
+                              return (
+                                <Typography key={k} variant="caption" sx={{ display: 'block', ml: 1.5 }}>{k} ⇐ {display}</Typography>
+                              );
+                            })}
+                          </>
+                        ) : (
+                          <Typography variant="caption" sx={{ display: 'block', ml: 1.5 }}>-</Typography>
+                        );
+                      })()}
                     </Box>
                   </Box>
                 ))}
-                <Button
-                  onClick={addApiCallHandler}
-                  startIcon={<AddIcon />}
-                  variant="outlined"
-                  fullWidth
-                >
-                  API Call 핸들러 추가
+                <Button onClick={addApiCallAction} startIcon={<AddIcon />} variant="outlined" fullWidth>
+                  API Call 액션 추가
                 </Button>
               </Box>
             </AccordionDetails>
@@ -1956,9 +1908,10 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
           {/* Webhook 액션 */}
           <Accordion>
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Typography variant="h6">
-                Webhook 액션 ({editedState.webhookActions?.length || 0})
-              </Typography>
+              <Typography variant="h6">Webhook 액션 ({(() => {
+                const all = readWebhookActions();
+                return (all || []).filter((a: any) => String((a as any).type || 'WEBHOOK').toUpperCase() !== 'APICALL').length;
+              })()})</Typography>
             </AccordionSummary>
             <AccordionDetails>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -1974,7 +1927,10 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                   </Typography>
                 </Alert>
                 
-                {editedState.webhookActions?.map((action, index) => (
+                {(() => {
+                  const all = readWebhookActions();
+                  const nonApi = (all || []).filter((a: any) => String((a as any).type || 'WEBHOOK').toUpperCase() !== 'APICALL');
+                  return nonApi.map((action: any, index: number) => (
                   <Box key={index} sx={{ border: 1, borderColor: 'divider', p: 2, borderRadius: 1 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                       <Typography variant="subtitle2">Webhook {index + 1}</Typography>
@@ -2036,7 +1992,8 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                       </Alert>
                     )}
                   </Box>
-                ))}
+                  ));
+                })()}
                 <Button
                   onClick={addWebhookAction}
                   startIcon={<AddIcon />}

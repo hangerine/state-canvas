@@ -523,6 +523,7 @@ export function removeApiCallUrlsFromScenario(scenarioOrArray: any) {
   const scenarios = Array.isArray(scenarioOrArray) ? scenarioOrArray : [scenarioOrArray];
   scenarios.forEach((scenario) => {
     if (!scenario?.plan) return;
+    // 1) Remove URLs from legacy apicallHandlers
     scenario.plan.forEach((plan: any) => {
       if (!plan?.dialogState) return;
       plan.dialogState.forEach((state: any) => {
@@ -540,8 +541,19 @@ export function removeApiCallUrlsFromScenario(scenarioOrArray: any) {
         }
       });
     });
+
+    // 2) Remove URLs from unified webhooks entries with type APICALL
+    const hooks = scenario?.webhooks || [];
+    hooks.forEach((w: any) => {
+      const t = String(w?.type || 'WEBHOOK').toUpperCase();
+      if (t === 'APICALL' && w.url) {
+        // eslint-disable-next-line no-console
+        console.info(`[REMOVE_URL] webhook(APICALL): ${w.name} - url 삭제됨 (removed)`);
+        delete w.url;
+      }
+    });
   });
-} 
+}
 
 /**
  * 시나리오 전이 검증

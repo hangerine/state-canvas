@@ -1,0 +1,732 @@
+{
+  "plan": [
+    {
+      "name": "Main",
+      "dialogState": [
+        {
+          "name": "Start",
+          "conditionHandlers": [
+            {
+              "conditionStatement": "True",
+              "action": {},
+              "transitionTarget": {
+                "scenario": "Main",
+                "dialogState": "P111"
+              }
+            }
+          ],
+          "eventHandlers": [
+            {
+              "event": {
+                "type": "USER_DIALOG_START",
+                "count": "0"
+              },
+              "action": {},
+              "transitionTarget": {
+                "scenario": "Main",
+                "dialogState": "P111"
+              }
+            }
+          ]
+        },
+        {
+          "name": "P111",
+          "entryAction": {
+            "directives": [
+              {
+                "content": {
+                  "record": {
+                    "text": ""
+                  },
+                  "item": [
+                    {
+                      "section": {
+                        "class": "cb-section section_1",
+                        "item": [
+                          {
+                            "text": {
+                              "class": "cb-text text",
+                              "text": "<p>LucianBot Test Start되었습니다.</p>"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "templateId": "TM000000000000000001",
+                  "type": "MESSAGE",
+                  "version": "1.0"
+                },
+                "name": "customPayload"
+              }
+            ]
+          },
+          "intentHandlers": [
+            {
+              "intent": "Weather.Inform",
+              "action": {
+                "memoryActions": [
+                  {
+                    "actionType": "ADD",
+                    "memorySlotKey": "negInterSentence",
+                    "memorySlotValue": "True",
+                    "actionScope": "SESSION"
+                  }
+                ]
+              },
+              "transitionTarget": {
+                "scenario": "Main",
+                "dialogState": "weather_inform_response"
+              }
+            }
+          ]
+        },
+        {
+          "name": "weather_inform_response",
+          "entryAction": {
+            "directives": [
+              {
+                "content": {
+                  "record": {
+                    "text": ""
+                  },
+                  "item": [
+                    {
+                      "section": {
+                        "class": "cb-section section_1",
+                        "item": [
+                          {
+                            "text": {
+                              "class": "cb-text text",
+                              "text": "<p>Intent handler is called properly.</p>"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "templateId": "TM000000000000000001",
+                  "type": "MESSAGE",
+                  "version": "1.0"
+                },
+                "name": "customPayload"
+              }
+            ]
+          },
+          "conditionHandlers": [
+            {
+              "conditionStatement": "SLOT_FILLING_COMPLETED",
+              "action": {},
+              "transitionTarget": {
+                "scenario": "Main",
+                "dialogState": "slot_filled_response"
+              }
+            }
+          ],
+          "slotFillingForm": [
+            {
+              "name": "MYCITY",
+              "required": "Y",
+              "memorySlotKey": [
+                "CITY:CITY"
+              ],
+              "fillBehavior": {
+                "promptAction": {
+                  "directives": [
+                    {
+                      "content": {
+                        "record": {
+                          "text": ""
+                        },
+                        "item": [
+                          {
+                            "section": {
+                              "class": "cb-section section_1",
+                              "item": [
+                                {
+                                  "text": {
+                                    "class": "cb-text text",
+                                    "text": "<p>Now, make sure to check {$CITY} parameter is filled. If you mention it properly state will be moved on to the next state.</p>"
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        ],
+                        "templateId": "TM000000000000000001",
+                        "type": "MESSAGE",
+                        "version": "1.0"
+                      },
+                      "name": "customPayload"
+                    }
+                  ]
+                },
+                "repromptEventHandlers": [
+                  {
+                    "event": {
+                      "type": "NO_MATCH_EVENT",
+                      "count": "0"
+                    },
+                    "action": {
+                      "directives": [
+                        {
+                          "content": {
+                            "record": {
+                              "text": ""
+                            },
+                            "item": [
+                              {
+                                "section": {
+                                  "class": "cb-section section_1",
+                                  "item": [
+                                    {
+                                      "text": {
+                                        "class": "cb-text text",
+                                        "text": "<p>There is no {$CITY}. Please type where you are right now.</p>"
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            ],
+                            "templateId": "TM000000000000000001",
+                            "type": "MESSAGE",
+                            "version": "1.0"
+                          },
+                          "name": "customPayload"
+                        }
+                      ]
+                    },
+                    "transitionTarget": {
+                      "scenario": null,
+                      "dialogState": "__CURRENT_DIALOG_STATE__"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "slot_filled_response",
+          "entryAction": {
+            "directives": [
+              {
+                "content": {
+                  "record": {
+                    "text": ""
+                  },
+                  "item": [
+                    {
+                      "section": {
+                        "class": "cb-section section_1",
+                        "item": [
+                          {
+                            "text": {
+                              "class": "cb-text text",
+                              "text": "<p>{$CITY} has been filled properly. Now you are in DM intent validation state.</p>"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "templateId": "TM000000000000000001",
+                  "type": "MESSAGE",
+                  "version": "1.0"
+                },
+                "name": "customPayload"
+              }
+            ]
+          },
+          "intentHandlers": [
+            {
+              "intent": "Positive",
+              "action": {},
+              "transitionTarget": {
+                "scenario": "Main",
+                "dialogState": "positive_sentence_response"
+              }
+            }
+          ]
+        },
+        {
+          "name": "positive_sentence_response",
+          "entryAction": {
+            "directives": [
+              {
+                "content": {
+                  "record": {
+                    "text": ""
+                  },
+                  "item": [
+                    {
+                      "section": {
+                        "class": "cb-section section_1",
+                        "item": [
+                          {
+                            "text": {
+                              "class": "cb-text text",
+                              "text": "<p>'Positive' DM intent with respect for negInterSentence has been handled properly.</p>"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "templateId": "TM000000000000000001",
+                  "type": "MESSAGE",
+                  "version": "1.0"
+                },
+                "name": "customPayload"
+              }
+            ]
+          },
+          "intentHandlers": [
+            {
+              "intent": "say.yes",
+              "action": {},
+              "transitionTarget": {
+                "scenario": "Main",
+                "dialogState": "sts_router"
+              }
+            }
+          ]
+        },
+        {
+          "name": "sts_router",
+          "entryAction": {
+            "directives": [
+              {
+                "content": {
+                  "record": {
+                    "text": ""
+                  },
+                  "item": [
+                    {
+                      "section": {
+                        "class": "cb-section section_1",
+                        "item": [
+                          {
+                            "text": {
+                              "class": "cb-text text",
+                              "text": "<p>Now you are in STS router.</p>"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "templateId": "TM000000000000000001",
+                  "type": "MESSAGE",
+                  "version": "1.0"
+                },
+                "name": "customPayload"
+              }
+            ]
+          },
+          "intentHandlers": [
+            {
+              "intent": "__ANY_INTENT__",
+              "action": {},
+              "transitionTarget": {
+                "scenario": "Main",
+                "dialogState": "sts_webhook_test"
+              }
+            }
+          ]
+        },
+        {
+          "name": "sts_webhook_test",
+          "entryAction": {
+            "directives": [
+              {
+                "content": {
+                  "record": {
+                    "text": ""
+                  },
+                  "item": [
+                    {
+                      "section": {
+                        "class": "cb-section section_1",
+                        "item": [
+                          {
+                            "text": {
+                              "class": "cb-text text",
+                              "text": "<p>Webhook for STS has been called.</p>"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "templateId": "TM000000000000000001",
+                  "type": "MESSAGE",
+                  "version": "1.0"
+                },
+                "name": "customPayload"
+              }
+            ],
+            "webhookActions": [
+              { "name": "(external_api)search", "type": "APICALL" }
+            ]
+          },
+          "conditionHandlers": [
+            {
+              "conditionStatement": "{$NLU_INTENT} == \"ACT_01_0212\"",
+              "action": {},
+              "transitionTarget": {
+                "scenario": "Main",
+                "dialogState": "act_01_0212"
+              }
+            },
+            {
+              "conditionStatement": "{$NLU_INTENT} == \"ACT_01_0213\"",
+              "action": {},
+              "transitionTarget": {
+                "scenario": "Main",
+                "dialogState": "act_01_0213"
+              }
+            },
+            {
+              "conditionStatement": "{$NLU_INTENT} == \"ACT_01_0235\"",
+              "action": {},
+              "transitionTarget": {
+                "scenario": "Main",
+                "dialogState": "act_01_0235"
+              }
+            },
+            {
+              "conditionStatement": "\"True\"",
+              "action": {},
+              "transitionTarget": {
+                "scenario": "Main",
+                "dialogState": "sts_router"
+              }
+            }
+          ],
+          "eventHandlers": []
+        },
+        {
+          "name": "act_01_0212",
+          "entryAction": {
+            "directives": [
+              {
+                "content": {
+                  "record": {
+                    "text": ""
+                  },
+                  "item": [
+                    {
+                      "section": {
+                        "class": "cb-section section_1",
+                        "item": [
+                          {
+                            "text": {
+                              "class": "cb-text text",
+                              "text": "<p>NLU_INTENT for 'ACT_01_0212' has been received.</p>"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "templateId": "TM000000000000000001",
+                  "type": "MESSAGE",
+                  "version": "1.0"
+                },
+                "name": "customPayload"
+              }
+            ]
+          },
+          "conditionHandlers": [
+            {
+              "conditionStatement": "\"True\"",
+              "action": {},
+              "transitionTarget": {
+                "scenario": "Main",
+                "dialogState": "end_process"
+              }
+            }
+          ]
+        },
+        {
+          "name": "act_01_0213",
+          "entryAction": {
+            "directives": [
+              {
+                "content": {
+                  "record": {
+                    "text": ""
+                  },
+                  "item": [
+                    {
+                      "section": {
+                        "class": "cb-section section_1",
+                        "item": [
+                          {
+                            "text": {
+                              "class": "cb-text text",
+                              "text": "<p>NLU_INTENT for 'ACT_01_0213' has been received.</p>"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "templateId": "TM000000000000000001",
+                  "type": "MESSAGE",
+                  "version": "1.0"
+                },
+                "name": "customPayload"
+              }
+            ]
+          },
+          "conditionHandlers": [
+            {
+              "conditionStatement": "\"True\"",
+              "action": {},
+              "transitionTarget": {
+                "scenario": "Main",
+                "dialogState": "end_process"
+              }
+            }
+          ]
+        },
+        {
+          "name": "act_01_0235",
+          "entryAction": {
+            "directives": [
+              {
+                "content": {
+                  "record": {
+                    "text": ""
+                  },
+                  "item": [
+                    {
+                      "section": {
+                        "class": "cb-section section_1",
+                        "item": [
+                          {
+                            "text": {
+                              "class": "cb-text text",
+                              "text": "<p>NLU_INTENT for 'ACT_01_0235' has been received.</p>"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "templateId": "TM000000000000000001",
+                  "type": "MESSAGE",
+                  "version": "1.0"
+                },
+                "name": "customPayload"
+              }
+            ]
+          },
+          "conditionHandlers": [
+            {
+              "conditionStatement": "\"True\"",
+              "action": {},
+              "transitionTarget": {
+                "scenario": "Scene1",
+                "dialogState": "Start"
+              }
+            },
+            {
+              "conditionStatement": "True",
+              "action": {
+                "directives": [],
+                "memoryActions": []
+              },
+              "transitionTarget": {
+                "scenario": "Main",
+                "dialogState": "end_process"
+              }
+            }
+          ],
+          "eventHandlers": [],
+          "apicallHandlers": []
+        },
+        {
+          "name": "end_process",
+          "entryAction": {
+            "directives": [
+              {
+                "content": {
+                  "record": {
+                    "text": ""
+                  },
+                  "item": [
+                    {
+                      "section": {
+                        "class": "cb-section section_1",
+                        "item": [
+                          {
+                            "text": {
+                              "class": "cb-text text",
+                              "text": "<ol><li data-list=\"ordered\"><span class=\"ql-ui\" contenteditable=\"false\"></span>🤔🤔🤔🤔You are reached to END_SESSION state. Good Job.🤣😄😅😉😉🙄🤤😷🤒🤒🤒😩😩😩😩😧😧🤤🤤🤤😝😜😜😜😜😜😛😛😛😛😛😐🙄😣😣😣😣😣😩😈😈😈👿👿👿👿👿👿😿😿👷☝☝👉💃</li></ol>"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "templateId": "TM000000000000000001",
+                  "type": "MESSAGE",
+                  "version": "1.0"
+                },
+                "name": "customPayload"
+              }
+            ]
+          },
+          "conditionHandlers": [
+            {
+              "conditionStatement": "\"True\"",
+              "action": {},
+              "transitionTarget": {
+                "scenario": null,
+                "dialogState": "__END_SESSION__"
+              }
+            }
+          ],
+          "eventHandlers": [],
+          "apicallHandlers": []
+        }
+      ]
+    },
+    {
+      "name": "Scene1",
+      "dialogState": [
+        {
+          "name": "Start",
+          "conditionHandlers": [
+            {
+              "conditionStatement": "True",
+              "action": {
+                "directives": [],
+                "memoryActions": []
+              },
+              "transitionTarget": {
+                "scenario": "Scene1",
+                "dialogState": "State_1753341866684"
+              }
+            }
+          ],
+          "eventHandlers": [],
+          "intentHandlers": [],
+          "webhookActions": [],
+          "slotFillingForm": [],
+          "apicallHandlers": []
+        },
+        {
+          "name": "State_1753341866684",
+          "entryAction": {
+            "directives": [
+              {
+                "content": {
+                  "record": {
+                    "text": ""
+                  },
+                  "item": [
+                    {
+                      "section": {
+                        "class": "cb-section section_1",
+                        "item": [
+                          {
+                            "text": {
+                              "class": "cb-text text",
+                              "text": "<p>State_1753341866684 상태에 진입했습니다.</p>"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "templateId": "TM000000000000000001",
+                  "type": "MESSAGE",
+                  "version": "1.0"
+                },
+                "name": "customPayload"
+              }
+            ]
+          },
+          "conditionHandlers": [
+            {
+              "conditionStatement": "True",
+              "action": {},
+              "transitionTarget": {
+                "scenario": null,
+                "dialogState": "__END_SCENARIO__"
+              }
+            }
+          ],
+          "eventHandlers": [],
+          "intentHandlers": [],
+          "webhookActions": [],
+          "slotFillingForm": [],
+          "apicallHandlers": []
+        }
+      ]
+    }
+  ],
+  "botConfig": {
+    "botType": "CHAT_BOT"
+  },
+  "intentMapping": [
+    {
+      "scenario": "Main",
+      "dialogState": "slot_filled_response",
+      "intents": [
+        "say.yes",
+        "say.no"
+      ],
+      "conditionStatement": "{$negInterSentence} == \"True\"",
+      "dmIntent": "Positive"
+    },
+    {
+      "scenario": "Main",
+      "dialogState": "slot_filled_response",
+      "intents": [
+        "test.test"
+      ],
+      "conditionStatement": "{$test.test} == \"17\"",
+      "dmIntent": "Test.Test"
+    }
+  ],
+  "multiIntentMapping": [],
+  "handlerGroups": [],
+  "webhooks": [
+    {
+      "name": "(intent_classifier)classifier",
+      "url": "http://localhost:8000/api/v1/webhook",
+      "headers": {},
+      "timeoutInMilliSecond": 1000,
+      "retry": 3,
+      "type": "WEBHOOK"
+    },
+    {
+      "type": "APICALL",
+      "name": "(external_api)search",
+      "url": "http://localhost:8000/api/v1/apicall",
+      "retry": 3,
+      "timeoutInMilliSecond": 5000,
+      "headers": {},
+      "method": "POST",
+      "formats": {
+        "contentType": "application/json",
+        "requestTemplate": "{\"sessionId\":\"{$sessionId}\", \"requestId\":\"{$requestId}\"}",
+        "responseProcessing": {},
+        "responseMappings": [{
+          "targetType": "MEMORY",
+          "expressionType": "JSON_PATH",
+          "mappings": {
+            "NLU_INTENT": "$.NLU_INTENT.value"
+          }
+        }]
+      }
+    }
+  ],
+  "dialogResult": ""  
+}

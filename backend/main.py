@@ -15,7 +15,7 @@ from services.state_engine import StateEngine
 from services.websocket_manager import WebSocketManager
 from services.context_store import build_context_store_from_env
 from nlu.router import router as nlu_router
-from webhook.handler import webhook_router, apicall_router
+from webhook.handler import webhook_router, apicall_router, legacy_webhook_router
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -41,6 +41,7 @@ app.add_middleware(
 app.include_router(nlu_router)
 app.include_router(webhook_router)
 app.include_router(apicall_router)
+app.include_router(legacy_webhook_router)
 
 # 전역 상태
 state_engine = StateEngine()

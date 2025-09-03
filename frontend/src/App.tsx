@@ -90,7 +90,8 @@ function App() {
             name: "speak",
             content: "새로운 시나리오가 시작되었습니다."
           }
-        ]
+        ],
+        webhookActions: []
       },
       conditionHandlers: [],
       eventHandlers: [],

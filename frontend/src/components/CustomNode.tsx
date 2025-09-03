@@ -33,7 +33,16 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
   const conditionCount = dialogState.conditionHandlers?.length || 0;
   const intentCount = dialogState.intentHandlers?.length || 0;
   const eventCount = dialogState.eventHandlers?.length || 0;
-  const apicallCount = dialogState.apicallHandlers?.length || 0;
+  const apicallHandlersCount = dialogState.apicallHandlers?.length || 0;
+  // Derive counts from entryAction/webhookActions by type (default WEBHOOK)
+  const rootWebhookActions = Array.isArray((dialogState as any).webhookActions) ? ((dialogState as any).webhookActions as any[]) : [];
+  const entryWebhookActions = Array.isArray((dialogState as any).entryAction?.webhookActions)
+    ? (((dialogState as any).entryAction!.webhookActions) as any[])
+    : [];
+  const allWebhookActions = [...entryWebhookActions, ...rootWebhookActions];
+  const apiActionsFromEntry = allWebhookActions.filter((a: any) => String((a?.type ?? 'WEBHOOK')).toUpperCase() === 'APICALL').length;
+  const webhookOnlyActions = allWebhookActions.filter((a: any) => String((a?.type ?? 'WEBHOOK')).toUpperCase() !== 'APICALL').length;
+  const apicallCount = apicallHandlersCount + apiActionsFromEntry;
 
   // 더블클릭 핸들러
   const handleDoubleClick = () => {
@@ -185,20 +194,20 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
 
       {!isEndNode && (
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5, justifyContent: 'center', width: '100%' }}>
-          {dialogState.webhookActions && dialogState.webhookActions.length > 0 && (
-            <Chip
-              label="Webhook"
-              size="small"
-              color="error"
-              variant="outlined"
-              sx={{ fontSize: '0.6rem', height: 18, maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis' }}
-            />
-          )}
           {apicallCount > 0 && (
             <Chip
               label={`API Call ${apicallCount}`}
               size="small"
               color="success"
+              variant="outlined"
+              sx={{ fontSize: '0.6rem', height: 18, maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis' }}
+            />
+          )}
+          {(webhookOnlyActions > 0) && (
+            <Chip
+              label="Webhook"
+              size="small"
+              color="error"
               variant="outlined"
               sx={{ fontSize: '0.6rem', height: 18, maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis' }}
             />

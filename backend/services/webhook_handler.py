@@ -6,6 +6,8 @@ import time
 import uuid
 from typing import Dict, Any, Optional, List
 from models.scenario import StateTransition
+from services.apicall_handler import ApiCallHandler
+from services import utils
 # from services.base_handler import BaseHandler  # 제거 - 기존 Handler는 BaseHandler 상속 불필요
 from services.transition_manager import TransitionManager
 
@@ -15,6 +17,7 @@ class WebhookHandler:
     def __init__(self, scenario_manager, transition_manager=None):
         self.scenario_manager = scenario_manager
         self.transition_manager = transition_manager or TransitionManager(scenario_manager)
+        self.apicall_handler = ApiCallHandler(scenario_manager)
 
     async def handle(self, current_state: str, current_dialog_state: Dict[str, Any], scenario: Dict[str, Any], memory: Dict[str, Any]) -> Dict[str, Any]:
         return await self.handle_webhook_actions(current_state, current_dialog_state, scenario, memory)
@@ -26,7 +29,12 @@ class WebhookHandler:
         scenario: Dict[str, Any],
         memory: Dict[str, Any]
     ) -> Dict[str, Any]:
+        # Support webhookActions both at state root and inside entryAction
         webhook_actions = current_dialog_state.get("webhookActions", [])
+        if not webhook_actions:
+            entry_action = current_dialog_state.get("entryAction") or {}
+            if isinstance(entry_action, dict):
+                webhook_actions = entry_action.get("webhookActions", []) or []
         if not webhook_actions:
             return {
                 "new_state": current_state,
@@ -76,27 +84,48 @@ class WebhookHandler:
                 logger.error(f"❌ No webhook configs available at all")
                 response_messages.append(f"❌ 웹훅 설정을 찾을 수 없음: {webhook_name}")
                 continue
-            webhook_response = await self.execute_webhook_call(
-                webhook_config, "", current_state, scenario, memory
-            )
-            if webhook_response is None:
-                logger.error(f"Webhook call failed for: {webhook_name}")
-                response_messages.append(f"❌ 웹훅 호출 실패: {webhook_name}")
-                continue
-            response_memory = webhook_response.get("memorySlots", {})
-            if response_memory:
-                memory.update(response_memory)
-                logger.info(f"Memory updated from webhook response: {response_memory}")
-            nlu_intent = ""
-            if "NLU_INTENT" in response_memory:
-                nlu_intent_data = response_memory["NLU_INTENT"]
-                if isinstance(nlu_intent_data, dict) and "value" in nlu_intent_data:
-                    nlu_intent = nlu_intent_data["value"][0] if nlu_intent_data["value"] else ""
-                else:
-                    nlu_intent = str(nlu_intent_data)
-                memory["NLU_INTENT"] = nlu_intent
-            logger.info(f"Extracted NLU_INTENT from webhook: {nlu_intent}")
-            response_messages.append(f"🔗 웹훅 호출 완료: {webhook_name} (NLU_INTENT = '{nlu_intent}')")
+            # Determine webhook type (default to WEBHOOK when missing)
+            hook_type = str(webhook_config.get("type", "WEBHOOK")).upper()
+
+            if hook_type == "APICALL":
+                # Execute APICALL per unified spec
+                logger.info(f"🔗 Executing APICALL via webhookActions: {webhook_name}")
+                response_data = await self.apicall_handler.execute_api_call(webhook_config, memory)
+                if response_data is None:
+                    logger.error(f"APICALL failed for: {webhook_name}")
+                    response_messages.append(f"❌ API 호출 실패: {webhook_name}")
+                    continue
+                # Apply response mappings if present
+                mappings = (webhook_config.get("formats") or {}).get("responseMappings")
+                if mappings:
+                    try:
+                        utils.apply_response_mappings(response_data, mappings, memory)
+                    except Exception as me:
+                        logger.warning(f"APICALL response mapping failed: {me}")
+                response_messages.append(f"🔗 API 호출 완료: {webhook_name}")
+            else:
+                # Default WEBHOOK behavior
+                webhook_response = await self.execute_webhook_call(
+                    webhook_config, "", current_state, scenario, memory
+                )
+                if webhook_response is None:
+                    logger.error(f"Webhook call failed for: {webhook_name}")
+                    response_messages.append(f"❌ 웹훅 호출 실패: {webhook_name}")
+                    continue
+                response_memory = webhook_response.get("memorySlots", {})
+                if response_memory:
+                    memory.update(response_memory)
+                    logger.info(f"Memory updated from webhook response: {response_memory}")
+                nlu_intent = ""
+                if "NLU_INTENT" in response_memory:
+                    nlu_intent_data = response_memory["NLU_INTENT"]
+                    if isinstance(nlu_intent_data, dict) and "value" in nlu_intent_data:
+                        nlu_intent = nlu_intent_data["value"][0] if nlu_intent_data["value"] else ""
+                    else:
+                        nlu_intent = str(nlu_intent_data)
+                    memory["NLU_INTENT"] = nlu_intent
+                logger.info(f"Extracted NLU_INTENT from webhook: {nlu_intent}")
+                response_messages.append(f"🔗 웹훅 호출 완료: {webhook_name} (NLU_INTENT = '{nlu_intent}')")
         condition_handlers = current_dialog_state.get("conditionHandlers", [])
         matched_condition = False
         for handler in condition_handlers:

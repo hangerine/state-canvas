@@ -92,10 +92,14 @@ class ScenarioManager:
         if plan and len(plan) > 0:
             dialog_states = plan[0].get("dialogState", [])
             
-            # webhookActions 처리
+            # webhookActions 처리 (support entryAction.webhookActions)
             webhook_states = []
             for state in dialog_states:
                 webhook_actions = state.get("webhookActions", [])
+                if not webhook_actions:
+                    entry_action = state.get("entryAction") or {}
+                    if isinstance(entry_action, dict):
+                        webhook_actions = entry_action.get("webhookActions", []) or []
                 if webhook_actions:
                     webhook_states.append({
                         "state": state.get("name", "Unknown"),

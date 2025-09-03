@@ -9,10 +9,12 @@ from datetime import datetime
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# webhook 전용 라우터
+# webhook 전용 라우터 (v1)
 webhook_router = APIRouter(prefix="/api/v1/webhook", tags=["webhook"])
-# apicall 전용 라우터
+# apicall 전용 라우터 (v1)
 apicall_router = APIRouter(prefix="/api/v1/apicall", tags=["apicall"])
+# legacy 호환 라우터 (/api/webhook/*)
+legacy_webhook_router = APIRouter(prefix="/api/webhook", tags=["webhook-legacy"])
 
 # 데이터 모델들
 class WebhookRequest(BaseModel):
@@ -162,4 +164,18 @@ async def webhook_health_check():
     """Webhook 서비스 헬스체크"""
     return {"status": "healthy", "service": "webhook", "timestamp": datetime.now().isoformat()}
 
-__all__ = ["webhook_router", "apicall_router"]
+# --- Legacy-compatible routes ---
+
+@legacy_webhook_router.get("/health")
+async def legacy_webhook_health_check():
+    return await webhook_health_check()
+
+@legacy_webhook_router.post("/sentences/webhook")
+async def legacy_handle_webhook(request: WebhookRequest):
+    return await handle_webhook(request)
+
+@legacy_webhook_router.post("/apicall")
+async def legacy_handle_apicall(request: WebhookRequest):
+    return await handle_apicall(request)
+
+__all__ = ["webhook_router", "apicall_router", "legacy_webhook_router"]

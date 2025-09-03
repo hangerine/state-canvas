@@ -108,6 +108,8 @@ export interface TransitionTarget {
 export interface Action {
   directives?: Directive[];
   memoryActions?: MemoryAction[];
+  // Optional: execute webhooks/APICALLs on state entry
+  webhookActions?: { name: string; type?: WebhookType }[];
 }
 
 export interface Directive {
