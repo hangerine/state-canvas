@@ -360,12 +360,9 @@ class StateEngine:
         if not current_dialog_state:
             return auto_transitions
         
-        # Webhook이 있는 상태에서는 webhook 실행 후 조건 핸들러 확인
-        webhook_actions = current_dialog_state.get("webhookActions", [])
-        if not webhook_actions:
-            entry_action = current_dialog_state.get("entryAction") or {}
-            if isinstance(entry_action, dict):
-                webhook_actions = entry_action.get("webhookActions", []) or []
+        # Webhook이 있는 상태에서는 webhook 실행 후 조건 핸들러 확인 (entryAction.webhookActions만 허용)
+        entry_action = current_dialog_state.get("entryAction") or {}
+        webhook_actions = entry_action.get("webhookActions", []) if isinstance(entry_action, dict) else []
         if webhook_actions:
             logger.info(f"State {current_state} has webhook actions - checking condition handlers (webhook execution handled separately in process_input)")
             # webhook 상태에서는 조건 핸들러만 확인 (실제 webhook 실행은 process_input에서 _handle_webhook_actions로 처리)

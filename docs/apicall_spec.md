@@ -2,6 +2,12 @@
 
 StateCanvas에서 외부 API 호출을 위한 표준화된 설정 스펙입니다.
 
+Note (Spec update):
+- APICALL: method, headers, queryParams are at the root (not in formats).
+- formats only contains requestTemplate, responseProcessing (optional), responseMappings.
+- Content-Type is defined in root headers; default is application/json.
+- Only entryAction.webhookActions is supported for triggering (root-level webhookActions is deprecated and removed).
+
 ## JSON Schema
 
 ```json

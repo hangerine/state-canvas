@@ -215,7 +215,6 @@ export interface DialogState {
   conditionHandlers?: ConditionHandler[];
   eventHandlers?: EventHandler[];
   intentHandlers?: IntentHandler[];
-  webhookActions?: { name: string }[];
   apicallHandlers?: ApiCallHandler[];
   slotFillingForm?: SlotFillingForm[];
   // [추가] 시나리오 간 전이 핸들러

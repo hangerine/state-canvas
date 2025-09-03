@@ -96,7 +96,7 @@ function App() {
       conditionHandlers: [],
       eventHandlers: [],
       intentHandlers: [],
-      webhookActions: [],
+      
       slotFillingForm: []
     };
     const newScenario: Scenario = {
@@ -583,7 +583,7 @@ function App() {
                   conditionHandlers: [],
                   eventHandlers: [],
                   intentHandlers: [],
-                  webhookActions: [],
+      
                   slotFillingForm: []
                 }
               },
@@ -622,7 +622,7 @@ function App() {
                   conditionHandlers: [],
                   eventHandlers: [],
                   intentHandlers: [],
-                  webhookActions: [],
+                  
                   slotFillingForm: []
                 }
               },
@@ -661,7 +661,7 @@ function App() {
                   conditionHandlers: [],
                   eventHandlers: [],
                   intentHandlers: [],
-                  webhookActions: [],
+                  
                   slotFillingForm: []
                 }
               },
@@ -756,7 +756,7 @@ function App() {
                   position: { x: (dialogStates.length % 3) * 250 + 100, y: Math.floor(dialogStates.length / 3) * 150 + 100 },
                   data: {
                     label: `→ ${targetScenario}:${handler.transitionTarget.dialogState}`,
-                    dialogState: { name: '플랜 전이', conditionHandlers: [], eventHandlers: [], intentHandlers: [], webhookActions: [], slotFillingForm: [] },
+                    dialogState: { name: '플랜 전이', conditionHandlers: [], eventHandlers: [], intentHandlers: [],  slotFillingForm: [] },
                     targetPlan: targetScenario,
                     targetState: handler.transitionTarget.dialogState
                   }
@@ -801,7 +801,7 @@ function App() {
                   position: { x: (dialogStates.length % 3) * 250 + 100, y: Math.floor(dialogStates.length / 3) * 150 + 100 },
                   data: {
                     label: `→ ${targetScenario}:${handler.transitionTarget.dialogState}`,
-                    dialogState: { name: '시나리오 전이', conditionHandlers: [], eventHandlers: [], intentHandlers: [], webhookActions: [], slotFillingForm: [] },
+                    dialogState: { name: '시나리오 전이', conditionHandlers: [], eventHandlers: [], intentHandlers: [],  slotFillingForm: [] },
                     targetScenario: targetScenario,
                     targetState: handler.transitionTarget.dialogState
                   }
@@ -937,7 +937,7 @@ function App() {
                   position: { x: 0, y: 0 },
                   data: {
                     label: `→ ${targetScenario}:${handler.transitionTarget.dialogState}`,
-                    dialogState: { name: '플랜 전이', conditionHandlers: [], eventHandlers: [], intentHandlers: [], webhookActions: [], slotFillingForm: [] },
+                    dialogState: { name: '플랜 전이', conditionHandlers: [], eventHandlers: [], intentHandlers: [],  slotFillingForm: [] },
                     targetPlan: targetScenario,
                     targetState: handler.transitionTarget.dialogState
                   }
@@ -982,7 +982,7 @@ function App() {
                   position: { x: 0, y: 0 },
                   data: {
                     label: `→ ${targetScenario}:${handler.transitionTarget.dialogState}`,
-                    dialogState: { name: '시나리오 전이', conditionHandlers: [], eventHandlers: [], intentHandlers: [], webhookActions: [], slotFillingForm: [] },
+                    dialogState: { name: '시나리오 전이', conditionHandlers: [], eventHandlers: [], intentHandlers: [],  slotFillingForm: [] },
                     targetScenario: targetScenario,
                     targetState: handler.transitionTarget.dialogState
                   }
@@ -1106,7 +1106,7 @@ function App() {
                   position: { x: 0, y: 0 },
                   data: {
                     label: `→ ${targetScenario}:${handler.transitionTarget.dialogState}`,
-                    dialogState: { name: '플랜 전이', conditionHandlers: [], eventHandlers: [], intentHandlers: [], webhookActions: [], slotFillingForm: [] },
+                    dialogState: { name: '플랜 전이', conditionHandlers: [], eventHandlers: [], intentHandlers: [],  slotFillingForm: [] },
                     targetPlan: targetScenario,
                     targetState: handler.transitionTarget.dialogState
                   }
@@ -1150,7 +1150,7 @@ function App() {
                   position: { x: 0, y: 0 },
                   data: {
                     label: `→ ${targetScenario}:${handler.transitionTarget.dialogState}`,
-                    dialogState: { name: '시나리오 전이', conditionHandlers: [], eventHandlers: [], intentHandlers: [], webhookActions: [], slotFillingForm: [] },
+                    dialogState: { name: '시나리오 전이', conditionHandlers: [], eventHandlers: [], intentHandlers: [],  slotFillingForm: [] },
                     targetScenario: targetScenario,
                     targetState: handler.transitionTarget.dialogState
                   }

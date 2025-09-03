@@ -1003,7 +1003,6 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
             eventHandlers: [],
             intentHandlers: [],
             entryAction: { directives: [], webhookActions: [] },
-            webhookActions: [],
             slotFillingForm: []
           },
           targetScenario,
@@ -1090,7 +1089,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
             conditionHandlers: [],
             eventHandlers: [],
             intentHandlers: [],
-            webhookActions: [],
+            
             slotFillingForm: []
           },
           onEdit: handleNodeEdit,
@@ -1117,7 +1116,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
             conditionHandlers: [],
             eventHandlers: [],
             intentHandlers: [],
-            webhookActions: [],
+            
             slotFillingForm: []
           },
           onEdit: handleNodeEdit,
@@ -1139,7 +1138,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
         position: { x, y },
         data: {
           label: '플랜 전이',
-          dialogState: { name: '플랜 전이', conditionHandlers: [], eventHandlers: [], intentHandlers: [], entryAction: { directives: [], webhookActions: [] }, webhookActions: [], slotFillingForm: [] },
+          dialogState: { name: '플랜 전이', conditionHandlers: [], eventHandlers: [], intentHandlers: [], entryAction: { directives: [], webhookActions: [] }, slotFillingForm: [] },
           onEdit: handleNodeEdit,
           handleRefs: {},
           targetPlan: '',
@@ -1164,7 +1163,7 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
             eventHandlers: [],
             intentHandlers: [],
             entryAction: { directives: [], webhookActions: [] },
-            webhookActions: [],
+            
             slotFillingForm: []
           },
           onEdit: handleNodeEdit,
@@ -1192,7 +1191,6 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
             eventHandlers: [],
             intentHandlers: [],
             entryAction: { directives: [], webhookActions: [] },
-            webhookActions: [],
             slotFillingForm: []
           },
           onEdit: handleNodeEdit,
@@ -1220,7 +1218,6 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
             eventHandlers: [],
             intentHandlers: [],
             entryAction: { directives: [], webhookActions: [] },
-            webhookActions: [],
             slotFillingForm: []
           },
           onEdit: handleNodeEdit,
@@ -1248,7 +1245,6 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
             eventHandlers: [],
             intentHandlers: [],
             entryAction: { directives: [], webhookActions: [] },
-            webhookActions: [],
             slotFillingForm: []
           },
           onEdit: handleNodeEdit,

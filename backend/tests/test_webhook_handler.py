@@ -10,7 +10,7 @@ async def test_handle_returns_expected_format():
     handler = WebhookHandler(MockScenarioManager())
     # 최소 입력값 (실제 로직에 맞게 수정 필요)
     current_state = "TestState"
-    current_dialog_state = {"webhookActions": []}
+    current_dialog_state = {"entryAction": {"webhookActions": []}}
     scenario = {"webhooks": []}
     memory = {}
     result = await handler.handle(current_state, current_dialog_state, scenario, memory)

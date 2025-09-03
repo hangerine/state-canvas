@@ -675,8 +675,8 @@ const TestPanel: React.FC<TestPanelProps> = ({
         state => state.name === currentState
       );
       const ea = dialogState?.entryAction;
-      const actions = (ea && Array.isArray((ea as any).webhookActions)) ? (ea as any).webhookActions : (dialogState?.webhookActions || []);
-      if (actions && actions.length > 0) return true;
+      const actions = (ea && Array.isArray((ea as any).webhookActions)) ? (ea as any).webhookActions : [];
+      if (actions.length > 0) return true;
     }
     
     return false;
@@ -745,8 +745,8 @@ const TestPanel: React.FC<TestPanelProps> = ({
         state => state.name === currentState
       );
       const ea = dialogState?.entryAction;
-      const actions = (ea && Array.isArray((ea as any).webhookActions)) ? (ea as any).webhookActions : (dialogState?.webhookActions || []);
-      if (actions && actions.length > 0) return actions as any[];
+      const actions = (ea && Array.isArray((ea as any).webhookActions)) ? (ea as any).webhookActions : [];
+      if (actions.length > 0) return actions as any[];
     }
     
     return [];

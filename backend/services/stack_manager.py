@@ -272,7 +272,12 @@ class StackManager:
         """세션의 현재 플랜 컨텍스트에서 Dialog State 찾기"""
         frame = self.get_current_frame(session_id)
         if not frame:
-            return None
+            # Fallback: no stack frame managed by this engine; find state globally
+            try:
+                found = self.scenario_manager.find_dialog_state(scenario, state_name)
+                return found
+            except Exception:
+                return None
         
         plan_name = frame.plan_name
         

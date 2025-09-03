@@ -257,17 +257,18 @@ class ApiCallHandler:
             retry_count = apicall_config.get("retry", 0)
             formats = apicall_config.get("formats", {})
             
-            # HTTP 메서드와 헤더
-            method = (apicall_config.get("method") or formats.get("method", "POST")).upper()
-            headers = formats.get("headers", {})
-            contentType = formats.get("contentType", "application/json")
-            
-            # Content-Type 헤더 자동 설정
-            if contentType and "Content-Type" not in headers:
-                headers["Content-Type"] = contentType
-            
-            # 쿼리 파라미터 처리
-            query_params = formats.get("queryParams", [])
+            # HTTP 메서드와 헤더 (new spec: method/headers at root; legacy fallback supported)
+            method = str(apicall_config.get("method") or formats.get("method", "POST")).upper()
+            headers = {}
+            headers.update(apicall_config.get("headers", {}) or {})
+            # legacy fallback from formats.headers
+            if not headers and isinstance(formats.get("headers"), dict):
+                headers.update(formats.get("headers", {}) or {})
+            if "Content-Type" not in headers:
+                headers["Content-Type"] = "application/json"
+
+            # 쿼리 파라미터 처리 (new spec: queryParams at root; legacy fallback from formats)
+            query_params = apicall_config.get("queryParams", []) or formats.get("queryParams", [])
             if query_params:
                 # 메모리 변수 치환
                 processed_params = []
@@ -293,7 +294,11 @@ class ApiCallHandler:
                     # 템플릿 변수 치환
                     processed_template = utils.replace_template_variables(request_template, memory)
                     try:
-                        data = json.loads(processed_template)
+                        # For JSON content, parse; otherwise send as text
+                        if headers.get("Content-Type", "").startswith("application/json"):
+                            data = json.loads(processed_template)
+                        else:
+                            data = processed_template
                     except json.JSONDecodeError:
                         logger.warning(f"Invalid JSON in request template: {processed_template}")
                         data = processed_template
@@ -316,9 +321,28 @@ class ApiCallHandler:
                                 response.raise_for_status()
                                 response_data = await response.json()
                         else:
-                            async with session.request(method, url, headers=headers, json=data if contentType == "application/json" else data) as response:
-                                response.raise_for_status()
-                                response_data = await response.json()
+                            # Choose body placement by content-type
+                            if headers.get("Content-Type", "").startswith("application/json"):
+                                async with session.request(method, url, headers=headers, json=data) as response:
+                                    response.raise_for_status()
+                                    response_data = await response.json()
+                            elif headers.get("Content-Type", "").startswith("application/x-www-form-urlencoded"):
+                                from urllib.parse import parse_qsl
+                                body_dict = {}
+                                if isinstance(data, str):
+                                    try:
+                                        body_dict = dict(parse_qsl(data))
+                                    except Exception:
+                                        body_dict = {"raw": data}
+                                elif isinstance(data, dict):
+                                    body_dict = data
+                                async with session.request(method, url, headers=headers, data=body_dict) as response:
+                                    response.raise_for_status()
+                                    response_data = await response.json()
+                            else:
+                                async with session.request(method, url, headers=headers, data=data) as response:
+                                    response.raise_for_status()
+                                    response_data = await response.json()
                         
                         logger.info(f"API call successful: {response_data}")
                         return response_data

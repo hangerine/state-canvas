@@ -29,12 +29,9 @@ class WebhookHandler:
         scenario: Dict[str, Any],
         memory: Dict[str, Any]
     ) -> Dict[str, Any]:
-        # Support webhookActions both at state root and inside entryAction
-        webhook_actions = current_dialog_state.get("webhookActions", [])
-        if not webhook_actions:
-            entry_action = current_dialog_state.get("entryAction") or {}
-            if isinstance(entry_action, dict):
-                webhook_actions = entry_action.get("webhookActions", []) or []
+        # Only support entryAction.webhookActions (spec)
+        entry_action = current_dialog_state.get("entryAction") or {}
+        webhook_actions = entry_action.get("webhookActions", []) if isinstance(entry_action, dict) else []
         if not webhook_actions:
             return {
                 "new_state": current_state,

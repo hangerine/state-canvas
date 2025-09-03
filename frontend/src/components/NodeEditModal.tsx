@@ -794,14 +794,13 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
     if (ea && typeof ea === 'object' && Array.isArray((ea as any).webhookActions)) {
       return (ea as any).webhookActions as any[];
     }
-    return (editedState as any)?.webhookActions || [];
+    return [];
   };
   const writeWebhookActions = (actions: any[]) => {
     const next = { ...(editedState as any) };
     next.entryAction = next.entryAction && typeof next.entryAction === 'object' ? next.entryAction : { directives: [] };
     next.entryAction.webhookActions = actions;
-    // keep root-level in sync for backward-compatibility in UI
-    next.webhookActions = actions;
+    // root-level webhookActions deprecated; do not mirror
     setEditedState(next);
   };
 

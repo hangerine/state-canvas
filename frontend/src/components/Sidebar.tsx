@@ -1063,12 +1063,12 @@ const Sidebar: React.FC<SidebarProps> = ({
                      </>
                    )}
                    
-                   {(treeSelectedState.data.dialogState.entryAction?.webhookActions || treeSelectedState.data.dialogState.webhookActions) && (
-                     <>
-                       <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#666' }}>Webhook Actions:</Typography>
-                       <Typography variant="caption">{(treeSelectedState.data.dialogState.entryAction?.webhookActions || treeSelectedState.data.dialogState.webhookActions)?.length}개</Typography>
-                     </>
-                   )}
+                   {(treeSelectedState.data.dialogState.entryAction?.webhookActions) && (
+                      <>
+                        <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#666' }}>Webhook Actions:</Typography>
+                        <Typography variant="caption">{(treeSelectedState.data.dialogState.entryAction?.webhookActions)?.length}개</Typography>
+                      </>
+                    )}
                    
                    {treeSelectedState.data.dialogState.slotFillingForm && (
                      <>
@@ -1406,21 +1406,21 @@ const Sidebar: React.FC<SidebarProps> = ({
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
                 <Typography variant="body2">Webhook Actions</Typography>
                 <Chip 
-                  label={(selectedNode.data.dialogState.entryAction?.webhookActions || selectedNode.data.dialogState.webhookActions)?.length || 0}
+                  label={(selectedNode.data.dialogState.entryAction?.webhookActions)?.length || 0}
                   size="small"
-                  color={(selectedNode.data.dialogState.entryAction?.webhookActions || selectedNode.data.dialogState.webhookActions)?.length ? "error" : "default"}
-                  variant={(selectedNode.data.dialogState.entryAction?.webhookActions || selectedNode.data.dialogState.webhookActions)?.length ? "filled" : "outlined"}
+                  color={(selectedNode.data.dialogState.entryAction?.webhookActions)?.length ? "error" : "default"}
+                  variant={(selectedNode.data.dialogState.entryAction?.webhookActions)?.length ? "filled" : "outlined"}
                   sx={{ fontSize: '0.7rem', height: 20 }}
                 />
               </Box>
             </AccordionSummary>
             <AccordionDetails>
-              {(selectedNode.data.dialogState.entryAction?.webhookActions || selectedNode.data.dialogState.webhookActions) && (selectedNode.data.dialogState.entryAction?.webhookActions || selectedNode.data.dialogState.webhookActions).length > 0 ? (
+              {(selectedNode.data.dialogState.entryAction?.webhookActions) && (selectedNode.data.dialogState.entryAction?.webhookActions).length > 0 ? (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                   <Typography variant="caption" color="text.secondary" sx={{ mb: 1 }}>
                     🔗 실제 webhook 호출 → NLU_INTENT 추출 → 조건 처리
                   </Typography>
-                  {(selectedNode.data.dialogState.entryAction?.webhookActions || selectedNode.data.dialogState.webhookActions).map((webhook: any, idx: number) => (
+                  {(selectedNode.data.dialogState.entryAction?.webhookActions).map((webhook: any, idx: number) => (
                     <Box key={idx} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <Chip 
                         label={webhook.name} 
