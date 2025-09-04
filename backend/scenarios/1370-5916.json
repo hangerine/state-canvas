@@ -715,7 +715,6 @@
       "headers": {},
       "method": "POST",
       "formats": {
-        "contentType": "application/json",
         "requestTemplate": "{\"sessionId\":\"{$sessionId}\", \"requestId\":\"{$requestId}\"}",
         "responseProcessing": {},
         "responseMappings": [{

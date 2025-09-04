@@ -32,7 +32,8 @@
   - `type: "APICALL" | "WEBHOOK"`
   - `name: string`, `url: string`, `timeoutInMilliSecond: number`, `retry: number`
   - (APICALL만) `method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS"`
-  - (APICALL만) `formats: { contentType: string, requestTemplate: string, responseProcessing?: object, responseMappings: ResponseMappingGroup[], headers?: object, queryParams?: Array<{name,value}> }`
+  - (APICALL만) `formats: { requestTemplate?: string, responseProcessing?: object, responseMappings: ResponseMappingGroup[] }`
+  - (공통) `headers?: object`, `queryParams?: Array<{name,value}>` (APICALL 루트 레벨)
   - `ResponseMappingGroup = { expressionType: "JSON_PATH" | "XPATH" | "REGEX", targetType: "MEMORY" | "DIRECTIVE", mappings: Record<string, string> }`
 
 #### 상태의 API 콜 핸들러 Dialog state API call handlers
@@ -59,19 +60,19 @@
 #### 요청 생성 Request building
 - 한글:
   - 메서드: `method` (APICALL 루트, 기본 POST)
-  - 본문: POST/PUT/PATCH인 경우 `formats.requestTemplate` 템플릿 치환 후 JSON 파싱(실패 시 호출 중단)
-  - 헤더: 기본 `Content-Type: application/json` + `formats.headers` 템플릿 치환 병합
+  - 본문: POST/PUT/PATCH/DELETE인 경우 `formats.requestTemplate` 템플릿 치환 후 JSON 파싱(실패 시 호출 중단), GET/HEAD는 본문 없음
+  - 헤더: 기본 `Content-Type: application/json` + 루트 `headers` 템플릿 치환 병합
 - English:
-  - Method: `formats.method` (default POST)
-  - Body: For POST/PUT/PATCH, process `formats.requestTemplate` and parse as JSON; abort on parse errors
-  - Headers: `Content-Type: application/json` + processed `formats.headers`
+  - Method: `method` (default POST)
+  - Body: For POST/PUT/PATCH/DELETE, process `formats.requestTemplate` and parse as JSON; GET/HEAD have no body
+  - Headers: `Content-Type: application/json` + processed root `headers`
 
 #### 호출/재시도/타임아웃 HTTP call, retries, timeout
 - 한글: `timeout(ms)/1000`로 설정, `retry` 값 기준 (총 `retry+1`회), 시도 간 1초 대기.
-  - 성공 기준: GET=200, POST/PUT/PATCH=200/201, DELETE=200/204
+  - 성공 기준: GET/HEAD=200, POST/PUT/PATCH=200/201, DELETE=200/204
   - 성공 시 응답 JSON만 처리 (비-JSON 응답은 미지원)
 - English: Timeout in seconds, total attempts `retry+1` with 1s backoff.
-  - Success: GET=200, POST/PUT/PATCH=200/201, DELETE=200/204
+  - Success: GET/HEAD=200, POST/PUT/PATCH=200/201, DELETE=200/204
   - JSON response only; others unsupported
 
 - 한글:
@@ -105,9 +106,9 @@
 
 ### 기능 요구사항 Functional Requirements
 - AP-01: 시스템은 `scenario.apicalls[].name`로 핸들러와 API 정의를 매칭해야 한다.
-- AP-02: 시스템은 `formats.method`에 따라 HTTP 요청을 생성해야 한다. 미지정 시 POST를 사용한다.
-- AP-03: 시스템은 POST/PUT/PATCH에서만 `requestTemplate`를 본문으로 사용하며, 템플릿 치환 후 JSON 파싱이 유효해야 한다.
-- AP-04: 시스템은 `formats.headers`를 템플릿 치환하여 기본 헤더에 병합해야 한다.
+- AP-02: 시스템은 루트 `method`에 따라 HTTP 요청을 생성해야 한다. 미지정 시 POST를 사용한다.
+- AP-03: 시스템은 POST/PUT/PATCH/DELETE에서만 `requestTemplate`를 본문으로 사용하며, GET/HEAD는 본문 없이 요청한다. 템플릿 치환 후 JSON 파싱이 유효해야 한다.
+- AP-04: 시스템은 루트 `headers`를 템플릿 치환하여 기본 헤더에 병합해야 한다.
 - AP-05: 시스템은 `retry+1`회 시도하고, 시도 간 1초 대기해야 한다.
 - AP-06: 성공 응답은 JSON인 경우에만 처리하며, 상태 코드는 메서드별 성공 범위를 따른다.
 - AP-07: 시스템은 `responseMappings`(JSONPath)로 응답을 메모리에 반영해야 한다.
@@ -158,10 +159,9 @@
       "timeoutInMilliSecond": 5000,
       "retry": 3,
       "method": "POST",
+      "headers": { "X-Trace-Id": "{$requestId}" },
       "formats": {
-        "contentType": "application/json",
         "requestTemplate": "{\"text\":\"{$USER_TEXT_INPUT.[0]}\",\"sessionId\":\"{$sessionId}\",\"requestId\":\"{$requestId}\"}",
-        "headers": { "X-Trace-Id": "{$requestId}" },
         "responseMappings": [
           { "expressionType": "JSON_PATH", "targetType": "MEMORY", "mappings": { "NLU_INTENT": "$.nlu.intent", "STS_CONFIDENCE": "$.nlu.confidence" } }
         ]

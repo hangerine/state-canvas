@@ -20,21 +20,20 @@ Note (Spec update):
     {
       "title": "API Call Config",
       "type": "object",
-      "required": ["type", "name", "url", "timeoutInMilliSecond", "formats"],
+      "required": ["type", "name", "url", "timeoutInMilliSecond", "method", "formats"],
       "additionalProperties": false,
       "properties": {
-        "type": { "const": "apicall" },
+        "type": { "const": "APICALL" },
         "name": { "type": "string", "minLength": 1 },
         "url": { "type": "string", "format": "uri" },
         "timeoutInMilliSecond": { "type": "integer", "minimum": 1 },
         "retry": { "type": "integer", "minimum": 0, "default": 0 },
         "headers": {
           "type": "object",
-          "description": "HTTP 헤더 key-value 매핑 (값은 문자열, {$var} 치환 가능)",
+          "description": "HTTP header key-value. Content-Type도 여기에서 지정. 값에는 {$var} 치환 가능",
           "additionalProperties": {
             "type": "string",
-            "pattern": "^(.*\\{\\$[A-Za-z_][A-Za-z0-9_]*\\}.*|[\\s\\S]*)$",
-            "description": "예: \"application/json\", \"Bearer {$token}\""
+            "pattern": "^(.*\\{\\$[A-Za-z_][A-Za-z0-9_]*\\}.*|[\\s\\S]*)$"
           }
         },
         "queryParams": {
@@ -54,55 +53,99 @@ Note (Spec update):
             }
           }
         },
+        "method": {
+          "type": "string",
+          "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+        },
         "formats": {
           "type": "object",
-          "required": ["method", "contentType", "requestTemplate", "responseMappings"],
+          "required": ["responseMappings"],
           "additionalProperties": false,
           "properties": {
-            "method": {
-              "type": "string",
-              "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
-            },
-            "contentType": {
-              "type": "string",
-              "enum": [
-                "application/json",
-                "text/plain",
-                "application/x-www-form-urlencoded"
-              ]
-            },
             "requestTemplate": {
               "type": "string",
-              "minLength": 1,
-              "description": "본문 템플릿(모든 contentType에서 사용). {$var} 치환 가능",
+              "description": "본문 템플릿 (GET/HEAD는 선택). {$var} 치환 가능",
               "pattern": "^(.*\\{\\$[A-Za-z_][A-Za-z0-9_]*\\}.*|[\\s\\S]*)$"
             },
             "responseProcessing": {
               "type": "object",
-              "description": "응답 검증/가공/분기 정의 (확장 가능)"
+              "description": "응답 검증/가공/분기 정의(추후 확장용)"
             },
             "responseMappings": {
               "type": "array",
               "minItems": 1,
+              "description": "표현식 타입별 매핑 묶음",
               "items": {
                 "type": "object",
-                "required": ["type", "map"],
+                "required": ["expressionType", "targetType", "mappings"],
                 "additionalProperties": false,
                 "properties": {
-                  "type": { "type": "string", "enum": ["memory", "directive"] },
-                  "map": {
+                  "expressionType": {
+                    "type": "string",
+                    "enum": ["REGEX", "XPATH", "JSON_PATH"]
+                  },
+                  "targetType": {
+                    "type": "string",
+                    "enum": ["MEMORY", "DIRECTIVE"]
+                  },
+                  "mappings": {
                     "type": "object",
                     "minProperties": 1,
-                    "additionalProperties": {
-                      "type": "string",
-                      "pattern": "^\\$\\..+",
-                      "description": "JSONPath (예: $.NLU_INTENT.value)"
+                    "additionalProperties": { "type": "string" },
+                    "description": "키: 추출 대상 명(예: NLU_INTENT), 값: 표현식"
+                  }
+                },
+                "allOf": [
+                  {
+                    "if": { "properties": { "expressionType": { "const": "JSON_PATH" } } },
+                    "then": {
+                      "properties": {
+                        "mappings": {
+                          "type": "object",
+                          "minProperties": 1,
+                          "patternProperties": { ".*": { "type": "string", "pattern": "^\\$\\..+" } },
+                          "additionalProperties": false
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "if": { "properties": { "expressionType": { "const": "XPATH" } } },
+                    "then": {
+                      "properties": {
+                        "mappings": {
+                          "type": "object",
+                          "minProperties": 1,
+                          "patternProperties": { ".*": { "type": "string" } },
+                          "additionalProperties": false
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "if": { "properties": { "expressionType": { "const": "REGEX" } } },
+                    "then": {
+                      "properties": {
+                        "mappings": {
+                          "type": "object",
+                          "minProperties": 1,
+                          "patternProperties": { ".*": { "type": "string" } },
+                          "additionalProperties": false
+                        }
+                      }
                     }
                   }
-                }
+                ]
               }
             }
-          }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "method": { "enum": ["GET", "HEAD"] } }, "required": ["method"] },
+              "then": { "required": ["responseMappings"] },
+              "else": { "required": ["requestTemplate", "responseMappings"] }
+            }
+          ]
         }
       }
     },
@@ -112,14 +155,14 @@ Note (Spec update):
       "required": ["type", "name", "url", "timeoutInMilliSecond", "retry"],
       "additionalProperties": false,
       "properties": {
-        "type": { "const": "webhook" },
+        "type": { "const": "WEBHOOK" },
         "name": { "type": "string", "minLength": 1 },
         "url": { "type": "string", "format": "uri" },
         "timeoutInMilliSecond": { "type": "integer", "minimum": 1 },
         "retry": { "type": "integer", "minimum": 0, "default": 0 },
         "headers": {
           "type": "object",
-          "description": "Webhook 헤더 key-value 매핑 (값은 문자열, {$var} 치환 가능)",
+          "description": "Webhook header key-value. 값에는 {$var} 치환 가능",
           "additionalProperties": {
             "type": "string",
             "pattern": "^(.*\\{\\$[A-Za-z_][A-Za-z0-9_]*\\}.*|[\\s\\S]*)$"
@@ -142,7 +185,6 @@ Note (Spec update):
   "url": "http://localhost:8000/api/v1/apicall",
   "timeoutInMilliSecond": 5000,
   "retry": 3,
-  "method": "POST",
   "headers": {
     "Authorization": "Bearer {$accessToken}",
     "Content-Type": "application/json"
@@ -152,8 +194,8 @@ Note (Spec update):
     { "name": "page", "value": "{$page}" },
     { "name": "size", "value": "20" }
   ],
+  "method": "POST",
   "formats": {
-    "contentType": "application/json",
     "requestTemplate": "{\"sessionId\":\"{$sessionId}\",\"requestId\":\"{$requestId}\"}",
     "responseProcessing": {},
     "responseMappings": [
@@ -182,7 +224,7 @@ Note (Spec update):
 
 | 필드 | 타입 | 필수 | 설명 |
 |------|------|------|------|
-| `type` | string | ✅ | "apicall" 또는 "webhook" |
+| `type` | string | ✅ | "APICALL" 또는 "WEBHOOK" |
 | `name` | string | ✅ | 고유 이름 (최소 1자) |
 | `url` | string | ✅ | API 엔드포인트 URL |
 | `timeoutInMilliSecond` | integer | ✅ | 타임아웃 (밀리초, 최소 1) |
@@ -194,9 +236,8 @@ Note (Spec update):
 | 필드 | 타입 | 필수 | 설명 |
 |------|------|------|------|
 | `queryParams` | array | ❌ | URL 쿼리 파라미터 리스트 |
-| `formats.method` | string | ✅ | HTTP 메서드 |
-| `formats.contentType` | string | ✅ | Content-Type |
-| `formats.requestTemplate` | string | ✅ | 요청 본문 템플릿 |
+| `method` | string | ✅ | HTTP 메서드 |
+| `formats.requestTemplate` | string | ❌ | 요청 본문 템플릿 (GET/HEAD는 선택) |
 | `formats.responseProcessing` | object | ❌ | 응답 처리 로직 |
 | `formats.responseMappings` | array | ✅ | 응답 매핑 규칙 |
 
@@ -212,9 +253,8 @@ Note (Spec update):
 
 ### Content-Type
 
-- `application/json`: JSON 형식
-- `text/plain`: 일반 텍스트
-- `application/x-www-form-urlencoded`: 폼 데이터
+Content-Type은 루트 `headers`에서 정의합니다. 기본값은 `application/json`입니다.
+`application/x-www-form-urlencoded`인 경우 body는 폼 데이터로 전송됩니다.
 
 ## 변수 치환
 
@@ -248,24 +288,26 @@ JSONPath를 사용하여 API 응답의 특정 값을 메모리나 지시사항�
 
 ### 매핑 타입
 
-- **`memory`**: 응답 값을 메모리에 저장
-- **`directive`**: 응답 값을 지시사항으로 사용
+- **`MEMORY`**: 응답 값을 메모리에 저장
+- **`DIRECTIVE`**: 응답 값을 지시사항으로 사용
 
 ### JSONPath 예시
 
 ```json
 "responseMappings": [
   {
-    "type": "memory",
-    "map": {
+    "expressionType": "JSON_PATH",
+    "targetType": "MEMORY",
+    "mappings": {
       "USER_NAME": "$.user.name",
       "USER_EMAIL": "$.user.email",
       "SEARCH_RESULTS": "$.results"
     }
   },
   {
-    "type": "directive",
-    "map": {
+    "expressionType": "JSON_PATH",
+    "targetType": "DIRECTIVE",
+    "mappings": {
       "NEXT_ACTION": "$.nextAction",
       "INTENT": "$.intent.value"
     }
