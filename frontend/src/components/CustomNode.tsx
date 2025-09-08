@@ -1,7 +1,7 @@
 import React, { memo } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
 import { Box, Typography, Chip } from '@mui/material';
-import { DialogState } from '../types/scenario';
+import { DialogState, Webhook } from '../types/scenario';
 
 interface CustomNodeData {
   label: string;
@@ -14,6 +14,7 @@ interface CustomNodeData {
     right?: React.Ref<HTMLDivElement>;
   };
   currentState?: string; // 추가: 현재 상태 이름
+  webhooks?: Webhook[]; // 전체 webhooks 목록 (type 판별용)
 }
 
 const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id }) => {
@@ -40,8 +41,20 @@ const CustomNode: React.FC<NodeProps<CustomNodeData>> = ({ data, selected, id })
     ? (((dialogState as any).entryAction!.webhookActions) as any[])
     : [];
   const allWebhookActions = [...entryWebhookActions, ...rootWebhookActions];
-  const apiActionsFromEntry = allWebhookActions.filter((a: any) => String((a?.type ?? 'WEBHOOK')).toUpperCase() === 'APICALL').length;
-  const webhookOnlyActions = allWebhookActions.filter((a: any) => String((a?.type ?? 'WEBHOOK')).toUpperCase() !== 'APICALL').length;
+
+  // Resolve action type by matching webhook name against scenario.webhooks
+  const getActionName = (a: any): string => {
+    if (typeof a?.name === 'string') return a.name;
+    if (Array.isArray(a?.name)) return a.name.join(', ');
+    return String(a?.name ?? '');
+  };
+  const resolveTypeByName = (name: string): 'APICALL' | 'WEBHOOK' => {
+    const hook = (data as any)?.webhooks?.find((w: any) => w?.name === name);
+    const t = String(hook?.type || 'WEBHOOK').toUpperCase();
+    return t === 'APICALL' ? 'APICALL' : 'WEBHOOK';
+  };
+  const apiActionsFromEntry = allWebhookActions.filter((a: any) => resolveTypeByName(getActionName(a)) === 'APICALL').length;
+  const webhookOnlyActions = allWebhookActions.filter((a: any) => resolveTypeByName(getActionName(a)) !== 'APICALL').length;
   const apicallCount = apicallHandlersCount + apiActionsFromEntry;
 
   // 더블클릭 핸들러

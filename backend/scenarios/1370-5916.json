@@ -368,7 +368,7 @@
               }
             ],
             "webhookActions": [
-              { "name": "(external_api)search", "type": "APICALL" }
+              { "name": "(external_api)search" }
             ]
           },
           "conditionHandlers": [

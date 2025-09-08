@@ -799,16 +799,37 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
   const writeWebhookActions = (actions: any[]) => {
     const next = { ...(editedState as any) };
     next.entryAction = next.entryAction && typeof next.entryAction === 'object' ? next.entryAction : { directives: [] };
-    next.entryAction.webhookActions = actions;
+    // Always store actions without type, only name
+    const sanitized = (actions || []).map((a: any) => {
+      let nm: string;
+      if (typeof a?.name === 'string') nm = a.name as string;
+      else if (Array.isArray(a?.name)) nm = (a.name as any[]).join(', ');
+      else nm = String(a?.name ?? '');
+      return { name: nm } as any;
+    });
+    next.entryAction.webhookActions = sanitized;
     // root-level webhookActions deprecated; do not mirror
     setEditedState(next);
+  };
+
+  // Webhook action name을 안전하게 가져오는 함수 (위치 이동: 상단에 배치하여 아래 로직들에서 사용)
+  const getWebhookActionName = (action: any): string => {
+    if (typeof action?.name === 'string') {
+      return action.name;
+    }
+    if (Array.isArray(action?.name)) {
+      return (action.name as any[]).join(', ');
+    }
+    if (typeof action?.name === 'object' && action?.name) {
+      try { return JSON.stringify(action.name); } catch { return String(action.name); }
+    }
+    return String(action?.name || '');
   };
 
   // Webhook 액션 관리 함수들 (WEBHOOK 전용)
   const addWebhookAction = () => {
     const newWebhookAction = {
       name: availableWebhooks.length > 0 ? availableWebhooks[0].name : "NEW_WEBHOOK",
-      type: 'WEBHOOK'
     } as any;
     const curr = readWebhookActions();
     writeWebhookActions([...(curr || []), newWebhookAction]);
@@ -816,49 +837,40 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
 
   const removeWebhookAction = (index: number) => {
     const all = readWebhookActions();
-    const nonApi = (all || []).filter((a: any) => String((a as any).type || 'WEBHOOK').toUpperCase() !== 'APICALL');
-    const apiOnly = (all || []).filter((a: any) => String((a as any).type || 'WEBHOOK').toUpperCase() === 'APICALL');
-    const updatedNonApi = (nonApi || []).filter((_: any, i: number) => i !== index);
+    const isWebhook = (a: any) => availableWebhooks.some(w => w.name === getWebhookActionName(a));
+    const isApi = (a: any) => availableApiCalls.some(ap => ap.name === getWebhookActionName(a));
+    const webhookOnly = (all || []).filter(isWebhook);
+    const apiOnly = (all || []).filter(isApi);
+    const updatedNonApi = (webhookOnly || []).filter((_: any, i: number) => i !== index);
     writeWebhookActions([...(updatedNonApi || []), ...(apiOnly || [])]);
   };
 
   const updateWebhookAction = (index: number, value: string) => {
     const curr = readWebhookActions();
-    // Only update among WEBHOOK-typed actions in display order
-    const nonApi = (curr || []).filter((a: any) => String((a as any).type || 'WEBHOOK').toUpperCase() !== 'APICALL');
-    const apiOnly = (curr || []).filter((a: any) => String((a as any).type || 'WEBHOOK').toUpperCase() === 'APICALL');
-    const updatedNonApi = nonApi.map((action: any, i: number) => (i === index ? { ...action, name: value, type: 'WEBHOOK' } : action));
+    const isWebhook = (a: any) => availableWebhooks.some(w => w.name === getWebhookActionName(a));
+    const isApi = (a: any) => availableApiCalls.some(ap => ap.name === getWebhookActionName(a));
+    const nonApi = (curr || []).filter(isWebhook);
+    const apiOnly = (curr || []).filter(isApi);
+    const updatedNonApi = nonApi.map((action: any, i: number) => (i === index ? { name: value } : { name: getWebhookActionName(action) }));
     writeWebhookActions([...(updatedNonApi || []), ...(apiOnly || [])]);
-  };
-
-  // Webhook action name을 안전하게 가져오는 함수 추가
-  const getWebhookActionName = (action: any): string => {
-    if (typeof action.name === 'string') {
-      return action.name;
-    }
-    // name이 문자열이 아닌 경우 (배열, 객체 등) 문자열로 변환
-    if (Array.isArray(action.name)) {
-      return action.name.join(', ');
-    }
-    if (typeof action.name === 'object') {
-      return JSON.stringify(action.name);
-    }
-    return String(action.name || '');
   };
 
   // API Call 액션 (APICALL 전용) 관리
   const readApiCallActions = (): any[] => {
     const all = readWebhookActions();
-    return (all || []).filter((a: any) => String((a as any).type || '').toUpperCase() === 'APICALL');
+    const names = new Set(availableApiCalls.map(a => a.name));
+    return (all || []).filter((a: any) => names.has(getWebhookActionName(a)));
   };
   const writeApiCallActions = (apiActions: any[]) => {
     const all = readWebhookActions();
-    const nonApi = (all || []).filter((a: any) => String((a as any).type || 'WEBHOOK').toUpperCase() !== 'APICALL');
-    writeWebhookActions([...(nonApi || []), ...(apiActions || [])]);
+    const namesWebhook = new Set(availableWebhooks.map(w => w.name));
+    const nonApi = (all || []).filter((a: any) => namesWebhook.has(getWebhookActionName(a)));
+    const sanitizedApi = (apiActions || []).map((a: any) => ({ name: getWebhookActionName(a) }));
+    writeWebhookActions([...(nonApi || []), ...(sanitizedApi || [])]);
   };
   const addApiCallAction = () => {
     const first = availableApiCalls?.[0];
-    const newAction = { name: first ? first.name : 'NEW_APICALL', type: 'APICALL' } as any;
+    const newAction = { name: first ? first.name : 'NEW_APICALL' } as any;
     const curr = readApiCallActions();
     writeApiCallActions([...(curr || []), newAction]);
   };
@@ -869,7 +881,7 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
   };
   const updateApiCallAction = (index: number, value: string) => {
     const curr = readApiCallActions();
-    const updated = (curr || []).map((action: any, i: number) => (i === index ? { ...action, name: value, type: 'APICALL' } : action));
+    const updated = (curr || []).map((action: any, i: number) => (i === index ? { name: value } : { name: getWebhookActionName(action) }));
     writeApiCallActions(updated);
   };
 
@@ -1909,7 +1921,8 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
               <Typography variant="h6">Webhook 액션 ({(() => {
                 const all = readWebhookActions();
-                return (all || []).filter((a: any) => String((a as any).type || 'WEBHOOK').toUpperCase() !== 'APICALL').length;
+                const names = new Set(availableWebhooks.map(w => w.name));
+                return (all || []).filter((a: any) => names.has(getWebhookActionName(a))).length;
               })()})</Typography>
             </AccordionSummary>
             <AccordionDetails>
@@ -1928,7 +1941,8 @@ const NodeEditModal: React.FC<NodeEditModalProps> = ({
                 
                 {(() => {
                   const all = readWebhookActions();
-                  const nonApi = (all || []).filter((a: any) => String((a as any).type || 'WEBHOOK').toUpperCase() !== 'APICALL');
+                  const names = new Set(availableWebhooks.map(w => w.name));
+                  const nonApi = (all || []).filter((a: any) => names.has(getWebhookActionName(a)));
                   return nonApi.map((action: any, index: number) => (
                   <Box key={index} sx={{ border: 1, borderColor: 'divider', p: 2, borderRadius: 1 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>

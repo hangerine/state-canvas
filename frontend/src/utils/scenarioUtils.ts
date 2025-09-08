@@ -625,8 +625,21 @@ export const cleanScenarioForSave = (scenario: Scenario): Scenario => {
       if (plan.scenarioTransitionNodes) {
         delete plan.scenarioTransitionNodes;
       }
+      // Ensure webhookActions are stored without type
+      if (Array.isArray(plan.dialogState)) {
+        plan.dialogState.forEach((state: any) => {
+          // root-level deprecated path
+          if (Array.isArray((state as any).webhookActions)) {
+            (state as any).webhookActions = (state as any).webhookActions.map((a: any) => ({ name: typeof a?.name === 'string' ? a.name : String(a?.name ?? '') }));
+          }
+          const ea = state?.entryAction;
+          if (ea && typeof ea === 'object' && Array.isArray(ea.webhookActions)) {
+            ea.webhookActions = ea.webhookActions.map((a: any) => ({ name: typeof a?.name === 'string' ? a.name : String(a?.name ?? '') }));
+          }
+        });
+      }
     });
   }
   
   return cleanedScenario;
-}; 
+};

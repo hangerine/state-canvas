@@ -1776,6 +1776,20 @@ function App() {
         s.webhooks = webhooks;
         delete s.apicalls;
       }
+      // Ensure entryAction.webhookActions are stored without type
+      try {
+        (s.plan || []).forEach((pl: any) => {
+          (pl.dialogState || []).forEach((st: any) => {
+            if (Array.isArray((st as any).webhookActions)) {
+              (st as any).webhookActions = (st as any).webhookActions.map((a: any) => ({ name: typeof a?.name === 'string' ? a.name : String(a?.name ?? '') }));
+            }
+            const ea = st?.entryAction;
+            if (ea && typeof ea === 'object' && Array.isArray(ea.webhookActions)) {
+              ea.webhookActions = ea.webhookActions.map((a: any) => ({ name: typeof a?.name === 'string' ? a.name : String(a?.name ?? '') }));
+            }
+          });
+        });
+      } catch {}
       return s;
     };
 

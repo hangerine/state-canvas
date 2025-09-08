@@ -1060,6 +1060,8 @@ const FlowCanvasContent: React.FC<FlowCanvasProps> = ({
       ...node.data,
       onEdit: handleNodeEdit,
       currentState,
+      // Provide webhooks for node chips to resolve action types by name
+      webhooks: scenario?.webhooks || [],
     },
     style: {
       ...node.style, // 노드의 기본 스타일 유지
